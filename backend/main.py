@@ -82,6 +82,14 @@ def health_check():
 @app.post("/api/auth/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 def register_user(request: Request, payload: schemas.UserCreate, db: Session = Depends(get_db)):
+    MAX_USERS = 5
+    current_user_count = db.query(models.User).count()
+    if current_user_count >= MAX_USERS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User registration limit reached ({MAX_USERS}/{MAX_USERS} users created). No more user accounts can be registered."
+        )
+
     existing = db.query(models.User).filter(
         (models.User.username == payload.username) | (models.User.email == payload.email)
     ).first()
@@ -120,6 +128,17 @@ def login(request: Request, payload: schemas.UserLogin, db: Session = Depends(ge
 @app.get("/api/auth/me", response_model=schemas.UserResponse)
 def get_current_user_profile(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
+
+
+@app.get("/api/auth/registration-status")
+def get_registration_status(db: Session = Depends(get_db)):
+    MAX_USERS = 5
+    count = db.query(models.User).count()
+    return {
+        "current_users": count,
+        "max_users": MAX_USERS,
+        "can_register": count < MAX_USERS
+    }
 
 
 # ==========================================

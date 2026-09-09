@@ -39,6 +39,11 @@ export default function App() {
   const [loginError, setLoginError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [registrationStatus, setRegistrationStatus] = useState({
+    current_users: 1,
+    max_users: 5,
+    can_register: true
+  });
 
   const [activeTab, setActiveTab] = useState("dashboard");
   const [campaigns, setCampaigns] = useState([]);
@@ -91,6 +96,19 @@ export default function App() {
     }
   };
 
+  const fetchRegistrationStatus = async () => {
+    try {
+      const res = await axios.get("/api/auth/registration-status");
+      setRegistrationStatus(res.data);
+    } catch (err) {
+      console.error("Failed to fetch registration status:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchRegistrationStatus();
+  }, [token]);
+
   const handleRegister = async (e) => {
     e.preventDefault();
     setLoginError("");
@@ -101,6 +119,7 @@ export default function App() {
       setLoginForm({ username: registerForm.username, password: "" });
       setRegisterForm({ username: "", email: "", password: "" });
       setAuthMode("login");
+      fetchRegistrationStatus();
     } catch (err) {
       setLoginError(err.response?.data?.detail || "Registration failed. Try again.");
     }
@@ -256,7 +275,7 @@ export default function App() {
           </div>
 
           {/* Mode Switcher Tabs */}
-          <div className="grid grid-cols-2 p-1 bg-gray-100 rounded-xl mb-5 text-xs font-bold">
+          <div className="grid grid-cols-2 p-1 bg-gray-100 rounded-xl mb-4 text-xs font-bold">
             <button
               type="button"
               onClick={() => {
@@ -279,13 +298,20 @@ export default function App() {
                 setLoginError("");
                 setAuthSuccess("");
               }}
-              className={`py-2 rounded-lg transition ${
+              className={`py-2 rounded-lg transition flex items-center justify-center gap-1.5 ${
                 authMode === "register"
                   ? "bg-white text-[#25D366] shadow-xs"
                   : "text-gray-500 hover:text-gray-900"
               }`}
             >
-              + Create User
+              <span>+ Create User</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                registrationStatus.can_register 
+                  ? "bg-emerald-100 text-emerald-800"
+                  : "bg-red-100 text-red-700"
+              }`}>
+                {registrationStatus.current_users}/{registrationStatus.max_users}
+              </span>
             </button>
           </div>
 
@@ -353,6 +379,23 @@ export default function App() {
                 Sign In Securely
               </button>
             </form>
+          ) : !registrationStatus.can_register ? (
+            <div className="py-6 px-4 bg-amber-50 border border-amber-200 rounded-xl text-center space-y-3">
+              <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto text-amber-600">
+                <Lock className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-gray-900 text-sm">User Limit Reached</h3>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                Maximum capacity of <strong>5 users</strong> has been reached. No further user accounts can be created.
+              </p>
+              <button
+                type="button"
+                onClick={() => setAuthMode("login")}
+                className="mt-2 text-xs font-bold text-[#F5A623] hover:underline"
+              >
+                ← Return to Sign In
+              </button>
+            </div>
           ) : (
             <form onSubmit={handleRegister} className="space-y-4">
               <div>
