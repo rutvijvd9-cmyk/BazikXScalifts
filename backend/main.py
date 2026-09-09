@@ -7,6 +7,8 @@ import hashlib
 from datetime import datetime
 from typing import List, Optional
 from dotenv import load_dotenv
+import httpx
+
 
 logger = logging.getLogger("main")
 from fastapi import FastAPI, Depends, HTTPException, Header, Request, status, UploadFile, File
