@@ -6,6 +6,10 @@ class ContactCreate(BaseModel):
     phone: str = Field(..., description="Customer phone in international format e.g. +919876543210")
     name: Optional[str] = Field(None, max_length=100)
     email: Optional[str] = Field(None, max_length=120)
+    city: Optional[str] = Field(None, max_length=100)
+    tags: Optional[str] = Field(None, max_length=255)
+    birth_day: Optional[int] = Field(None, ge=1, le=31)
+    birth_month: Optional[int] = Field(None, ge=1, le=12)
 
 
 class ContactResponse(BaseModel):
@@ -14,6 +18,33 @@ class ContactResponse(BaseModel):
     name: Optional[str]
     email: Optional[str]
     total_orders: int
+    city: Optional[str] = None
+    tags: Optional[str] = None
+    birth_day: Optional[int] = None
+    birth_month: Optional[int] = None
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+class DiscountCodeCreate(BaseModel):
+    code: str = Field(..., min_length=2, max_length=50)
+    discount_type: str = Field(default="PERCENT", description="PERCENT or FLAT")
+    discount_value: float = Field(..., gt=0)
+    min_order_value: Optional[float] = Field(default=0.0, ge=0)
+    max_uses: Optional[int] = Field(default=1000, ge=1)
+    is_active: Optional[bool] = True
+
+
+class DiscountCodeResponse(BaseModel):
+    id: int
+    code: str
+    discount_type: str
+    discount_value: float
+    min_order_value: float
+    max_uses: int
+    used_count: int
     is_active: bool
 
     class Config:
@@ -35,7 +66,8 @@ class CampaignCreate(BaseModel):
     title: str = Field(..., max_length=150)
     template_name: str = Field(..., max_length=100)
     language: Optional[str] = "en"
-    target_filter: Optional[str] = "ALL"  # ALL, INACTIVE_30_DAYS
+    target_filter: Optional[str] = "ALL"  # ALL, INACTIVE_30_DAYS, HIGH_VALUE
+    scheduled_for: Optional[str] = None  # ISO timestamp or datetime string
     custom_phones: Optional[List[str]] = None  # Optional list of explicit phone numbers
 
 
@@ -49,9 +81,19 @@ class CampaignResponse(BaseModel):
     total_recipients: int
     successful_sends: int
     failed_sends: int
+    scheduled_for: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class TemplateCreate(BaseModel):
+    template_name: str = Field(..., min_length=2, max_length=100)
+    category: str = Field(default="MARKETING")
+    language: str = Field(default="en")
+    body_text: str = Field(..., min_length=5)
+    header_text: Optional[str] = None
+    footer_text: Optional[str] = None
 
 
 class UserCreate(BaseModel):

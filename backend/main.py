@@ -1,12 +1,15 @@
 import os
+import io
+import csv
 import logging
 import hmac
 import hashlib
+from datetime import datetime
 from typing import List, Optional
 from dotenv import load_dotenv
 
 logger = logging.getLogger("main")
-from fastapi import FastAPI, Depends, HTTPException, Header, Request, status
+from fastapi import FastAPI, Depends, HTTPException, Header, Request, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -17,8 +20,9 @@ from database import engine, get_db, Base
 import models
 import schemas
 import auth
-from scheduler import start_scheduler, schedule_cart_recovery, execute_campaign_broadcast
-from whatsapp_service import send_whatsapp_template
+from scheduler import start_scheduler, schedule_cart_recovery, execute_campaign_broadcast, scheduler
+from whatsapp_service import send_whatsapp_template, create_meta_template
+from apscheduler.triggers.date import DateTrigger
 
 load_dotenv()
 
@@ -166,14 +170,36 @@ def create_or_get_contact(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    contact = db.query(models.Contact).filter(models.Contact.phone == payload.phone).first()
+    clean_phone = payload.phone.strip()
+    if not clean_phone.startswith("+"):
+        clean_phone = "+" + clean_phone
+
+    contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()
     if contact:
+        if payload.name:
+            contact.name = payload.name
+        if payload.email:
+            contact.email = payload.email
+        if payload.city:
+            contact.city = payload.city
+        if payload.tags:
+            contact.tags = payload.tags
+        if payload.birth_day:
+            contact.birth_day = payload.birth_day
+        if payload.birth_month:
+            contact.birth_month = payload.birth_month
+        db.commit()
+        db.refresh(contact)
         return contact
     
     new_contact = models.Contact(
-        phone=payload.phone,
+        phone=clean_phone,
         name=payload.name,
-        email=payload.email
+        email=payload.email,
+        city=payload.city,
+        tags=payload.tags,
+        birth_day=payload.birth_day,
+        birth_month=payload.birth_month
     )
     db.add(new_contact)
     db.commit()
@@ -183,12 +209,105 @@ def create_or_get_contact(
 
 @app.get("/api/contacts", response_model=List[schemas.ContactResponse])
 def list_contacts(
+    search: Optional[str] = None,
+    tag: Optional[str] = None,
     skip: int = 0,
-    limit: int = 50,
+    limit: int = 100,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    return db.query(models.Contact).offset(skip).limit(limit).all()
+    query = db.query(models.Contact)
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.filter(
+            (models.Contact.phone.ilike(search_pattern)) |
+            (models.Contact.name.ilike(search_pattern)) |
+            (models.Contact.email.ilike(search_pattern)) |
+            (models.Contact.city.ilike(search_pattern))
+        )
+    if tag:
+        query = query.filter(models.Contact.tags.ilike(f"%{tag}%"))
+
+    return query.order_by(models.Contact.id.desc()).offset(skip).limit(limit).all()
+
+
+@app.post("/api/contacts/import-csv")
+async def import_contacts_csv(
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Imports contacts from a CSV file. Expected columns (case-insensitive):
+    phone, name, email, city, tags, total_orders
+    """
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only .csv files are supported")
+
+    content = await file.read()
+    try:
+        decoded = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        decoded = content.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(decoded))
+    imported_count = 0
+    updated_count = 0
+
+    for row in reader:
+        # Normalize header keys to lowercase
+        norm_row = {k.strip().lower(): v.strip() for k, v in row.items() if k}
+        raw_phone = norm_row.get("phone") or norm_row.get("mobile") or norm_row.get("contact")
+        if not raw_phone:
+            continue
+
+        phone = raw_phone.strip()
+        if not phone.startswith("+"):
+            phone = "+" + phone
+
+        name = norm_row.get("name") or norm_row.get("full_name")
+        email = norm_row.get("email")
+        city = norm_row.get("city")
+        tags = norm_row.get("tags")
+        orders_str = norm_row.get("total_orders") or norm_row.get("orders") or "0"
+        try:
+            total_orders = int(orders_str)
+        except ValueError:
+            total_orders = 0
+
+        existing = db.query(models.Contact).filter(models.Contact.phone == phone).first()
+        if existing:
+            if name:
+                existing.name = name
+            if email:
+                existing.email = email
+            if city:
+                existing.city = city
+            if tags:
+                existing.tags = tags
+            if total_orders > 0:
+                existing.total_orders = total_orders
+            updated_count += 1
+        else:
+            contact = models.Contact(
+                phone=phone,
+                name=name,
+                email=email,
+                city=city,
+                tags=tags,
+                total_orders=total_orders
+            )
+            db.add(contact)
+            imported_count += 1
+
+    db.commit()
+    return {
+        "status": "success",
+        "imported": imported_count,
+        "updated": updated_count,
+        "message": f"Successfully processed CSV: {imported_count} new contacts added, {updated_count} existing updated."
+    }
+
 
 
 # --- Opt-Out / DND API ---
@@ -223,21 +342,45 @@ def create_and_trigger_campaign(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    scheduled_dt = None
+    if payload.scheduled_for:
+        try:
+            # Handle ISO string from datetime-local input
+            clean_str = payload.scheduled_for.replace("Z", "").replace("T", " ")
+            scheduled_dt = datetime.fromisoformat(clean_str)
+        except Exception:
+            scheduled_dt = None
+
     campaign = models.Campaign(
         title=payload.title,
         template_name=payload.template_name,
         language=payload.language or "en",
         target_filter=payload.target_filter or "ALL",
-        status="SCHEDULED"
+        status="SCHEDULED" if scheduled_dt and scheduled_dt > datetime.utcnow() else "IN_PROGRESS",
+        scheduled_for=scheduled_dt
     )
     db.add(campaign)
     db.commit()
     db.refresh(campaign)
 
-    # Trigger campaign broadcast immediately
-    execute_campaign_broadcast(campaign.id, recipient_phones=payload.custom_phones)
+    if scheduled_dt and scheduled_dt > datetime.utcnow():
+        # Schedule future execution
+        job_id = f"campaign_{campaign.id}"
+        scheduler.add_job(
+            func=execute_campaign_broadcast,
+            trigger=DateTrigger(run_date=scheduled_dt),
+            args=[campaign.id, payload.custom_phones],
+            id=job_id,
+            replace_existing=True
+        )
+        logger.info(f"📅 Campaign {campaign.id} scheduled to execute at {scheduled_dt}")
+    else:
+        # Trigger campaign broadcast immediately
+        execute_campaign_broadcast(campaign.id, recipient_phones=payload.custom_phones)
+
     db.refresh(campaign)
     return campaign
+
 
 
 @app.get("/api/campaigns", response_model=List[schemas.CampaignResponse])
@@ -310,6 +453,51 @@ def receive_order_completed_webhook(
     customer_phone: str,
     db: Session = Depends(get_db)
 ):
+    clean_phone = customer_phone.strip()
+    if not clean_phone.startswith("+"):
+        clean_phone = "+" + clean_phone
+
+    # 1. Update contact order statistics
+    contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()
+    if not contact:
+        contact = models.Contact(phone=clean_phone, total_orders=1, last_order_date=datetime.utcnow())
+        db.add(contact)
+    else:
+        contact.total_orders = (contact.total_orders or 0) + 1
+        contact.last_order_date = datetime.utcnow()
+
+    # 2. Check Order Milestone (e.g. 5th, 10th order VIP reward)
+    milestone_triggered = None
+    if contact.total_orders in [5, 10, 20]:
+        milestone = contact.total_orders
+        coupon = f"VIP{milestone}"
+        # Check if discount code exists, or auto-create it
+        disc = db.query(models.DiscountCode).filter(models.DiscountCode.code == coupon).first()
+        if not disc:
+            disc = models.DiscountCode(
+                code=coupon,
+                discount_type="PERCENT",
+                discount_value=15.0 if milestone >= 10 else 10.0,
+                max_uses=1000,
+                is_active=True
+            )
+            db.add(disc)
+
+        # Trigger milestone reward WhatsApp template
+        send_whatsapp_template(
+            recipient_phone=clean_phone,
+            template_name="milestone_reward_offer",
+            language="en",
+            parameters={
+                "name": contact.name or "Valued Customer",
+                "milestone": str(milestone),
+                "coupon": coupon
+            }
+        )
+        milestone_triggered = f"Milestone {milestone}th order reward dispatched with coupon {coupon}"
+        logger.info(f"🎉 [MILESTONE REWARD] Customer {clean_phone} reached order #{milestone}! Sent coupon {coupon}")
+
+    # 3. Mark cart as RECOVERED if associated with a pending cart event
     cart = db.query(models.CartEvent).filter(
         models.CartEvent.cart_token == cart_token,
         models.CartEvent.customer_phone == customer_phone
@@ -318,9 +506,21 @@ def receive_order_completed_webhook(
     if cart:
         cart.status = "RECOVERED"
         db.commit()
-        return {"status": "success", "message": f"Cart {cart_token} marked as RECOVERED. Recovery message cancelled."}
+        return {
+            "status": "success",
+            "message": f"Cart {cart_token} marked as RECOVERED. Recovery message cancelled.",
+            "milestone": milestone_triggered,
+            "total_orders": contact.total_orders
+        }
     
-    return {"status": "not_found", "message": "No pending cart event found for this token."}
+    db.commit()
+    return {
+        "status": "success",
+        "message": f"Order completion recorded. Total customer orders: {contact.total_orders}",
+        "milestone": milestone_triggered,
+        "total_orders": contact.total_orders
+    }
+
 
 # ==========================================
 # 📲 META WHATSAPP INBOUND WEBHOOK (DND / STOP)
@@ -595,6 +795,111 @@ def list_templates(
     if language and language != "ALL":
         query = query.filter(models.Template.language == language)
     return query.order_by(models.Template.template_name.asc()).all()
+
+
+@app.post("/api/templates", status_code=status.HTTP_201_CREATED)
+def create_template(
+    payload: schemas.TemplateCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Submits a new WhatsApp template to Meta Graph API and saves it in the database.
+    """
+    clean_name = payload.template_name.strip().lower().replace(" ", "_")
+    meta_result = create_meta_template(
+        template_name=clean_name,
+        category=payload.category,
+        language=payload.language,
+        body_text=payload.body_text,
+        header_text=payload.header_text,
+        footer_text=payload.footer_text
+    )
+
+    if "error" in meta_result and meta_result.get("status") == "FAILED":
+        raise HTTPException(status_code=400, detail=f"Meta submission error: {meta_result['error']}")
+
+    existing = db.query(models.Template).filter(
+        models.Template.template_name == clean_name,
+        models.Template.language == payload.language
+    ).first()
+
+    status_val = meta_result.get("status", "APPROVED")
+    if existing:
+        existing.category = payload.category
+        existing.body_text = payload.body_text
+        existing.header_text = payload.header_text
+        existing.footer_text = payload.footer_text
+        existing.status = status_val
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    new_tmpl = models.Template(
+        template_name=clean_name,
+        category=payload.category,
+        language=payload.language,
+        body_text=payload.body_text,
+        header_text=payload.header_text,
+        footer_text=payload.footer_text,
+        status=status_val
+    )
+    db.add(new_tmpl)
+    db.commit()
+    db.refresh(new_tmpl)
+    return new_tmpl
+
+
+# ==========================================
+# 🏷️ DISCOUNT CODES API
+# ==========================================
+
+@app.get("/api/discount-codes", response_model=List[schemas.DiscountCodeResponse])
+def list_discount_codes(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    return db.query(models.DiscountCode).order_by(models.DiscountCode.id.desc()).all()
+
+
+@app.post("/api/discount-codes", response_model=schemas.DiscountCodeResponse, status_code=status.HTTP_201_CREATED)
+def create_discount_code(
+    payload: schemas.DiscountCodeCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    clean_code = payload.code.strip().upper()
+    existing = db.query(models.DiscountCode).filter(models.DiscountCode.code == clean_code).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Discount code '{clean_code}' already exists.")
+
+    disc = models.DiscountCode(
+        code=clean_code,
+        discount_type=payload.discount_type,
+        discount_value=payload.discount_value,
+        min_order_value=payload.min_order_value or 0.0,
+        max_uses=payload.max_uses or 1000,
+        is_active=payload.is_active if payload.is_active is not None else True
+    )
+    db.add(disc)
+    db.commit()
+    db.refresh(disc)
+    return disc
+
+
+@app.delete("/api/discount-codes/{code_id}")
+def delete_discount_code(
+    code_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    disc = db.query(models.DiscountCode).filter(models.DiscountCode.id == code_id).first()
+    if not disc:
+        raise HTTPException(status_code=404, detail="Discount code not found")
+    db.delete(disc)
+    db.commit()
+    return {"status": "success", "message": f"Discount code {disc.code} deleted."}
+
 
 # ==========================================
 # ⚙️ AUTOMATION RULES & SETTINGS API

@@ -12,7 +12,26 @@ class Contact(Base):
     email = Column(String(120), nullable=True)
     total_orders = Column(Integer, default=0)
     last_order_date = Column(DateTime, nullable=True)
+    city = Column(String(100), nullable=True)
+    tags = Column(String(255), nullable=True)  # Comma-separated tags e.g. "VIP, wholesale, regular"
+    birth_day = Column(Integer, nullable=True)  # 1-31
+    birth_month = Column(Integer, nullable=True)  # 1-12
     is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class DiscountCode(Base):
+    __tablename__ = "discount_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(50), unique=True, index=True, nullable=False)
+    discount_type = Column(String(20), default="PERCENT")  # PERCENT or FLAT
+    discount_value = Column(Float, nullable=False)          # e.g. 15.0 (%) or 100.0 (₹)
+    min_order_value = Column(Float, default=0.0)
+    max_uses = Column(Integer, default=1000)
+    used_count = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

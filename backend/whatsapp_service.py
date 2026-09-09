@@ -139,3 +139,78 @@ def send_whatsapp_template(
         return {"status": "error", "message": str(e)}
     finally:
         db.close()
+
+
+def create_meta_template(
+    template_name: str,
+    category: str,
+    language: str,
+    body_text: str,
+    header_text: str = None,
+    footer_text: str = None
+) -> dict:
+    """
+    Submits a new WhatsApp message template to Meta Graph API.
+    If Meta API credentials are not set, records in local simulation mode.
+    """
+    waba_id = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "")
+    token = os.getenv("WHATSAPP_API_TOKEN", "")
+
+    if not waba_id or not token:
+        logger.info(f"📱 [SIMULATION MODE] Template '{template_name}' simulated in Meta API.")
+        return {
+            "status": "APPROVED",
+            "id": f"sim_tmpl_{int(datetime.utcnow().timestamp())}",
+            "info": "Meta credentials empty. Created locally."
+        }
+
+    url = f"https://graph.facebook.com/v20.0/{waba_id}/message_templates"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    components = [
+        {
+            "type": "BODY",
+            "text": body_text
+        }
+    ]
+
+    if header_text:
+        components.append({
+            "type": "HEADER",
+            "format": "TEXT",
+            "text": header_text
+        })
+
+    if footer_text:
+        components.append({
+            "type": "FOOTER",
+            "text": footer_text
+        })
+
+    payload = {
+        "name": template_name.lower().replace(" ", "_"),
+        "category": category.upper(),
+        "language": language,
+        "components": components
+    }
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            data = resp.json()
+            if resp.status_code in [200, 201]:
+                return {
+                    "status": data.get("status", "PENDING"),
+                    "id": data.get("id"),
+                    "category": data.get("category")
+                }
+            else:
+                error_msg = data.get("error", {}).get("message", "Meta template submission failed")
+                return {"error": error_msg, "status": "FAILED"}
+    except Exception as e:
+        logger.error(f"Error submitting template to Meta: {e}")
+        return {"error": str(e), "status": "FAILED"}
+

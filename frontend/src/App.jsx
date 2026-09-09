@@ -26,7 +26,11 @@ import {
   ShieldCheck,
   Tag,
   Eye,
-  EyeOff
+  EyeOff,
+  Ticket,
+  Upload,
+  Calendar,
+  Gift
 } from "lucide-react";
 import axios from "axios";
 
@@ -47,7 +51,7 @@ export default function App() {
 
   const getInitialTab = () => {
     const hash = window.location.hash.replace("#", "");
-    if (hash && ["dashboard", "automations", "campaigns", "templates", "contacts", "cart_recovery", "logs", "opt_out", "settings"].includes(hash)) {
+    if (hash && ["dashboard", "automations", "campaigns", "templates", "contacts", "discount_codes", "cart_recovery", "logs", "opt_out", "settings"].includes(hash)) {
       return hash;
     }
     return localStorage.getItem("activeTab") || "dashboard";
@@ -63,6 +67,7 @@ export default function App() {
   };
   const [campaigns, setCampaigns] = useState([]);
   const [contacts, setContacts] = useState([]);
+  const [discountCodes, setDiscountCodes] = useState([]);
   const [cartEvents, setCartEvents] = useState([]);
   const [messageLogs, setMessageLogs] = useState([]);
   const [optOuts, setOptOuts] = useState([]);
@@ -83,7 +88,34 @@ export default function App() {
     title: "",
     template_name: "festive_promo_offer",
     language: "en",
-    target_filter: "ALL"
+    target_filter: "ALL",
+    scheduled_for: ""
+  });
+
+  // CSV Import Modal State
+  const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+  const [csvFile, setCsvFile] = useState(null);
+  const [csvImporting, setCsvImporting] = useState(false);
+
+  // New Discount Code Modal State
+  const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
+  const [newDiscountCode, setNewDiscountCode] = useState({
+    code: "",
+    discount_type: "PERCENT",
+    discount_value: 10,
+    min_order_value: 0,
+    max_uses: 1000
+  });
+
+  // New Template Modal State
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [newTemplate, setNewTemplate] = useState({
+    template_name: "",
+    category: "MARKETING",
+    language: "en",
+    header_text: "",
+    body_text: "",
+    footer_text: "Manubhai Gathiyawala"
   });
 
   // New Rule Modal State
@@ -96,6 +128,7 @@ export default function App() {
     coupon_code: "SAVE10",
     dedup_days: 7
   });
+
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -154,7 +187,7 @@ export default function App() {
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes] = await Promise.all([
+      const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes, discRes] = await Promise.all([
         axios.get("/api/campaigns", { headers }),
         axios.get("/api/contacts", { headers }),
         axios.get("/api/cart-events", { headers }),
@@ -163,7 +196,8 @@ export default function App() {
         axios.get("/api/templates", { headers }),
         axios.get("/api/automation-rules", { headers }),
         axios.get("/api/settings", { headers }),
-        axios.get("/api/users", { headers })
+        axios.get("/api/users", { headers }),
+        axios.get("/api/discount-codes", { headers })
       ]);
       setCampaigns(campRes.data || []);
       setContacts(contRes.data || []);
@@ -174,6 +208,7 @@ export default function App() {
       setAutomationRules(rulesRes.data || []);
       setSystemSettings(setRes.data || {});
       setSystemUsers(usersRes.data || []);
+      setDiscountCodes(discRes.data || []);
     } catch (err) {
       console.error("Failed to fetch protected data:", err);
       if (err.response?.status === 401) {
@@ -181,6 +216,89 @@ export default function App() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleImportCsv = async (e) => {
+    e.preventDefault();
+    if (!csvFile) return;
+    setCsvImporting(true);
+    const formData = new FormData();
+    formData.append("file", csvFile);
+
+    try {
+      const res = await axios.post("/api/contacts/import-csv", formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data"
+        }
+      });
+      setActionSuccessMsg(`✅ ${res.data.message}`);
+      setIsCsvModalOpen(false);
+      setCsvFile(null);
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 6000);
+    } catch (err) {
+      alert("Failed to import CSV: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setCsvImporting(false);
+    }
+  };
+
+  const handleCreateDiscountCode = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post("/api/discount-codes", newDiscountCode, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setActionSuccessMsg(`✅ Discount Code '${newDiscountCode.code}' created successfully!`);
+      setIsDiscountModalOpen(false);
+      setNewDiscountCode({
+        code: "",
+        discount_type: "PERCENT",
+        discount_value: 10,
+        min_order_value: 0,
+        max_uses: 1000
+      });
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert("Error creating discount code: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const handleDeleteDiscountCode = async (id, code) => {
+    if (!window.confirm(`Delete discount code ${code}?`)) return;
+    try {
+      await axios.delete(`/api/discount-codes/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchData();
+    } catch (err) {
+      alert("Failed to delete discount code");
+    }
+  };
+
+  const handleCreateTemplate = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await axios.post("/api/templates", newTemplate, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setActionSuccessMsg(`✅ Template '${res.data.template_name}' submitted and saved!`);
+      setIsTemplateModalOpen(false);
+      setNewTemplate({
+        template_name: "",
+        category: "MARKETING",
+        language: "en",
+        header_text: "",
+        body_text: "",
+        footer_text: "Manubhai Gathiyawala"
+      });
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 6000);
+    } catch (err) {
+      alert("Failed to submit template: " + (err.response?.data?.detail || err.message));
     }
   };
 
@@ -531,6 +649,7 @@ export default function App() {
               { id: "campaigns", label: "Campaigns", icon: Megaphone },
               { id: "templates", label: "Templates", icon: BookOpen, badge: templates.length },
               { id: "contacts", label: "Contacts", icon: Users },
+              { id: "discount_codes", label: "Discount Codes", icon: Ticket, badge: discountCodes.length },
               { id: "cart_recovery", label: "Cart Recovery", icon: ShoppingCart },
               { id: "logs", label: "Message Logs", icon: FileText },
               { id: "opt_out", label: "Opt-Out (DND)", icon: ShieldBan, badge: optOuts.length },
@@ -1004,6 +1123,13 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-3">
                   <button
+                    onClick={() => setIsTemplateModalOpen(true)}
+                    className="flex items-center gap-1.5 bg-[#F5A623] hover:bg-[#E67E22] text-black px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    + Create Template
+                  </button>
+                  <button
                     onClick={handleSyncMetaTemplates}
                     disabled={loading}
                     className="flex items-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition"
@@ -1146,20 +1272,29 @@ export default function App() {
           {/* ========================================================= */}
           {activeTab === "contacts" && (
             <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-wrap gap-3">
                 <div>
                   <h3 className="font-bold text-gray-900 text-base">Customer Contacts Directory</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">Registered accounts from Manubhai's custom PHP store</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Customer list with tags, order milestones, and CSV import</p>
                 </div>
-                <div className="relative w-64">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    placeholder="Search phone or name..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-3.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  />
+                <div className="flex items-center gap-3">
+                  <div className="relative w-64">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      placeholder="Search phone, name, city..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-9 pr-3.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setIsCsvModalOpen(true)}
+                    className="flex items-center gap-1.5 bg-[#111827] hover:bg-gray-800 text-[#F5A623] px-3.5 py-1.5 rounded-lg font-bold text-xs shadow-xs transition"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    Import CSV
+                  </button>
                 </div>
               </div>
               <div className="overflow-x-auto">
@@ -1168,9 +1303,9 @@ export default function App() {
                     <tr>
                       <th className="px-6 py-3">Customer Name</th>
                       <th className="px-6 py-3">Phone Number</th>
-                      <th className="px-6 py-3">Email Address</th>
+                      <th className="px-6 py-3">City / Tags</th>
                       <th className="px-6 py-3">Total Orders</th>
-                      <th className="px-6 py-3">Account Status</th>
+                      <th className="px-6 py-3">VIP Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -1178,24 +1313,142 @@ export default function App() {
                       .filter(
                         (c) =>
                           c.phone.includes(searchTerm) ||
-                          (c.name && c.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                          (c.name && c.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                          (c.city && c.city.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                          (c.tags && c.tags.toLowerCase().includes(searchTerm.toLowerCase()))
                       )
                       .map((c) => (
                         <tr key={c.id} className="hover:bg-gray-50/80 transition">
-                          <td className="px-6 py-4 font-semibold text-gray-900">{c.name || "Customer"}</td>
+                          <td className="px-6 py-4 font-semibold text-gray-900">
+                            {c.name || "Customer"}
+                            {c.email && <div className="text-xs text-gray-400 font-normal">{c.email}</div>}
+                          </td>
                           <td className="px-6 py-4 font-mono font-medium text-gray-900">{c.phone}</td>
-                          <td className="px-6 py-4 text-xs text-gray-500">{c.email || "—"}</td>
-                          <td className="px-6 py-4 font-bold text-gray-900">{c.total_orders}</td>
+                          <td className="px-6 py-4 text-xs text-gray-700">
+                            {c.city && <span className="font-semibold text-gray-900 block">{c.city}</span>}
+                            {c.tags ? (
+                              <span className="inline-block bg-amber-50 text-[#D35400] text-[10px] font-bold px-2 py-0.5 rounded mt-0.5 border border-amber-200">
+                                {c.tags}
+                              </span>
+                            ) : "—"}
+                          </td>
+                          <td className="px-6 py-4 font-bold text-gray-900">
+                            {c.total_orders}
+                            {c.total_orders >= 5 && (
+                              <span className="ml-2 text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-bold border border-purple-200">
+                                #{c.total_orders} Milestone
+                              </span>
+                            )}
+                          </td>
                           <td className="px-6 py-4">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                              Active
-                            </span>
+                            {c.total_orders >= 10 ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                ⭐ Super VIP
+                              </span>
+                            ) : c.total_orders >= 5 ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                🌟 VIP Buyer
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                Regular
+                              </span>
+                            )}
                           </td>
                         </tr>
                       ))}
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB: DISCOUNT CODES & COUPONS */}
+          {/* ========================================================= */}
+          {activeTab === "discount_codes" && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <h3 className="font-bold text-gray-900 text-base">Discount Codes & Coupons</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Coupons linked with WhatsApp abandoned cart recovery & VIP milestone rewards
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsDiscountModalOpen(true)}
+                  className="flex items-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  + Create Coupon Code
+                </button>
+              </div>
+
+              {discountCodes.length === 0 ? (
+                <div className="p-12 text-center">
+                  <div className="w-12 h-12 rounded-full bg-amber-50 text-[#F5A623] flex items-center justify-center mx-auto mb-3">
+                    <Ticket className="w-6 h-6" />
+                  </div>
+                  <h4 className="font-bold text-gray-900 text-sm">No Discount Codes Yet</h4>
+                  <p className="text-xs text-gray-500 max-w-sm mx-auto mt-1 mb-4">
+                    Create promo codes to reward loyal customers and recover abandoned shopping carts with special deals.
+                  </p>
+                  <button
+                    onClick={() => setIsDiscountModalOpen(true)}
+                    className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-xs"
+                  >
+                    + Create First Coupon
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-gray-600">
+                    <thead className="bg-gray-50 text-xs uppercase font-semibold text-gray-500 border-b border-gray-200">
+                      <tr>
+                        <th className="px-6 py-3">Coupon Code</th>
+                        <th className="px-6 py-3">Type & Value</th>
+                        <th className="px-6 py-3">Min Order</th>
+                        <th className="px-6 py-3">Redemptions</th>
+                        <th className="px-6 py-3">Status</th>
+                        <th className="px-6 py-3">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {discountCodes.map((d) => (
+                        <tr key={d.id} className="hover:bg-gray-50/80 transition">
+                          <td className="px-6 py-4 font-mono font-bold text-base text-gray-900 flex items-center gap-2">
+                            <span className="p-1 bg-amber-50 text-[#D35400] rounded border border-amber-200 text-xs">🏷️</span>
+                            {d.code}
+                          </td>
+                          <td className="px-6 py-4 font-bold text-gray-900">
+                            {d.discount_type === "PERCENT" ? `${d.discount_value}% OFF` : `₹${d.discount_value} FLAT OFF`}
+                          </td>
+                          <td className="px-6 py-4 text-xs font-semibold text-gray-600">
+                            {d.min_order_value > 0 ? `₹${d.min_order_value}` : "No Minimum"}
+                          </td>
+                          <td className="px-6 py-4 font-mono text-xs">
+                            <span className="font-bold text-gray-900">{d.used_count}</span> / {d.max_uses} max
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              Active
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <button
+                              onClick={() => handleDeleteDiscountCode(d.id, d.code)}
+                              className="text-gray-400 hover:text-red-600 transition"
+                              title="Delete coupon"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
@@ -1536,6 +1789,20 @@ export default function App() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-gray-500" />
+                  Schedule for Later (Optional)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={newCampaign.scheduled_for}
+                  onChange={(e) => setNewCampaign({ ...newCampaign, scheduled_for: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">Leave empty to send broadcast immediately</p>
+              </div>
+
               <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
                 <button
                   type="button"
@@ -1548,7 +1815,267 @@ export default function App() {
                   type="submit"
                   className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2 rounded-lg font-semibold text-sm shadow-md"
                 >
-                  <Send className="w-4 h-4" /> Trigger Broadcast
+                  <Send className="w-4 h-4" />
+                  {newCampaign.scheduled_for ? "Schedule Broadcast" : "Trigger Broadcast"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── CSV Import Modal ── */}
+      {isCsvModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <Upload className="w-5 h-5 text-[#25D366]" />
+                <h3 className="font-bold text-base text-gray-900">Bulk Import Contacts (CSV)</h3>
+              </div>
+              <button onClick={() => setIsCsvModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
+            </div>
+
+            <form onSubmit={handleImportCsv} className="mt-5 space-y-4">
+              <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-[#25D366] transition">
+                <input
+                  type="file"
+                  accept=".csv"
+                  required
+                  id="csvFileInput"
+                  onChange={(e) => setCsvFile(e.target.files[0])}
+                  className="hidden"
+                />
+                <label htmlFor="csvFileInput" className="cursor-pointer flex flex-col items-center">
+                  <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                  <span className="text-xs font-bold text-gray-700">
+                    {csvFile ? csvFile.name : "Click to select a CSV file"}
+                  </span>
+                  <span className="text-[11px] text-gray-400 mt-1">UTF-8 format recommended</span>
+                </label>
+              </div>
+
+              <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 text-xs text-gray-600 space-y-1">
+                <div className="font-bold text-gray-900">Expected CSV Columns:</div>
+                <code className="text-[11px] font-mono text-[#D35400] block">phone, name, email, city, tags, total_orders</code>
+                <div className="text-[11px] text-gray-400">Example phone: +919876543210</div>
+              </div>
+
+              <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsCsvModalOpen(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={csvImporting || !csvFile}
+                  className="bg-[#25D366] hover:bg-[#1EBE5D] disabled:opacity-50 text-white px-5 py-2 rounded-lg font-semibold text-sm shadow-md"
+                >
+                  {csvImporting ? "Importing..." : "Upload & Process"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create Discount Code Modal ── */}
+      {isDiscountModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <Ticket className="w-5 h-5 text-[#F5A623]" />
+                <h3 className="font-bold text-base text-gray-900">Create Discount Coupon</h3>
+              </div>
+              <button onClick={() => setIsDiscountModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
+            </div>
+
+            <form onSubmit={handleCreateDiscountCode} className="mt-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Coupon Code</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. GATHIYA15 or VIPREWARD"
+                  value={newDiscountCode.code}
+                  onChange={(e) => setNewDiscountCode({ ...newDiscountCode, code: e.target.value.toUpperCase() })}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm uppercase font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Discount Type</label>
+                  <select
+                    value={newDiscountCode.discount_type}
+                    onChange={(e) => setNewDiscountCode({ ...newDiscountCode, discount_type: e.target.value })}
+                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  >
+                    <option value="PERCENT">Percentage (%)</option>
+                    <option value="FLAT">Flat Amount (₹)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Value</label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    value={newDiscountCode.discount_value}
+                    onChange={(e) => setNewDiscountCode({ ...newDiscountCode, discount_value: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Min Order Value (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={newDiscountCode.min_order_value}
+                    onChange={(e) => setNewDiscountCode({ ...newDiscountCode, min_order_value: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Max Redemptions</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newDiscountCode.max_uses}
+                    onChange={(e) => setNewDiscountCode({ ...newDiscountCode, max_uses: parseInt(e.target.value) || 1000 })}
+                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsDiscountModalOpen(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2 rounded-lg font-semibold text-sm shadow-md"
+                >
+                  Save Coupon
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create Template Modal ── */}
+      {isTemplateModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div>
+                <h3 className="font-bold text-base text-gray-900">Create & Submit WhatsApp Template</h3>
+                <p className="text-xs text-gray-500">Submits to Meta Graph API & saves to your local catalog</p>
+              </div>
+              <button onClick={() => setIsTemplateModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
+            </div>
+
+            <form onSubmit={handleCreateTemplate} className="mt-4 space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Template Identifier (lowercase, underscores)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. holi_special_namkeen"
+                  value={newTemplate.template_name}
+                  onChange={(e) => setNewTemplate({ ...newTemplate, template_name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_") })}
+                  className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Category</label>
+                  <select
+                    value={newTemplate.category}
+                    onChange={(e) => setNewTemplate({ ...newTemplate, category: e.target.value })}
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  >
+                    <option value="MARKETING">MARKETING</option>
+                    <option value="UTILITY">UTILITY</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Language</label>
+                  <select
+                    value={newTemplate.language}
+                    onChange={(e) => setNewTemplate({ ...newTemplate, language: e.target.value })}
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  >
+                    <option value="en">English (en)</option>
+                    <option value="gu">ગુજરાતી (gu)</option>
+                    <option value="hi">हिंदी (hi)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Header Title (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Manubhai Gathiyawala"
+                  value={newTemplate.header_text}
+                  onChange={(e) => setNewTemplate({ ...newTemplate, header_text: e.target.value })}
+                  className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Message Body</label>
+                <textarea
+                  rows={4}
+                  required
+                  placeholder="Hello {{1}}, enjoy fresh vanela gathiya with {{2}}% discount! Reply STOP to opt out."
+                  value={newTemplate.body_text}
+                  onChange={(e) => setNewTemplate({ ...newTemplate, body_text: e.target.value })}
+                  className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366] leading-relaxed"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Footer Text</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Manubhai Gathiyawala • Ahmedabad"
+                  value={newTemplate.footer_text}
+                  onChange={(e) => setNewTemplate({ ...newTemplate, footer_text: e.target.value })}
+                  className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsTemplateModalOpen(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2 rounded-lg font-semibold text-sm shadow-md"
+                >
+                  Submit Template
                 </button>
               </div>
             </form>
@@ -1558,3 +2085,4 @@ export default function App() {
     </div>
   );
 }
+
