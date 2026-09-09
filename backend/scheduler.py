@@ -238,17 +238,37 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
         db.close()
 
 
+def run_all_active_automation_rules():
+    """
+    Automatic daily cron job: iterates through every active automation rule
+    (15-day inactive, 30-day winback, VIP repeat buyer, etc.) and executes them
+    with deduplication without requiring manual button clicks.
+    """
+    logger.info("⏰ [Daily Cron] Auto-executing all active automation rules...")
+    db = SessionLocal()
+    try:
+        rules = db.query(models.AutomationRule).filter(models.AutomationRule.is_active == True).all()
+        for rule in rules:
+            if rule.rule_type != "CART_RECOVERY":
+                dispatched = run_rule_execution(rule.id)
+                logger.info(f"⚡ [Daily Cron] Rule '{rule.rule_name}': {dispatched} sent.")
+    except Exception as e:
+        logger.error(f"Error in daily automation rules execution: {e}")
+    finally:
+        db.close()
+
+
 def start_scheduler():
     if not scheduler.running:
-        # Schedule daily 30-day re-engagement sweep at 10:00 AM IST
+        # 1. Automatic Daily Sweep at 10:00 AM IST for ALL active automation rules (15-day, 30-day, VIP, etc.)
         scheduler.add_job(
-            func=run_thirty_day_reengagement_sweep,
+            func=run_all_active_automation_rules,
             trigger=CronTrigger(hour=10, minute=0),
-            id="daily_reengagement_sweep",
+            id="daily_all_automations_sweep",
             replace_existing=True
         )
         scheduler.start()
-        logger.info("🚀 APScheduler started successfully.")
+        logger.info("🚀 APScheduler started successfully with automatic daily triggers for all active rules.")
 
 def run_rule_execution(rule_id: int) -> int:
     """
