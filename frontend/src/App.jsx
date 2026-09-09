@@ -495,7 +495,7 @@ export default function App() {
               { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
               { id: "automations", label: "Automations", icon: Sliders, badge: automationRules.length },
               { id: "campaigns", label: "Campaigns", icon: Megaphone },
-              { id: "templates", label: "Templates (30)", icon: BookOpen, badge: templates.length },
+              { id: "templates", label: "Templates", icon: BookOpen, badge: templates.length },
               { id: "contacts", label: "Contacts", icon: Users },
               { id: "cart_recovery", label: "Cart Recovery", icon: ShoppingCart },
               { id: "logs", label: "Message Logs", icon: FileText },
@@ -903,30 +903,41 @@ export default function App() {
             <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-wrap gap-4">
                 <div>
-                  <h3 className="font-bold text-gray-900 text-base">WhatsApp Approved Template Catalog (Doc 04)</h3>
+                  <h3 className="font-bold text-gray-900 text-base">WhatsApp Approved Template Catalog</h3>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    10 core templates across 3 languages = 30 official templates pre-seeded in database
+                    {templates.length > 0
+                      ? `${templates.length} official templates currently registered in database`
+                      : "No templates registered in database"}
                   </p>
                 </div>
                 {/* Language Filter */}
-                <div className="flex items-center gap-2">
-                  {["ALL", "en", "gu", "hi"].map((lang) => (
-                    <button
-                      key={lang}
-                      onClick={() => setTemplateFilterLang(lang)}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold uppercase transition ${
-                        templateFilterLang === lang
-                          ? "bg-[#111827] text-[#F5A623]"
-                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                      }`}
-                    >
-                      {lang === "ALL" ? "All (30)" : lang === "en" ? "English" : lang === "gu" ? "ગુજરાતી" : "हिंदी"}
-                    </button>
-                  ))}
-                </div>
+                {templates.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    {["ALL", "en", "gu", "hi"].map((lang) => (
+                      <button
+                        key={lang}
+                        onClick={() => setTemplateFilterLang(lang)}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold uppercase transition ${
+                          templateFilterLang === lang
+                            ? "bg-[#111827] text-[#F5A623]"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        }`}
+                      >
+                        {lang === "ALL" ? `All (${templates.length})` : lang === "en" ? "English" : lang === "gu" ? "ગુજરાતી" : "हिंदी"}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {templates.length === 0 ? (
+                <div className="py-16 text-center text-gray-400 space-y-2">
+                  <BookOpen className="w-10 h-10 mx-auto text-gray-300 stroke-1" />
+                  <p className="font-medium text-sm text-gray-600">No WhatsApp templates in database</p>
+                  <p className="text-xs text-gray-400">Templates catalog has been cleared.</p>
+                </div>
+              ) : (
+                <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {templates
                   .filter((t) => templateFilterLang === "ALL" || t.language === templateFilterLang)
                   .map((t) => (
