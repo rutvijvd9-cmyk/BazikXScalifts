@@ -172,6 +172,22 @@ export default function App() {
     }
   }, [token]);
 
+  const handleSyncMetaTemplates = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.post("/api/templates/sync-from-meta", {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setActionSuccessMsg(`✅ ${res.data.message}`);
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert("Failed to sync from Meta: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleToggleRule = async (rule) => {
     try {
       await axios.patch(
@@ -906,35 +922,60 @@ export default function App() {
                   <h3 className="font-bold text-gray-900 text-base">WhatsApp Approved Template Catalog</h3>
                   <p className="text-xs text-gray-500 mt-0.5">
                     {templates.length > 0
-                      ? `${templates.length} official templates currently registered in database`
+                      ? `${templates.length} official template(s) synced with Meta WhatsApp Business Manager`
                       : "No templates registered in database"}
                   </p>
                 </div>
-                {/* Language Filter */}
-                {templates.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    {["ALL", "en", "gu", "hi"].map((lang) => (
-                      <button
-                        key={lang}
-                        onClick={() => setTemplateFilterLang(lang)}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold uppercase transition ${
-                          templateFilterLang === lang
-                            ? "bg-[#111827] text-[#F5A623]"
-                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                        }`}
-                      >
-                        {lang === "ALL" ? `All (${templates.length})` : lang === "en" ? "English" : lang === "gu" ? "ગુજરાતી" : "हिंदी"}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleSyncMetaTemplates}
+                    disabled={loading}
+                    className="flex items-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                    Sync from Meta
+                  </button>
+
+                  {/* Language Filter */}
+                  {templates.length > 0 && (
+                    <div className="flex items-center gap-1.5 border-l border-gray-200 pl-3">
+                      {["ALL", "en", "en_US", "gu", "hi"].map((lang) => {
+                        const count = lang === "ALL" ? templates.length : templates.filter(t => t.language === lang).length;
+                        if (lang !== "ALL" && count === 0) return null;
+                        return (
+                          <button
+                            key={lang}
+                            onClick={() => setTemplateFilterLang(lang)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase transition ${
+                              templateFilterLang === lang
+                                ? "bg-[#111827] text-[#F5A623]"
+                                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                            }`}
+                          >
+                            {lang === "ALL" ? `All (${templates.length})` : lang}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {templates.length === 0 ? (
-                <div className="py-16 text-center text-gray-400 space-y-2">
+                <div className="py-16 text-center text-gray-400 space-y-3">
                   <BookOpen className="w-10 h-10 mx-auto text-gray-300 stroke-1" />
-                  <p className="font-medium text-sm text-gray-600">No WhatsApp templates in database</p>
-                  <p className="text-xs text-gray-400">Templates catalog has been cleared.</p>
+                  <p className="font-medium text-sm text-gray-600">No WhatsApp templates loaded yet</p>
+                  <p className="text-xs text-gray-400 max-w-sm mx-auto">
+                    Click the button below to fetch all approved templates directly from your WhatsApp Business Account.
+                  </p>
+                  <button
+                    onClick={handleSyncMetaTemplates}
+                    disabled={loading}
+                    className="mt-2 inline-flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md transition"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+                    Sync Templates from Meta Now
+                  </button>
                 </div>
               ) : (
                 <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">

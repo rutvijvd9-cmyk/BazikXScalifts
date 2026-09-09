@@ -471,15 +471,114 @@ def trigger_manual_reengagement_sweep(
     }
 
 
-# --- Templates List API ---
+# --- Templates List & Meta Live Sync API ---
+@app.post("/api/templates/sync-from-meta")
+def sync_templates_from_meta(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Connects to live Meta Graph API using your WABA_ID & ACCESS_TOKEN,
+    fetches all approved message templates, and syncs them into your database.
+    """
+    waba_id = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID")
+    access_token = os.getenv("WHATSAPP_API_TOKEN")
+
+    if not waba_id or not access_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Meta WABA ID or Access Token is missing from backend/.env"
+        )
+
+    try:
+        url = f"https://graph.facebook.com/v19.0/{waba_id}/message_templates?limit=100"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        resp = httpx.get(url, headers=headers, timeout=10.0)
+
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail=f"Meta API error: {resp.text}"
+            )
+
+        data = resp.json().get("data", [])
+        synced_count = 0
+
+        for item in data:
+            name = item.get("name")
+            category = item.get("category", "MARKETING")
+            language = item.get("language", "en")
+            tmpl_status = item.get("status", "APPROVED")
+
+            # Extract header, body, footer from components
+            header_text = ""
+            body_text = ""
+            footer_text = ""
+            for comp in item.get("components", []):
+                ctype = comp.get("type")
+                if ctype == "HEADER":
+                    header_text = comp.get("text", "")
+                elif ctype == "BODY":
+                    body_text = comp.get("text", "")
+                elif ctype == "FOOTER":
+                    footer_text = comp.get("text", "")
+
+            # Check existing
+            existing = db.query(models.Template).filter(
+                models.Template.template_name == name,
+                models.Template.language == language
+            ).first()
+
+            if existing:
+                existing.header_text = header_text
+                existing.body_text = body_text
+                existing.footer_text = footer_text
+                existing.category = category
+                existing.status = tmpl_status
+            else:
+                new_tmpl = models.Template(
+                    template_name=name,
+                    category=category,
+                    language=language,
+                    header_text=header_text,
+                    body_text=body_text,
+                    footer_text=footer_text,
+                    status=tmpl_status
+                )
+                db.add(new_tmpl)
+            synced_count += 1
+
+        db.commit()
+        return {
+            "status": "success",
+            "message": f"Successfully synced {synced_count} templates from Meta WhatsApp Business Manager.",
+            "synced_count": synced_count
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error syncing templates from Meta: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/templates")
 def list_templates(
     language: Optional[str] = None,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    # If database is currently empty but credentials exist, attempt initial auto-sync
+    if db.query(models.Template).count() == 0:
+        waba_id = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID")
+        access_token = os.getenv("WHATSAPP_API_TOKEN")
+        if waba_id and access_token:
+            try:
+                sync_templates_from_meta(current_user=current_user, db=db)
+            except Exception as e:
+                logger.warning(f"Auto-sync on empty templates failed: {e}")
+
     query = db.query(models.Template)
-    if language:
+    if language and language != "ALL":
         query = query.filter(models.Template.language == language)
     return query.order_by(models.Template.template_name.asc()).all()
 
