@@ -141,6 +141,17 @@ def get_registration_status(db: Session = Depends(get_db)):
     }
 
 
+@app.get("/api/users", response_model=List[schemas.UserResponse])
+def list_system_users(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns all registered team users (up to 5 maximum).
+    """
+    return db.query(models.User).order_by(models.User.id.asc()).all()
+
+
 # ==========================================
 # 🔒 PROTECTED CRM ENDPOINTS (Require JWT)
 # ==========================================

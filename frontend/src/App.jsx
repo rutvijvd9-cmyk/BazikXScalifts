@@ -54,6 +54,7 @@ export default function App() {
   const [templates, setTemplates] = useState([]);
   const [automationRules, setAutomationRules] = useState([]);
   const [systemSettings, setSystemSettings] = useState({});
+  const [systemUsers, setSystemUsers] = useState([]);
   const [templateFilterLang, setTemplateFilterLang] = useState("ALL");
   const [loading, setLoading] = useState(false);
   const [actionSuccessMsg, setActionSuccessMsg] = useState("");
@@ -138,7 +139,7 @@ export default function App() {
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes] = await Promise.all([
+      const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes] = await Promise.all([
         axios.get("/api/campaigns", { headers }),
         axios.get("/api/contacts", { headers }),
         axios.get("/api/cart-events", { headers }),
@@ -146,7 +147,8 @@ export default function App() {
         axios.get("/api/opt-outs", { headers }),
         axios.get("/api/templates", { headers }),
         axios.get("/api/automation-rules", { headers }),
-        axios.get("/api/settings", { headers })
+        axios.get("/api/settings", { headers }),
+        axios.get("/api/users", { headers })
       ]);
       setCampaigns(campRes.data || []);
       setContacts(contRes.data || []);
@@ -156,6 +158,7 @@ export default function App() {
       setTemplates(tmplRes.data || []);
       setAutomationRules(rulesRes.data || []);
       setSystemSettings(setRes.data || {});
+      setSystemUsers(usersRes.data || []);
     } catch (err) {
       console.error("Failed to fetch protected data:", err);
       if (err.response?.status === 401) {
@@ -501,7 +504,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="font-bold text-white text-base leading-tight">Manubhai</h1>
-              <span className="text-xs text-[#F5A623] font-medium tracking-wide">Gathiyawala • CRM</span>
+              <span className="text-xs text-[#F5A623] font-medium tracking-wide">Gathiyawala/Scalifts</span>
             </div>
           </div>
 
@@ -907,6 +910,67 @@ export default function App() {
                       ))}
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* Team & User Accounts Card */}
+              <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-6">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center text-[#F5A623]">
+                      <Users className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-gray-900 text-base">Authorized Team Accounts</h3>
+                      <p className="text-xs text-gray-500">Registered users who have access to this WhatsApp CRM</p>
+                    </div>
+                  </div>
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
+                    systemUsers.length >= 5 ? "bg-red-50 text-red-700 border border-red-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                  }`}>
+                    {systemUsers.length} / 5 Users Registered
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-gray-600">
+                    <thead className="bg-gray-50 text-xs uppercase font-semibold text-gray-500 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-3">ID</th>
+                        <th className="px-4 py-3">Username</th>
+                        <th className="px-4 py-3">Email Address</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Access Level</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {systemUsers.map((u) => (
+                        <tr key={u.id} className="hover:bg-gray-50/80 transition">
+                          <td className="px-4 py-3.5 font-mono text-xs text-gray-400">#{u.id}</td>
+                          <td className="px-4 py-3.5 font-bold text-gray-900 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-[#25D366]"></span>
+                            {u.username}
+                            {u.username === username && (
+                              <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded font-mono font-normal">You</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5 text-xs text-gray-600 font-mono">{u.email}</td>
+                          <td className="px-4 py-3.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-[#10B981] border border-emerald-200">
+                              Active
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5 font-semibold text-xs text-gray-700">
+                            {u.username === "admin" ? (
+                              <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-bold">Admin</span>
+                            ) : (
+                              <span className="bg-blue-50 text-blue-800 px-2 py-0.5 rounded font-medium">Team Member</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
