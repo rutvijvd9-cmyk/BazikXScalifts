@@ -45,7 +45,22 @@ export default function App() {
     can_register: true
   });
 
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const getInitialTab = () => {
+    const hash = window.location.hash.replace("#", "");
+    if (hash && ["dashboard", "automations", "campaigns", "templates", "contacts", "cart_recovery", "logs", "opt_out", "settings"].includes(hash)) {
+      return hash;
+    }
+    return localStorage.getItem("activeTab") || "dashboard";
+  };
+
+  const [activeTab, setActiveTab] = useState(getInitialTab);
+
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    setSearchTerm("");
+    localStorage.setItem("activeTab", tabId);
+    window.location.hash = tabId;
+  };
   const [campaigns, setCampaigns] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [cartEvents, setCartEvents] = useState([]);
@@ -526,10 +541,7 @@ export default function App() {
               return (
                 <button
                   key={item.id}
-                  onClick={() => {
-                    setActiveTab(item.id);
-                    setSearchTerm("");
-                  }}
+                  onClick={() => handleTabChange(item.id)}
                   className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
                     isActive
                       ? "bg-[#1F2937] text-[#F5A623] border-l-4 border-[#F5A623]"
@@ -697,7 +709,7 @@ export default function App() {
                     <p className="text-xs text-gray-500 mt-0.5">Automated customer recovery & engagement triggers</p>
                   </div>
                   <button
-                    onClick={() => setActiveTab("automations")}
+                    onClick={() => handleTabChange("automations")}
                     className="text-xs font-bold text-[#F5A623] hover:underline"
                   >
                     View All Rules ({automationRules.length}) →
