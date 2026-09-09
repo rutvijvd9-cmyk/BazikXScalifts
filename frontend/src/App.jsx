@@ -1843,7 +1843,16 @@ export default function App() {
                   accept=".csv"
                   required
                   id="csvFileInput"
-                  onChange={(e) => setCsvFile(e.target.files[0])}
+                  onChange={(e) => {
+                    const selected = e.target.files[0];
+                    if (selected && selected.size > 5 * 1024 * 1024) {
+                      alert(`File is too large (${(selected.size / (1024 * 1024)).toFixed(2)}MB). Max upload limit is 5MB.`);
+                      e.target.value = null;
+                      setCsvFile(null);
+                      return;
+                    }
+                    setCsvFile(selected);
+                  }}
                   className="hidden"
                 />
                 <label htmlFor="csvFileInput" className="cursor-pointer flex flex-col items-center">
@@ -1851,12 +1860,15 @@ export default function App() {
                   <span className="text-xs font-bold text-gray-700">
                     {csvFile ? csvFile.name : "Click to select a CSV file"}
                   </span>
-                  <span className="text-[11px] text-gray-400 mt-1">UTF-8 format recommended</span>
+                  <span className="text-[11px] text-gray-400 mt-1">Max 5MB • UTF-8 format recommended</span>
                 </label>
               </div>
 
               <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 text-xs text-gray-600 space-y-1">
-                <div className="font-bold text-gray-900">Expected CSV Columns:</div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-gray-900">Expected CSV Columns:</span>
+                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded border border-emerald-200">Max 5MB</span>
+                </div>
                 <code className="text-[11px] font-mono text-[#D35400] block">phone, name, email, city, tags, total_orders</code>
                 <div className="text-[11px] text-gray-400">Example phone: +919876543210</div>
               </div>

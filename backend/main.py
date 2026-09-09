@@ -246,7 +246,14 @@ async def import_contacts_csv(
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only .csv files are supported")
 
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 Megabytes
     content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File size exceeds 5MB limit (File size: {len(content) / (1024 * 1024):.2f}MB). Please upload a smaller file."
+        )
+
     try:
         decoded = content.decode("utf-8-sig")
     except UnicodeDecodeError:
