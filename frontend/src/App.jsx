@@ -30,7 +30,12 @@ import {
   Ticket,
   Upload,
   Calendar,
-  Gift
+  Gift,
+  ChevronRight,
+  Clock,
+  Star,
+  Package,
+  CloudRain
 } from "lucide-react";
 import axios from "axios";
 
@@ -128,6 +133,13 @@ export default function App() {
     coupon_code: "SAVE10",
     dedup_days: 7
   });
+
+  // Configure & Test Simulator Modal State
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [selectedRuleForConfig, setSelectedRuleForConfig] = useState(null);
+  const [testPhone, setTestPhone] = useState("+919876543210");
+  const [testCartValue, setTestCartValue] = useState(450);
+  const [simulatingAction, setSimulatingAction] = useState(false);
 
 
   const handleLogin = async (e) => {
@@ -374,6 +386,73 @@ export default function App() {
       fetchData();
     } catch (err) {
       alert("Failed to create rule");
+    }
+  };
+
+  const handleSaveConfigRule = async (e) => {
+    e.preventDefault();
+    if (!selectedRuleForConfig) return;
+    try {
+      await axios.patch(
+        `/api/automation-rules/${selectedRuleForConfig.id}`,
+        {
+          threshold_value: selectedRuleForConfig.threshold_value,
+          coupon_code: selectedRuleForConfig.coupon_code,
+          dedup_days: selectedRuleForConfig.dedup_days
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setActionSuccessMsg(`✅ Automation '${selectedRuleForConfig.rule_name}' updated successfully!`);
+      setIsConfigModalOpen(false);
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert("Failed to save rule settings: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const handleSimulateCartAbandonment = async () => {
+    setSimulatingAction(true);
+    try {
+      const mockToken = `cart_test_${Date.now()}`;
+      const res = await axios.post("/api/webhooks/cart-event", {
+        customer_phone: testPhone,
+        cart_token: mockToken,
+        cart_value: parseFloat(testCartValue) || 450,
+        items: [
+          { item: "Special Vanela Gathiya 500g", price: 200, qty: 1 },
+          { item: "Spicy Bhavnagari Gathiya 250g", price: 110, qty: 1 },
+          { item: "Papdi Gathiya with Kadhi 500g", price: 140, qty: 1 }
+        ]
+      }, {
+        params: { delay_seconds: 10 } // 10 second delay for rapid testing!
+      });
+      setActionSuccessMsg(`🛒 Test Cart Abandonment simulated! Cart #${mockToken.slice(-6)} recorded. WhatsApp recovery scheduled in 10s.`);
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 6000);
+    } catch (err) {
+      alert("Cart simulation error: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setSimulatingAction(false);
+    }
+  };
+
+  const handleSimulateOrderCompleted = async (cartToken) => {
+    setSimulatingAction(true);
+    try {
+      const res = await axios.post("/api/webhooks/order-completed", null, {
+        params: {
+          cart_token: cartToken || `cart_test_${Date.now()}`,
+          customer_phone: testPhone
+        }
+      });
+      setActionSuccessMsg(`🎉 Order completed recorded! Cart marked as RECOVERED & scheduled message cancelled.`);
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 6000);
+    } catch (err) {
+      alert("Order completed error: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setSimulatingAction(false);
     }
   };
 
@@ -906,79 +985,198 @@ export default function App() {
           {/* ========================================================= */}
           {activeTab === "automations" && (
             <div className="space-y-6">
-              <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              {/* Top 4 KPI Metrics */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
                   <div>
-                    <h3 className="font-bold text-gray-900 text-base">Configurable Automation Engine</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Configure custom triggers for 15-day reminders, repeat buyers (&gt;= 2 orders), cart recovery, and inactive winbacks
-                    </p>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Active automations</p>
+                    <h3 className="text-2xl font-black text-gray-900 mt-1">
+                      {automationRules.filter((r) => r.is_active).length} <span className="text-sm font-semibold text-gray-400">/ {automationRules.length}</span>
+                    </h3>
                   </div>
-                  <button
-                    onClick={() => setIsRuleModalOpen(true)}
-                    className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#E67E22] text-black px-3.5 py-1.5 rounded-lg font-bold text-xs shadow-sm transition"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    New Rule
-                  </button>
+                  <div className="w-11 h-11 rounded-xl bg-emerald-50 text-[#10B981] flex items-center justify-center">
+                    <Sliders className="w-5 h-5" />
+                  </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600">
-                    <thead className="bg-gray-50 text-xs uppercase font-semibold text-gray-500 border-b border-gray-200">
-                      <tr>
-                        <th className="px-6 py-3">Rule Name</th>
-                        <th className="px-6 py-3">Condition</th>
-                        <th className="px-6 py-3">Template Used</th>
-                        <th className="px-6 py-3">Coupon Code</th>
-                        <th className="px-6 py-3">Dedup Window</th>
-                        <th className="px-6 py-3">Total Dispatched</th>
-                        <th className="px-6 py-3">Status</th>
-                        <th className="px-6 py-3">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {automationRules.map((r) => (
-                        <tr key={r.id} className="hover:bg-gray-50/80 transition">
-                          <td className="px-6 py-4 font-semibold text-gray-900">{r.rule_name}</td>
-                          <td className="px-6 py-4 font-mono text-xs text-blue-700 bg-blue-50/50 rounded px-2 py-1 inline-block my-2">
-                            {r.trigger_condition}
-                          </td>
-                          <td className="px-6 py-4 font-mono text-xs">{r.template_name}</td>
-                          <td className="px-6 py-4">
-                            <span className="inline-flex items-center gap-1 font-mono font-bold text-xs text-gray-800 bg-amber-50 px-2.5 py-0.5 rounded border border-amber-200">
-                              <Tag className="w-3 h-3 text-[#F5A623]" />
-                              {r.coupon_code || "None"}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-xs font-semibold text-gray-500">{r.dedup_days} Days</td>
-                          <td className="px-6 py-4 font-bold text-gray-900">{r.total_triggered}</td>
-                          <td className="px-6 py-4">
-                            <button
-                              onClick={() => handleToggleRule(r)}
-                              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition ${
-                                r.is_active
-                                  ? "bg-green-50 text-[#10B981] border border-green-200"
-                                  : "bg-gray-100 text-gray-400 border border-gray-200"
-                              }`}
-                            >
-                              {r.is_active ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
-                              {r.is_active ? "Active" : "Paused"}
-                            </button>
-                          </td>
-                          <td className="px-6 py-4">
-                            <button
-                              onClick={() => handleTriggerRule(r)}
-                              className="text-xs font-bold bg-[#111827] text-white hover:bg-black px-3 py-1.5 rounded-lg flex items-center gap-1 transition"
-                            >
-                              <PlayCircle className="w-3.5 h-3.5 text-[#F5A623]" /> Execute
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Messages sent today</p>
+                    <h3 className="text-2xl font-black text-gray-900 mt-1">
+                      {messageLogs.filter((m) => {
+                        const today = new Date().toISOString().split("T")[0];
+                        return m.created_at && m.created_at.startsWith(today);
+                      }).length}
+                    </h3>
+                  </div>
+                  <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Send className="w-5 h-5" />
+                  </div>
                 </div>
+
+                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Carts recovered (30d)</p>
+                    <h3 className="text-2xl font-black text-gray-900 mt-1">
+                      ₹{cartEvents.filter((c) => c.status === "RECOVERED").reduce((sum, c) => sum + (c.cart_value || 0), 0).toLocaleString()}
+                    </h3>
+                  </div>
+                  <div className="w-11 h-11 rounded-xl bg-amber-50 text-[#D35400] flex items-center justify-center">
+                    <ShoppingCart className="w-5 h-5" />
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Opted out this month</p>
+                    <h3 className="text-2xl font-black text-gray-900 mt-1">{optOuts.length}</h3>
+                  </div>
+                  <div className="w-11 h-11 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                    <ShieldBan className="w-5 h-5" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Subheader & Actions */}
+              <div className="flex items-center justify-between flex-wrap gap-4 pt-2">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">E-Commerce Lifecycle Automations</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Trigger-based smart WhatsApp messages driven by customer cart events, purchase history, and store activity
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      const cartRule = automationRules.find((r) => r.rule_type === "CART_RECOVERY") || automationRules[0];
+                      setSelectedRuleForConfig(cartRule);
+                      setIsConfigModalOpen(true);
+                    }}
+                    className="flex items-center gap-2 bg-[#111827] hover:bg-black text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition"
+                  >
+                    <PlayCircle className="w-4 h-4 text-[#F5A623]" />
+                    Test & Simulate Cart Flow
+                  </button>
+                  <button
+                    onClick={() => setIsRuleModalOpen(true)}
+                    className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#E67E22] text-black px-4 py-2 rounded-xl font-bold text-xs shadow-xs transition"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Create Custom Rule
+                  </button>
+                </div>
+              </div>
+
+              {/* 8 Modern Visual Automation Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {automationRules.map((rule) => {
+                  const isCart = rule.rule_type === "CART_RECOVERY";
+                  const isInactive = rule.rule_type === "INACTIVE_DAYS";
+                  const isBirthday = rule.rule_type === "BIRTHDAY";
+                  const isVIP = rule.rule_type === "ORDER_COUNT_VIP";
+                  const isReview = rule.rule_type === "POST_DELIVERY";
+                  const isBackInStock = rule.rule_type === "BACK_IN_STOCK";
+                  const isLowStock = rule.rule_type === "LOW_STOCK";
+                  const isWeather = rule.rule_type === "WEATHER_TRIGGER";
+
+                  return (
+                    <div
+                      key={rule.id}
+                      className="bg-white rounded-2xl border border-gray-200 shadow-xs hover:shadow-md transition p-6 flex flex-col justify-between relative overflow-hidden"
+                    >
+                      <div className="space-y-4">
+                        {/* Card Header: Icon + Title + Toggle */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3.5">
+                            <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${
+                              isCart ? "bg-amber-50 text-[#D35400]" :
+                              isInactive ? "bg-blue-50 text-blue-600" :
+                              isBirthday ? "bg-pink-50 text-pink-600" :
+                              isVIP ? "bg-purple-50 text-purple-600" :
+                              isReview ? "bg-emerald-50 text-emerald-600" :
+                              isBackInStock ? "bg-indigo-50 text-indigo-600" :
+                              isLowStock ? "bg-orange-50 text-orange-600" :
+                              "bg-cyan-50 text-cyan-600"
+                            }`}>
+                              {isCart ? <ShoppingCart className="w-5 h-5" /> :
+                               isInactive ? <Clock className="w-5 h-5" /> :
+                               isBirthday ? <Gift className="w-5 h-5" /> :
+                               isVIP ? <Star className="w-5 h-5" /> :
+                               isReview ? <Package className="w-5 h-5" /> :
+                               isBackInStock ? <CheckCircle2 className="w-5 h-5" /> :
+                               isLowStock ? <AlertTriangle className="w-5 h-5" /> :
+                               <CloudRain className="w-5 h-5" />}
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-gray-900 text-sm">{rule.rule_name}</h4>
+                              <p className="text-xs text-gray-500 mt-0.5">{rule.trigger_condition}</p>
+                            </div>
+                          </div>
+
+                          {/* Toggle Switch */}
+                          <button
+                            onClick={() => handleToggleRule(rule)}
+                            className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition flex-shrink-0 ${
+                              rule.is_active
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                : "bg-gray-100 text-gray-400 border border-gray-200"
+                            }`}
+                          >
+                            {rule.is_active ? <ToggleRight className="w-4 h-4 text-emerald-600" /> : <ToggleLeft className="w-4 h-4 text-gray-400" />}
+                            {rule.is_active ? "Active" : "Paused"}
+                          </button>
+                        </div>
+
+                        {/* Card Details: Template, Coupon, Stats */}
+                        <div className="bg-gray-50 rounded-xl p-3.5 space-y-2 text-xs">
+                          <div className="flex items-center justify-between text-gray-600">
+                            <span className="font-medium text-gray-500">Template Linked:</span>
+                            <span className="font-mono font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200">
+                              {rule.template_name}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-gray-600">
+                            <span className="font-medium text-gray-500">Coupon Attached:</span>
+                            <span className="font-mono font-bold text-[#D35400] bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                              {rule.coupon_code || "None"}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-gray-600">
+                            <span className="font-medium text-gray-500">Dedup Cooldown:</span>
+                            <span className="font-semibold text-gray-700">{rule.dedup_days} Days</span>
+                          </div>
+                          <div className="flex items-center justify-between text-gray-600 border-t border-gray-200/60 pt-2">
+                            <span className="font-medium text-gray-500">Total Dispatched:</span>
+                            <span className="font-bold text-gray-900">{rule.total_triggered} sent</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card Footer Actions */}
+                      <div className="pt-4 mt-4 border-t border-gray-100 flex items-center justify-between gap-3">
+                        <button
+                          onClick={() => {
+                            setSelectedRuleForConfig(rule);
+                            setIsConfigModalOpen(true);
+                          }}
+                          className="text-xs font-semibold text-gray-700 hover:text-black flex items-center gap-1.5 transition"
+                        >
+                          <Sliders className="w-3.5 h-3.5 text-gray-500" />
+                          Configure & Test
+                        </button>
+
+                        <button
+                          onClick={() => handleTriggerRule(rule)}
+                          disabled={!rule.is_active}
+                          className="flex items-center gap-1.5 bg-[#111827] hover:bg-black disabled:opacity-40 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-xs"
+                        >
+                          <PlayCircle className="w-3.5 h-3.5 text-[#F5A623]" />
+                          Execute Now
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -2091,6 +2289,186 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ── Configure & Test Simulator Modal ── */}
+      {isConfigModalOpen && selectedRuleForConfig && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-[#D35400] flex items-center justify-center">
+                  <Sliders className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-gray-900">Configure & Test: {selectedRuleForConfig.rule_name}</h3>
+                  <p className="text-xs text-gray-500">Tune trigger thresholds, coupons, and simulate live WhatsApp flow</p>
+                </div>
+              </div>
+              <button onClick={() => setIsConfigModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
+            </div>
+
+            {/* Configuration Form */}
+            <form onSubmit={handleSaveConfigRule} className="mt-4 space-y-4">
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3">
+                <h4 className="text-xs font-bold uppercase text-gray-700 tracking-wider">1. Automation Rule Settings</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">
+                      {selectedRuleForConfig.rule_type === "CART_RECOVERY" ? "Cart Delay (Minutes)" :
+                       selectedRuleForConfig.rule_type === "INACTIVE_DAYS" ? "Inactive Days Threshold" :
+                       selectedRuleForConfig.rule_type === "ORDER_COUNT_VIP" ? "Order Milestone Count" :
+                       "Threshold Value"}
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={selectedRuleForConfig.threshold_value}
+                      onChange={(e) => setSelectedRuleForConfig({
+                        ...selectedRuleForConfig,
+                        threshold_value: parseInt(e.target.value) || 1
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Discount Coupon Code</label>
+                    <input
+                      type="text"
+                      value={selectedRuleForConfig.coupon_code || ""}
+                      onChange={(e) => setSelectedRuleForConfig({
+                        ...selectedRuleForConfig,
+                        coupon_code: e.target.value.toUpperCase()
+                      })}
+                      placeholder="e.g. GATHIYA10"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Cooldown / Dedup Window</label>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min="1"
+                        value={selectedRuleForConfig.dedup_days}
+                        onChange={(e) => setSelectedRuleForConfig({
+                          ...selectedRuleForConfig,
+                          dedup_days: parseInt(e.target.value) || 1
+                        })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                      />
+                      <span className="text-xs text-gray-500 font-semibold">Days</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Template Linked</label>
+                    <input
+                      type="text"
+                      disabled
+                      value={selectedRuleForConfig.template_name}
+                      className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-xs font-mono text-gray-700"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="submit"
+                    className="bg-[#111827] hover:bg-black text-white px-4 py-1.5 rounded-lg font-bold text-xs shadow-xs transition"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            {/* Test Simulator Section */}
+            <div className="mt-5 bg-gradient-to-br from-amber-50/50 to-orange-50/40 p-4 rounded-xl border border-amber-200/80 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <PlayCircle className="w-4 h-4 text-[#D35400]" />
+                  <h4 className="text-xs font-bold uppercase text-gray-900 tracking-wider">2. Interactive Test & Simulator</h4>
+                </div>
+                <span className="text-[10px] bg-amber-100 text-[#D35400] font-bold px-2 py-0.5 rounded border border-amber-300">
+                  Fast 10-Second Test Delay
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-600 leading-relaxed">
+                Test the whole automation flow without waiting 30 minutes! Simulate an abandoned cart, check if order completion cancels it, or execute the WhatsApp template immediately.
+              </p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-gray-600 mb-1">Test Phone Number</label>
+                  <input
+                    type="text"
+                    value={testPhone}
+                    onChange={(e) => setTestPhone(e.target.value)}
+                    placeholder="+919876543210"
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-gray-600 mb-1">Simulated Cart Value (₹)</label>
+                  <input
+                    type="number"
+                    value={testCartValue}
+                    onChange={(e) => setTestCartValue(e.target.value)}
+                    placeholder="450"
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={simulatingAction}
+                  onClick={handleSimulateCartAbandonment}
+                  className="bg-[#F5A623] hover:bg-[#E67E22] text-black font-bold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-xs transition"
+                >
+                  <ShoppingCart className="w-3.5 h-3.5" />
+                  1. Abandon Cart
+                </button>
+
+                <button
+                  type="button"
+                  disabled={simulatingAction}
+                  onClick={() => handleSimulateOrderCompleted()}
+                  className="bg-[#10B981] hover:bg-emerald-600 text-white font-bold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-xs transition"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  2. Checkout (Recover)
+                </button>
+
+                <button
+                  type="button"
+                  disabled={simulatingAction}
+                  onClick={() => handleTriggerRule(selectedRuleForConfig)}
+                  className="bg-[#111827] hover:bg-black text-white font-bold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-xs transition"
+                >
+                  <Send className="w-3.5 h-3.5 text-[#F5A623]" />
+                  3. Send WhatsApp
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-4 mt-4 border-t border-gray-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsConfigModalOpen(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
