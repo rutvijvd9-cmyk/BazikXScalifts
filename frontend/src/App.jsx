@@ -33,8 +33,11 @@ import axios from "axios";
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("token") || "");
   const [username, setUsername] = useState(localStorage.getItem("username") || "");
+  const [authMode, setAuthMode] = useState("login"); // "login" or "register"
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
+  const [registerForm, setRegisterForm] = useState({ username: "", email: "", password: "" });
   const [loginError, setLoginError] = useState("");
+  const [authSuccess, setAuthSuccess] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -85,6 +88,21 @@ export default function App() {
       localStorage.setItem("username", res.data.username);
     } catch (err) {
       setLoginError(err.response?.data?.detail || "Invalid login credentials");
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setLoginError("");
+    setAuthSuccess("");
+    try {
+      await axios.post("/api/auth/register", registerForm);
+      setAuthSuccess(`Account for "${registerForm.username}" created successfully! Please sign in.`);
+      setLoginForm({ username: registerForm.username, password: "" });
+      setRegisterForm({ username: "", email: "", password: "" });
+      setAuthMode("login");
+    } catch (err) {
+      setLoginError(err.response?.data?.detail || "Registration failed. Try again.");
     }
   };
 
@@ -224,7 +242,7 @@ export default function App() {
     .filter((c) => c.status === "RECOVERED")
     .reduce((sum, c) => sum + (c.cart_value || 0), 0);
 
-  // If unauthenticated, show login screen
+  // If unauthenticated, show login/register screen
   if (!token) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#111827] px-4">
@@ -234,7 +252,41 @@ export default function App() {
               MG
             </div>
             <h2 className="text-2xl font-black text-gray-900">WhatsApp CRM</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Manubhai Gathiyawala • Portal Login</p>
+            <p className="text-xs text-gray-500 mt-0.5">Manubhai Gathiyawala • Portal Access</p>
+          </div>
+
+          {/* Mode Switcher Tabs */}
+          <div className="grid grid-cols-2 p-1 bg-gray-100 rounded-xl mb-5 text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode("login");
+                setLoginError("");
+                setAuthSuccess("");
+              }}
+              className={`py-2 rounded-lg transition ${
+                authMode === "login"
+                  ? "bg-white text-gray-900 shadow-xs"
+                  : "text-gray-500 hover:text-gray-900"
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode("register");
+                setLoginError("");
+                setAuthSuccess("");
+              }}
+              className={`py-2 rounded-lg transition ${
+                authMode === "register"
+                  ? "bg-white text-[#25D366] shadow-xs"
+                  : "text-gray-500 hover:text-gray-900"
+              }`}
+            >
+              + Create User
+            </button>
           </div>
 
           {loginError && (
@@ -243,57 +295,132 @@ export default function App() {
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
-                Username
-              </label>
-              <input
-                type="text"
-                required
-                placeholder="Enter username"
-                value={loginForm.username}
-                onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
-                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-              />
+          {authSuccess && (
+            <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+              {authSuccess}
             </div>
+          )}
 
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
-                Password
-              </label>
-              <div className="relative">
+          {authMode === "login" ? (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                  Username
+                </label>
                 <input
-                  type={showPassword ? "text" : "password"}
+                  type="text"
                   required
-                  placeholder="Enter password"
-                  value={loginForm.password}
-                  onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                  className="w-full pl-3.5 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  placeholder="Enter username"
+                  value={loginForm.username}
+                  onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 focus:outline-none p-0.5"
-                  title={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? (
-                    <EyeOff className="w-4 h-4" />
-                  ) : (
-                    <Eye className="w-4 h-4" />
-                  )}
-                </button>
               </div>
-            </div>
 
-            <button
-              type="submit"
-              className="w-full flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white font-bold py-2.5 rounded-lg text-sm shadow-md transition"
-            >
-              <Lock className="w-4 h-4" />
-              Sign In Securely
-            </button>
-          </form>
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    placeholder="Enter password"
+                    value={loginForm.password}
+                    onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                    className="w-full pl-3.5 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 focus:outline-none p-0.5"
+                    title={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white font-bold py-2.5 rounded-lg text-sm shadow-md transition"
+              >
+                <Lock className="w-4 h-4" />
+                Sign In Securely
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                  New Username
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. friend_name"
+                  value={registerForm.username}
+                  onChange={(e) => setRegisterForm({ ...registerForm, username: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="name@manubhaigathiyawala.com"
+                  value={registerForm.email}
+                  onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                  New Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    minLength={6}
+                    placeholder="At least 6 characters"
+                    value={registerForm.password}
+                    onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
+                    className="w-full pl-3.5 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 focus:outline-none p-0.5"
+                    title={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full flex items-center justify-center gap-2 bg-[#F5A623] hover:bg-[#E67E22] text-black font-bold py-2.5 rounded-lg text-sm shadow-md transition"
+              >
+                <Plus className="w-4 h-4" />
+                Register New User
+              </button>
+            </form>
+          )}
 
           <div className="mt-6 pt-4 border-t border-gray-100 text-center">
             <span className="text-xs text-gray-400">Protected by End-to-End Bcrypt & JWT Security</span>
