@@ -1,8 +1,11 @@
 import os
+import logging
 import hmac
 import hashlib
 from typing import List, Optional
 from dotenv import load_dotenv
+
+logger = logging.getLogger("main")
 from fastapi import FastAPI, Depends, HTTPException, Header, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
