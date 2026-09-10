@@ -39,6 +39,11 @@ import {
 } from "lucide-react";
 import axios from "axios";
 
+// When deployed on Vercel, requests point to your Render backend via VITE_API_URL.
+// Locally or with Vite proxy, it defaults to "" (same-origin / relative).
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+axios.defaults.baseURL = API_BASE_URL;
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("token") || "");
   const [username, setUsername] = useState(localStorage.getItem("username") || "");
