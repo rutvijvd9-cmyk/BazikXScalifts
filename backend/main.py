@@ -142,16 +142,40 @@ def register_user(request: Request, payload: schemas.UserCreate, db: Session = D
     return user
 
 
+# In-memory failed login tracker for brute-force intrusion detection
+FAILED_LOGIN_ATTEMPTS = {}
+
 @app.post("/api/auth/login", response_model=schemas.Token)
 @limiter.limit("10/minute")
 def login(request: Request, payload: schemas.UserLogin, db: Session = Depends(get_db)):
+    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown").split(",")[0].strip()
     user = db.query(models.User).filter(models.User.username == payload.username).first()
     if not user or not auth.verify_password(payload.password, user.hashed_password):
+        # Increment failed login counter for this IP
+        attempts = FAILED_LOGIN_ATTEMPTS.get(client_ip, 0) + 1
+        FAILED_LOGIN_ATTEMPTS[client_ip] = attempts
+        
+        # If 3 or more failed attempts, trigger security email alert!
+        if attempts >= 3:
+            try:
+                from email_service import send_security_intrusion_alert
+                send_security_intrusion_alert(
+                    event_type="Brute-Force Login / Unauthorized Access Attempt",
+                    ip_address=client_ip,
+                    details=f"{attempts} consecutive failed login attempts detected targeting username '{payload.username}'."
+                )
+            except Exception as mail_err:
+                logger.warning(f"Could not dispatch security alert: {mail_err}")
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    # Reset counter on successful login
+    FAILED_LOGIN_ATTEMPTS.pop(client_ip, None)
+
     if not user.is_active:
         raise HTTPException(status_code=400, detail="User account is deactivated")
 
@@ -1088,10 +1112,86 @@ def trigger_specific_automation_rule(
 def get_system_settings(
     current_user: models.User = Depends(auth.get_current_user)
 ):
+    from email_service import SMTP_USER, ADMIN_ALERT_EMAIL, get_recipient_list
+    recipients = get_recipient_list()
     return {
         "daily_limit": int(os.getenv("DAILY_MESSAGE_SEND_LIMIT", "500")),
         "cart_delay_minutes": 30,
         "active_phone_id": os.getenv("WHATSAPP_PHONE_NUMBER_ID", "Not Configured (Simulation Mode)"),
         "webhook_endpoint": "https://api.manubhaigathiyawala.com/api/webhooks/whatsapp",
-        "dnd_keywords": ["STOP", "UNSUBSCRIBE", "બંધ કરો", "સંદેશા બંધ કરો", "રોકો", "बंद करो"]
+        "dnd_keywords": ["STOP", "UNSUBSCRIBE", "બંધ કરો", "સંદેશા બંધ કરો", "રોકો", "बंद करो"],
+        "smtp_sender": SMTP_USER,
+        "admin_alert_emails": recipients,
+        "email_alerts_configured": bool(os.getenv("SMTP_PASSWORD")) and len(recipients) > 0
     }
+
+
+@app.post("/api/admin/test-email")
+def send_test_admin_email(
+    payload: dict = {},
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """
+    Triggers an instant test email to verify Gmail SMTP delivery to all configured ADMIN_ALERT_EMAIL addresses.
+    """
+    from email_service import send_email_alert, get_recipient_list, SMTP_USER
+    target = payload.get("email")
+    recipients = [target] if target else get_recipient_list()
+    
+    if not recipients:
+        raise HTTPException(
+            status_code=400,
+            detail="No alert recipient emails found. Please configure ADMIN_ALERT_EMAIL in Render environment variables."
+        )
+
+    now_str = datetime.now().strftime("%d %b %Y, %I:%M %p IST")
+    subject = "🧪 [System Test] Manubhai WhatsApp CRM Alert Verification"
+    html_body = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden; background: #FFFFFF;">
+      <div style="background: #111827; padding: 18px 24px; color: white; border-bottom: 3px solid #25D366;">
+        <h2 style="margin: 0; font-size: 18px; font-weight: bold;">🧪 Gmail SMTP Verification Successful</h2>
+        <p style="margin: 4px 0 0 0; font-size: 12px; color: #9CA3AF;">Manubhai Gathiyawala • Alert Pipeline Test</p>
+      </div>
+      <div style="padding: 24px; color: #1F2937; line-height: 1.6;">
+        <p style="margin-top: 0;">This is a test notification confirming that your automated alert system is <strong>operational</strong> and connected to Gmail SMTP.</p>
+        
+        <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 13px;">
+          <tr style="border-bottom: 1px solid #F3F4F6;">
+            <td style="padding: 8px 0; font-weight: bold; color: #4B5563;">Sender Mailbox:</td>
+            <td style="padding: 8px 0; font-family: monospace; color: #111827;">{SMTP_USER}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #F3F4F6;">
+            <td style="padding: 8px 0; font-weight: bold; color: #4B5563;">Configured Recipients:</td>
+            <td style="padding: 8px 0; font-family: monospace; color: #25D366; font-weight: bold;">{", ".join(recipients)}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #F3F4F6;">
+            <td style="padding: 8px 0; font-weight: bold; color: #4B5563;">Triggered By:</td>
+            <td style="padding: 8px 0; color: #111827;">{current_user.username} (Admin Portal)</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; font-weight: bold; color: #4B5563;">Timestamp:</td>
+            <td style="padding: 8px 0; color: #111827;">{now_str}</td>
+          </tr>
+        </table>
+
+        <div style="background: #F0FDF4; padding: 14px; border-radius: 8px; border-left: 4px solid #10B981; margin-top: 20px; font-size: 12px; color: #166534;">
+          <strong>Active Monitored Triggers:</strong><br/>
+          • 🚨 WhatsApp Delivery Failures (Instant alert with failed phone number)<br/>
+          • 🛡️ Server Brute-Force & Security Intrusions<br/>
+          • 📊 10-Minute Activity Heartbeat & Summary
+        </div>
+      </div>
+      <div style="background: #F9FAFB; padding: 12px 24px; text-align: center; font-size: 11px; color: #9CA3AF; border-top: 1px solid #F3F4F6;">
+        Manubhai Gathiyawala WhatsApp CRM • Powered by Scalifts
+      </div>
+    </div>
+    """
+
+    res = send_email_alert(subject=subject, html_body=html_body, recipients=recipients, priority="high")
+    if res.get("status") == "error":
+        raise HTTPException(status_code=500, detail=f"SMTP Error: {res.get('error')}")
+    if res.get("status") == "skipped":
+        raise HTTPException(status_code=400, detail=f"Skipped: {res.get('reason')}")
+        
+    return {"status": "success", "message": f"Test email dispatched to {recipients}", "details": res}
+

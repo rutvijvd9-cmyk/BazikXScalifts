@@ -39,7 +39,8 @@ import {
   Activity,
   Zap,
   Radio,
-  BellRing
+  BellRing,
+  Mail
 } from "lucide-react";
 import axios from "axios";
 
@@ -90,8 +91,9 @@ export default function App() {
   const [systemSettings, setSystemSettings] = useState({});
   const [systemUsers, setSystemUsers] = useState([]);
   const [templateFilterLang, setTemplateFilterLang] = useState("ALL");
-  const [loading, setLoading] = useState(false);
   const [actionSuccessMsg, setActionSuccessMsg] = useState("");
+  const [testEmailLoading, setTestEmailLoading] = useState(false);
+  const [testEmailFeedback, setTestEmailFeedback] = useState(null);
 
   // Search filter for lists
   const [searchTerm, setSearchTerm] = useState("");
@@ -1452,6 +1454,117 @@ export default function App() {
                         </span>
                       ))}
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Email & Security Alert Notifications Card */}
+              <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-6">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-[#10B981]">
+                      <Mail className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-gray-900 text-base">Gmail SMTP & Security Alert System</h3>
+                      <p className="text-xs text-gray-500">Real-time intrusion detection, delivery failure alerts, and 10-minute digests</p>
+                    </div>
+                  </div>
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
+                    systemSettings.email_alerts_configured ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-700 border border-amber-200"
+                  }`}>
+                    {systemSettings.email_alerts_configured ? "● Alerts Active" : "⚠️ Needs Config"}
+                  </span>
+                </div>
+
+                <div className="space-y-4 text-sm">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
+                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Sender Mailbox</span>
+                      <div className="font-mono text-xs font-bold text-gray-900 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        {systemSettings.smtp_sender || "sendermailpro@gmail.com"}
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-1">Google App Password Authenticated (TLS 587)</p>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
+                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Configured Alert Recipients</span>
+                      <div className="font-mono text-xs font-bold text-[#25D366] flex flex-wrap gap-1">
+                        {systemSettings.admin_alert_emails && systemSettings.admin_alert_emails.length > 0 ? (
+                          systemSettings.admin_alert_emails.map((em) => (
+                            <span key={em} className="bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-800">
+                              {em}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-amber-600 font-normal">No emails in ADMIN_ALERT_EMAIL</span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-1">Supports multiple emails separated by comma</p>
+                    </div>
+                  </div>
+
+                  {/* Monitored Alert Channels */}
+                  <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
+                    <h4 className="font-bold text-gray-900 text-xs mb-2">Automated Incident Triggers:</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                      <div className="bg-white p-3 rounded-lg border border-gray-200">
+                        <div className="font-bold text-red-600 flex items-center gap-1.5 mb-1">
+                          <span>🚨</span> WhatsApp Failed
+                        </div>
+                        <p className="text-gray-500 text-[11px]">Instant alert detailing which phone number failed and exact Meta API reason</p>
+                      </div>
+                      <div className="bg-white p-3 rounded-lg border border-gray-200">
+                        <div className="font-bold text-amber-600 flex items-center gap-1.5 mb-1">
+                          <span>🛡️</span> Intrusion / Hack
+                        </div>
+                        <p className="text-gray-500 text-[11px]">Fires immediately upon 3+ failed logins or suspicious API brute-force with IP</p>
+                      </div>
+                      <div className="bg-white p-3 rounded-lg border border-gray-200">
+                        <div className="font-bold text-emerald-600 flex items-center gap-1.5 mb-1">
+                          <span>📊</span> 10-Min Digest
+                        </div>
+                        <p className="text-gray-500 text-[11px]">Every 10 minutes sends server health, messages delivered, and recovered revenue</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Send Test Email Action */}
+                  <div className="pt-2 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-gray-500">Send an instant test email through Gmail SMTP to verify inbox delivery.</p>
+                      {testEmailFeedback && (
+                        <p className={`text-xs mt-1 font-semibold ${testEmailFeedback.success ? "text-emerald-600" : "text-red-600"}`}>
+                          {testEmailFeedback.message}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={testEmailLoading}
+                      onClick={async () => {
+                        setTestEmailLoading(true);
+                        setTestEmailFeedback(null);
+                        try {
+                          const res = await axios.post("/api/admin/test-email", {}, {
+                            headers: { Authorization: `Bearer ${token}` }
+                          });
+                          setTestEmailFeedback({ success: true, message: "✅ " + (res.data?.message || "Test email dispatched successfully!") });
+                        } catch (err) {
+                          setTestEmailFeedback({
+                            success: false,
+                            message: "❌ " + (err.response?.data?.detail || err.message || "Failed to dispatch test email")
+                          });
+                        } finally {
+                          setTestEmailLoading(false);
+                        }
+                      }}
+                      className="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 disabled:opacity-50"
+                    >
+                      {testEmailLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                      {testEmailLoading ? "Sending..." : "Send Test Alert Email"}
+                    </button>
                   </div>
                 </div>
               </div>

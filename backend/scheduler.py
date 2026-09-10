@@ -258,6 +258,18 @@ def run_all_active_automation_rules():
         db.close()
 
 
+def run_periodic_digest_job():
+    try:
+        from email_service import send_ten_minute_digest_email
+        db = SessionLocal()
+        try:
+            send_ten_minute_digest_email(db)
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error executing 10-minute digest email: {e}")
+
+
 def start_scheduler():
     if not scheduler.running:
         # 1. Automatic Daily Sweep at 10:00 AM IST for ALL active automation rules (15-day, 30-day, VIP, etc.)
@@ -267,8 +279,16 @@ def start_scheduler():
             id="daily_all_automations_sweep",
             replace_existing=True
         )
+        # 2. Executive 10-Minute Activity Digest & Heartbeat via Gmail SMTP
+        scheduler.add_job(
+            func=run_periodic_digest_job,
+            trigger="interval",
+            minutes=10,
+            id="ten_minute_digest",
+            replace_existing=True
+        )
         scheduler.start()
-        logger.info("🚀 APScheduler started successfully with automatic daily triggers for all active rules.")
+        logger.info("🚀 APScheduler started successfully with automatic daily triggers and 10-min digest.")
 
 def run_rule_execution(rule_id: int) -> int:
     """

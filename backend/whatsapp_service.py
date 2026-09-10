@@ -132,10 +132,31 @@ def send_whatsapp_template(
                 )
                 db.add(log_entry)
                 db.commit()
+
+                # 🚨 Trigger Immediate Email Alert to Admins
+                try:
+                    from email_service import send_whatsapp_failure_alert
+                    send_whatsapp_failure_alert(
+                        recipient_phone=recipient_phone,
+                        template_name=template_name,
+                        error_reason=error_info
+                    )
+                except Exception as mail_err:
+                    logger.warning(f"Could not send failure alert email: {mail_err}")
+
                 return {"status": "failed", "error": error_info}
 
     except Exception as e:
         logger.error(f"Error in send_whatsapp_template: {e}")
+        try:
+            from email_service import send_whatsapp_failure_alert
+            send_whatsapp_failure_alert(
+                recipient_phone=recipient_phone,
+                template_name=template_name,
+                error_reason=str(e)
+            )
+        except Exception:
+            pass
         return {"status": "error", "message": str(e)}
     finally:
         db.close()
