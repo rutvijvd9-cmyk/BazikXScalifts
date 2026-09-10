@@ -226,3 +226,39 @@ def send_ten_minute_digest_email(db) -> dict:
     </div>
     """
     return send_email_alert(subject=subject, html_body=html_body)
+
+
+def send_2fa_recovery_email(recipient_email: str, username: str, recovery_code: str) -> dict:
+    """
+    Sends an urgent 6-digit emergency 2FA recovery code for admin login.
+    """
+    now_str = datetime.now().strftime("%d %b %Y, %I:%M %p IST")
+    subject = f"🔐 [2FA Emergency Code] {recovery_code} is your Manubhai CRM login code"
+    html_body = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 540px; margin: 0 auto; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden; background: #FFFFFF;">
+      <div style="background: #111827; padding: 20px 24px; color: white; border-bottom: 3px solid #25D366;">
+        <h2 style="margin: 0; font-size: 18px; font-weight: bold;">🔐 Two-Factor Authentication (2FA)</h2>
+        <p style="margin: 4px 0 0 0; font-size: 12px; color: #9CA3AF;">Emergency Sign-In Verification Code</p>
+      </div>
+      <div style="padding: 24px; color: #1F2937; line-height: 1.6;">
+        <p style="margin-top: 0; font-size: 14px;">Hello <strong>{username}</strong>,</p>
+        <p style="font-size: 13px; color: #4B5563;">You requested an emergency email recovery code to complete your two-factor login to the Manubhai Gathiyawala WhatsApp CRM.</p>
+        
+        <div style="text-align: center; margin: 24px 0;">
+          <div style="display: inline-block; background: #F3F4F6; border: 2px dashed #25D366; padding: 14px 28px; border-radius: 12px;">
+            <span style="font-family: monospace; font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #111827;">{recovery_code}</span>
+          </div>
+          <p style="font-size: 11px; color: #6B7280; margin-top: 8px;">Valid for <strong>10 minutes</strong>. Single use only.</p>
+        </div>
+
+        <div style="background: #FFFBEB; padding: 12px 16px; border-radius: 8px; border-left: 4px solid #F5A623; font-size: 12px; color: #92400E;">
+          <strong>Security Notice:</strong> If you did not initiate this login attempt, someone may know your password. Change your password immediately or alert the system administrator.
+        </div>
+      </div>
+      <div style="background: #F9FAFB; padding: 12px 24px; text-align: center; font-size: 11px; color: #9CA3AF; border-top: 1px solid #F3F4F6;">
+        Manubhai Gathiyawala WhatsApp CRM • Security Layer
+      </div>
+    </div>
+    """
+    return send_email_alert(subject=subject, html_body=html_body, recipients=[recipient_email], priority="high")
+

@@ -31,9 +31,40 @@ def get_password_hash(password: str) -> str:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+def create_temp_2fa_token(username: str) -> str:
+    """
+    Creates a temporary 5-minute token used exclusively for the 2FA verification step.
+    Cannot be used to access regular protected endpoints.
+    """
+    to_encode = {
+        "sub": username,
+        "type": "2fa_pending",
+        "exp": datetime.utcnow() + timedelta(minutes=5)
+    }
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def verify_temp_2fa_token(temp_token: str) -> str:
+    """
+    Validates a temp_token and returns the username if valid.
+    """
+    try:
+        payload = jwt.decode(temp_token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "2fa_pending":
+            raise HTTPException(status_code=401, detail="Invalid token type for 2FA verification")
+        username = payload.get("sub")
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        return username
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="2FA session expired. Please log in again.")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid 2FA challenge token")
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> models.User:
@@ -44,6 +75,9 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        # Disallow temporary 2fa tokens from accessing regular authenticated APIs
+        if payload.get("type") == "2fa_pending":
+            raise credentials_exception
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception

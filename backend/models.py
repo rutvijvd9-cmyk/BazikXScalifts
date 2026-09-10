@@ -94,6 +94,10 @@ class User(Base):
     email = Column(String(120), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
+    is_2fa_enabled = Column(Boolean, default=False)
+    totp_secret = Column(String(64), nullable=True)
+    email_recovery_code = Column(String(10), nullable=True)
+    email_recovery_code_expires = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Template(Base):

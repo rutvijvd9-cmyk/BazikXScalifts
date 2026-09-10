@@ -38,9 +38,10 @@ import {
   CloudRain,
   Activity,
   Zap,
-  Radio,
   BellRing,
-  Mail
+  Mail,
+  KeyRound,
+  Smartphone
 } from "lucide-react";
 import axios from "axios";
 
@@ -63,6 +64,26 @@ export default function App() {
     max_users: 5,
     can_register: true
   });
+
+  // 2FA Authentication Challenge & Setup States
+  const [twoFactorRequired, setTwoFactorRequired] = useState(false);
+  const [twoFactorTempToken, setTwoFactorTempToken] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [twoFactorMethod, setTwoFactorMethod] = useState("totp"); // "totp" or "email"
+  const [twoFactorEmailSent, setTwoFactorEmailSent] = useState(false);
+  const [twoFactorEmailPreview, setTwoFactorEmailPreview] = useState("");
+  const [twoFactorLoading, setTwoFactorLoading] = useState(false);
+
+  // 2FA Configuration in Settings States
+  const [is2faModalOpen, setIs2faModalOpen] = useState(false);
+  const [twoFactorSetupData, setTwoFactorSetupData] = useState(null);
+  const [setupVerifyCode, setSetupVerifyCode] = useState("");
+  const [setupVerifyLoading, setSetupVerifyLoading] = useState(false);
+  const [setupVerifyError, setSetupVerifyError] = useState("");
+  const [isDisable2faModalOpen, setIsDisable2faModalOpen] = useState(false);
+  const [disablePassword, setDisablePassword] = useState("");
+  const [disableLoading, setDisableLoading] = useState(false);
+  const [currentUserProfile, setCurrentUserProfile] = useState(null);
 
   const getInitialTab = () => {
     const hash = window.location.hash.replace("#", "");
@@ -158,6 +179,16 @@ export default function App() {
     setLoginError("");
     try {
       const res = await axios.post("/api/auth/login", loginForm);
+      if (res.data.requires_2fa) {
+        // Switch to 2FA challenge mode
+        setTwoFactorRequired(true);
+        setTwoFactorTempToken(res.data.temp_token);
+        setTwoFactorCode("");
+        setTwoFactorMethod("totp");
+        setTwoFactorEmailSent(false);
+        setTwoFactorEmailPreview("");
+        return;
+      }
       const jwt = res.data.access_token;
       setToken(jwt);
       setUsername(res.data.username);
@@ -166,6 +197,56 @@ export default function App() {
     } catch (err) {
       setLoginError(err.response?.data?.detail || "Invalid login credentials");
     }
+  };
+
+  const handleVerify2FA = async (e) => {
+    e.preventDefault();
+    if (!twoFactorCode.trim()) return;
+    setLoginError("");
+    setTwoFactorLoading(true);
+    try {
+      const res = await axios.post("/api/auth/2fa/verify", {
+        code: twoFactorCode.trim(),
+        temp_token: twoFactorTempToken
+      });
+      const jwt = res.data.access_token;
+      setToken(jwt);
+      setUsername(res.data.username);
+      localStorage.setItem("token", jwt);
+      localStorage.setItem("username", res.data.username);
+      setTwoFactorRequired(false);
+      setTwoFactorTempToken("");
+      setTwoFactorCode("");
+    } catch (err) {
+      setLoginError(err.response?.data?.detail || "Invalid 2FA code. Please try again.");
+    } finally {
+      setTwoFactorLoading(false);
+    }
+  };
+
+  const handleSendRecoveryEmail = async () => {
+    setLoginError("");
+    setTwoFactorLoading(true);
+    try {
+      const res = await axios.post("/api/auth/2fa/send-recovery-email", {
+        temp_token: twoFactorTempToken
+      });
+      setTwoFactorEmailSent(true);
+      setTwoFactorEmailPreview(res.data.email_preview || "your email");
+      setTwoFactorMethod("email");
+    } catch (err) {
+      setLoginError(err.response?.data?.detail || "Failed to send emergency recovery code.");
+    } finally {
+      setTwoFactorLoading(false);
+    }
+  };
+
+  const handleCancel2FA = () => {
+    setTwoFactorRequired(false);
+    setTwoFactorTempToken("");
+    setTwoFactorCode("");
+    setTwoFactorEmailSent(false);
+    setLoginError("");
   };
 
   const fetchRegistrationStatus = async () => {
@@ -210,7 +291,7 @@ export default function App() {
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes, discRes] = await Promise.all([
+      const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes, discRes, meRes] = await Promise.all([
         axios.get("/api/campaigns", { headers }),
         axios.get("/api/contacts", { headers }),
         axios.get("/api/cart-events", { headers }),
@@ -220,7 +301,8 @@ export default function App() {
         axios.get("/api/automation-rules", { headers }),
         axios.get("/api/settings", { headers }),
         axios.get("/api/users", { headers }),
-        axios.get("/api/discount-codes", { headers })
+        axios.get("/api/discount-codes", { headers }),
+        axios.get("/api/auth/me", { headers }).catch(() => ({ data: null }))
       ]);
       setCampaigns(campRes.data || []);
       setContacts(contRes.data || []);
@@ -232,6 +314,7 @@ export default function App() {
       setSystemSettings(setRes.data || {});
       setSystemUsers(usersRes.data || []);
       setDiscountCodes(discRes.data || []);
+      if (meRes?.data) setCurrentUserProfile(meRes.data);
     } catch (err) {
       console.error("Failed to fetch protected data:", err);
       if (err.response?.status === 401) {
@@ -570,45 +653,47 @@ export default function App() {
           </div>
 
           {/* Mode Switcher Tabs */}
-          <div className="grid grid-cols-2 p-1 bg-gray-100 rounded-xl mb-4 text-xs font-bold">
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode("login");
-                setLoginError("");
-                setAuthSuccess("");
-              }}
-              className={`py-2 rounded-lg transition ${
-                authMode === "login"
-                  ? "bg-white text-gray-900 shadow-xs"
-                  : "text-gray-500 hover:text-gray-900"
-              }`}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode("register");
-                setLoginError("");
-                setAuthSuccess("");
-              }}
-              className={`py-2 rounded-lg transition flex items-center justify-center gap-1.5 ${
-                authMode === "register"
-                  ? "bg-white text-[#25D366] shadow-xs"
-                  : "text-gray-500 hover:text-gray-900"
-              }`}
-            >
-              <span>+ Create User</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                registrationStatus.can_register 
-                  ? "bg-emerald-100 text-emerald-800"
-                  : "bg-red-100 text-red-700"
-              }`}>
-                {registrationStatus.current_users}/{registrationStatus.max_users}
-              </span>
-            </button>
-          </div>
+          {!twoFactorRequired && (
+            <div className="grid grid-cols-2 p-1 bg-gray-100 rounded-xl mb-4 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode("login");
+                  setLoginError("");
+                  setAuthSuccess("");
+                }}
+                className={`py-2 rounded-lg transition ${
+                  authMode === "login"
+                    ? "bg-white text-gray-900 shadow-xs"
+                    : "text-gray-500 hover:text-gray-900"
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode("register");
+                  setLoginError("");
+                  setAuthSuccess("");
+                }}
+                className={`py-2 rounded-lg transition flex items-center justify-center gap-1.5 ${
+                  authMode === "register"
+                    ? "bg-white text-[#25D366] shadow-xs"
+                    : "text-gray-500 hover:text-gray-900"
+                }`}
+              >
+                <span>+ Create User</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                  registrationStatus.can_register 
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-red-100 text-red-700"
+                }`}>
+                  {registrationStatus.current_users}/{registrationStatus.max_users}
+                </span>
+              </button>
+            </div>
+          )}
 
           {loginError && (
             <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-xs font-semibold">
@@ -622,7 +707,82 @@ export default function App() {
             </div>
           )}
 
-          {authMode === "login" ? (
+          {twoFactorRequired ? (
+            /* 2FA Challenge View */
+            <div className="space-y-4">
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center space-y-1">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center mx-auto text-emerald-600 mb-2">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <h3 className="font-bold text-gray-900 text-sm">Two-Factor Authentication</h3>
+                <p className="text-xs text-gray-600">
+                  {twoFactorMethod === "email"
+                    ? `Enter the emergency 6-digit code sent to ${twoFactorEmailPreview || "your email"}`
+                    : "Enter the 6-digit code from Google Authenticator"}
+                </p>
+              </div>
+
+              <form onSubmit={handleVerify2FA} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1 text-center">
+                    6-Digit Security Code
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoFocus
+                    required
+                    maxLength={8}
+                    placeholder="000000"
+                    value={twoFactorCode}
+                    onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))}
+                    className="w-full text-center tracking-[12px] font-mono text-2xl font-bold py-3 px-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={twoFactorLoading || twoFactorCode.length < 6}
+                  className="w-full flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white font-bold py-2.5 rounded-lg text-sm shadow-md transition disabled:opacity-50"
+                >
+                  {twoFactorLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+                  Verify & Sign In
+                </button>
+              </form>
+
+              {/* Fallback to Email Recovery Option */}
+              <div className="pt-2 border-t border-gray-100 flex flex-col items-center gap-2 text-xs">
+                {twoFactorMethod === "totp" ? (
+                  <button
+                    type="button"
+                    disabled={twoFactorLoading}
+                    onClick={handleSendRecoveryEmail}
+                    className="text-gray-600 hover:text-gray-900 flex items-center gap-1.5 font-medium transition"
+                  >
+                    <Mail className="w-3.5 h-3.5 text-gray-400" />
+                    <span>Lost phone? <strong>Send recovery code to my email</strong></span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setTwoFactorMethod("totp")}
+                    className="text-gray-600 hover:text-gray-900 flex items-center gap-1.5 font-medium transition"
+                  >
+                    <Smartphone className="w-3.5 h-3.5 text-gray-400" />
+                    <span>Use <strong>Google Authenticator</strong> instead</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleCancel2FA}
+                  className="text-gray-400 hover:text-gray-600 text-[11px] pt-1"
+                >
+                  ← Cancel and return to sign in
+                </button>
+              </div>
+            </div>
+          ) : authMode === "login" ? (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
@@ -1595,8 +1755,10 @@ export default function App() {
                         <th className="px-4 py-3">ID</th>
                         <th className="px-4 py-3">Username</th>
                         <th className="px-4 py-3">Email Address</th>
+                        <th className="px-4 py-3">2FA Security</th>
                         <th className="px-4 py-3">Status</th>
                         <th className="px-4 py-3">Access Level</th>
+                        <th className="px-4 py-3 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -1612,6 +1774,17 @@ export default function App() {
                           </td>
                           <td className="px-4 py-3.5 text-xs text-gray-600 font-mono">{u.email}</td>
                           <td className="px-4 py-3.5">
+                            {u.is_2fa_enabled ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-[#10B981] border border-emerald-200">
+                                <ShieldCheck className="w-3 h-3" /> Enabled (TOTP)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 border border-gray-200">
+                                Disabled
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5">
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-[#10B981] border border-emerald-200">
                               Active
                             </span>
@@ -1621,6 +1794,43 @@ export default function App() {
                               <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-bold">Admin (Full Access)</span>
                             ) : (
                               <span className="bg-blue-50 text-blue-800 px-2 py-0.5 rounded font-medium">Team Member</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5 text-right">
+                            {u.username === username && (
+                              u.is_2fa_enabled ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDisablePassword("");
+                                    setIsDisable2faModalOpen(true);
+                                  }}
+                                  className="text-xs text-red-600 hover:text-red-800 font-semibold hover:underline"
+                                >
+                                  Disable 2FA
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setSetupVerifyError("");
+                                    setSetupVerifyCode("");
+                                    try {
+                                      const res = await axios.get("/api/auth/2fa/setup", {
+                                        headers: { Authorization: `Bearer ${token}` }
+                                      });
+                                      setTwoFactorSetupData(res.data);
+                                      setIs2faModalOpen(true);
+                                    } catch (err) {
+                                      alert("Failed to initiate 2FA setup: " + (err.response?.data?.detail || err.message));
+                                    }
+                                  }}
+                                  className="text-xs bg-[#25D366] hover:bg-[#1EBE5D] text-white px-2.5 py-1 rounded-md font-bold transition inline-flex items-center gap-1 shadow-xs"
+                                >
+                                  <ShieldCheck className="w-3 h-3" />
+                                  Enable 2FA
+                                </button>
+                              )
                             )}
                           </td>
                         </tr>
@@ -2876,6 +3086,180 @@ export default function App() {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 2FA Setup Modal (QR Code & Google Authenticator) ── */}
+      {is2faModalOpen && twoFactorSetupData && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#10B981] flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-gray-900">Set Up Google Authenticator</h3>
+                  <p className="text-xs text-gray-500">Scan QR code with your mobile Authenticator app</p>
+                </div>
+              </div>
+              <button onClick={() => setIs2faModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
+            </div>
+
+            <div className="mt-4 space-y-4 text-center">
+              <p className="text-xs text-gray-600 text-left">
+                1. Open <strong>Google Authenticator</strong> (or Apple Passwords / Authy) on your phone.
+                <br />
+                2. Tap <strong>+</strong> and scan the QR code below:
+              </p>
+
+              <div className="inline-block p-3 bg-white rounded-xl border border-gray-200 shadow-xs">
+                <img
+                  src={twoFactorSetupData.qr_code_base64}
+                  alt="2FA QR Code"
+                  className="w-48 h-48 mx-auto"
+                />
+              </div>
+
+              <div className="bg-gray-50 p-2.5 rounded-lg border border-gray-200 text-left">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Can't scan QR code? Manual Entry Key:</span>
+                <span className="font-mono font-bold text-xs text-gray-800 select-all break-all">{twoFactorSetupData.secret}</span>
+              </div>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!setupVerifyCode.trim()) return;
+                  setSetupVerifyLoading(true);
+                  setSetupVerifyError("");
+                  try {
+                    await axios.post(
+                      "/api/auth/2fa/enable",
+                      { code: setupVerifyCode.trim() },
+                      { headers: { Authorization: `Bearer ${token}` } }
+                    );
+                    setActionSuccessMsg("🛡️ Two-Factor Authentication (2FA) successfully activated!");
+                    setIs2faModalOpen(false);
+                    fetchData();
+                    setTimeout(() => setActionSuccessMsg(""), 5000);
+                  } catch (err) {
+                    setSetupVerifyError(err.response?.data?.detail || "Invalid code. Please try again.");
+                  } finally {
+                    setSetupVerifyLoading(false);
+                  }
+                }}
+                className="pt-2 space-y-3"
+              >
+                <div className="text-left">
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                    3. Enter 6-Digit Code from App to Confirm:
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    required
+                    maxLength={8}
+                    placeholder="123456"
+                    value={setupVerifyCode}
+                    onChange={(e) => setSetupVerifyCode(e.target.value.replace(/\D/g, ""))}
+                    className="w-full text-center tracking-[8px] font-mono text-xl font-bold py-2.5 px-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+
+                {setupVerifyError && (
+                  <p className="text-xs font-semibold text-red-600 bg-red-50 p-2 rounded-lg border border-red-200">
+                    {setupVerifyError}
+                  </p>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIs2faModalOpen(false)}
+                    className="flex-1 py-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={setupVerifyLoading || setupVerifyCode.length < 6}
+                    className="flex-1 py-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white rounded-lg text-xs font-bold shadow-xs transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    {setupVerifyLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                    Confirm & Enable
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Disable 2FA Modal ── */}
+      {isDisable2faModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-200">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="font-bold text-base text-gray-900">Disable 2FA</h3>
+              <button onClick={() => setIsDisable2faModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
+            </div>
+
+            <p className="text-xs text-gray-500 mt-3 mb-4">
+              Enter your current account password to confirm disabling Two-Factor Authentication.
+            </p>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setDisableLoading(true);
+                try {
+                  await axios.post(
+                    "/api/auth/2fa/disable",
+                    { password: disablePassword },
+                    { headers: { Authorization: `Bearer ${token}` } }
+                  );
+                  setActionSuccessMsg("Two-Factor Authentication has been turned off.");
+                  setIsDisable2faModalOpen(false);
+                  fetchData();
+                  setTimeout(() => setActionSuccessMsg(""), 5000);
+                } catch (err) {
+                  alert(err.response?.data?.detail || "Failed to disable 2FA");
+                } finally {
+                  setDisableLoading(false);
+                }
+              }}
+              className="space-y-3"
+            >
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Current Password</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="Enter current password"
+                  value={disablePassword}
+                  onChange={(e) => setDisablePassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDisable2faModalOpen(false)}
+                  className="flex-1 py-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={disableLoading}
+                  className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-xs transition"
+                >
+                  {disableLoading ? "Disabling..." : "Disable 2FA"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

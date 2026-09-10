@@ -32,6 +32,18 @@ load_dotenv()
 # Ensure tables exist
 Base.metadata.create_all(bind=engine)
 
+# Ensure 2FA columns exist in users table (non-destructive migration for existing tables)
+try:
+    with engine.connect() as conn:
+        from sqlalchemy import text
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_2fa_enabled BOOLEAN DEFAULT FALSE;"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64);"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code VARCHAR(10);"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code_expires TIMESTAMP;"))
+        conn.commit()
+except Exception as col_err:
+    logger.warning(f"Note on 2FA column sync: {col_err}")
+
 # Rate Limiter setup
 limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 app = FastAPI(
@@ -176,11 +188,239 @@ def login(request: Request, payload: schemas.UserLogin, db: Session = Depends(ge
     # Reset counter on successful login
     FAILED_LOGIN_ATTEMPTS.pop(client_ip, None)
 
-    if not user.is_active:
-        raise HTTPException(status_code=400, detail="User account is deactivated")
+    # Check if user has Two-Factor Authentication (2FA) enabled
+    if user.is_2fa_enabled:
+        temp_token = auth.create_temp_2fa_token(user.username)
+        return {
+            "access_token": "",
+            "token_type": "bearer",
+            "username": user.username,
+            "requires_2fa": True,
+            "temp_token": temp_token
+        }
 
     access_token = auth.create_access_token(data={"sub": user.username})
-    return {"access_token": access_token, "token_type": "bearer", "username": user.username}
+    return {"access_token": access_token, "token_type": "bearer", "username": user.username, "requires_2fa": False}
+
+
+# ==========================================
+# 🛡️ TWO-FACTOR AUTHENTICATION (2FA) ENDPOINTS
+# ==========================================
+
+@app.post("/api/auth/2fa/verify", response_model=schemas.Token)
+@limiter.limit("10/minute")
+def verify_two_factor_code(
+    request: Request,
+    payload: schemas.TwoFactorVerifyRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Verifies a 6-digit TOTP Google Authenticator code OR an emergency email recovery code.
+    Issues the full 24-hour access token upon success.
+    """
+    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown").split(",")[0].strip()
+    
+    if not payload.temp_token:
+        raise HTTPException(status_code=400, detail="Missing 2FA temporary session token")
+    
+    username = auth.verify_temp_2fa_token(payload.temp_token)
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or deactivated")
+
+    code = payload.code.strip().replace(" ", "")
+    verified = False
+
+    # 1. Try TOTP code via pyotp
+    if user.totp_secret:
+        try:
+            import pyotp
+            totp = pyotp.TOTP(user.totp_secret)
+            # valid_window=1 allows +- 30s clock drift
+            if totp.verify(code, valid_window=1):
+                verified = True
+        except Exception as e:
+            logger.warning(f"Error in TOTP verification: {e}")
+
+    # 2. Try Email Recovery Code if not verified via TOTP
+    if not verified and user.email_recovery_code and user.email_recovery_code_expires:
+        if datetime.utcnow() <= user.email_recovery_code_expires and user.email_recovery_code == code:
+            verified = True
+            # Clear recovery code after successful use (single-use)
+            user.email_recovery_code = None
+            user.email_recovery_code_expires = None
+            db.commit()
+
+    if not verified:
+        attempts = FAILED_LOGIN_ATTEMPTS.get(f"2fa_{client_ip}", 0) + 1
+        FAILED_LOGIN_ATTEMPTS[f"2fa_{client_ip}"] = attempts
+        if attempts >= 3:
+            try:
+                from email_service import send_security_intrusion_alert
+                send_security_intrusion_alert(
+                    event_type="Invalid 2FA Code / Suspicious Verification Attempt",
+                    ip_address=client_ip,
+                    details=f"{attempts} consecutive failed 2FA verification attempts for username '{user.username}'."
+                )
+            except Exception as mail_err:
+                logger.warning(f"Could not dispatch 2fa security alert: {mail_err}")
+
+        raise HTTPException(status_code=400, detail="Invalid 2FA code or expired recovery code")
+
+    # Reset failed counter
+    FAILED_LOGIN_ATTEMPTS.pop(f"2fa_{client_ip}", None)
+
+    # Issue access token
+    access_token = auth.create_access_token(data={"sub": user.username})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "username": user.username,
+        "requires_2fa": False
+    }
+
+
+@app.post("/api/auth/2fa/send-recovery-email")
+@limiter.limit("5/minute")
+def send_two_factor_recovery_email(
+    request: Request,
+    payload: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Dispatches a 6-digit emergency OTP to the user's email address via Gmail SMTP.
+    """
+    temp_token = payload.get("temp_token")
+    if not temp_token:
+        raise HTTPException(status_code=400, detail="Missing temp_token")
+
+    username = auth.verify_temp_2fa_token(temp_token)
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=400, detail="User account not found or deactivated")
+
+    if not user.email:
+        raise HTTPException(status_code=400, detail="No email address associated with this user account.")
+
+    # Generate random 6-digit numeric OTP
+    import secrets
+    recovery_code = f"{secrets.randbelow(900000) + 100000}"
+    user.email_recovery_code = recovery_code
+    user.email_recovery_code_expires = datetime.utcnow() + timedelta(minutes=10)
+    db.commit()
+
+    from email_service import send_2fa_recovery_email
+    res = send_2fa_recovery_email(
+        recipient_email=user.email,
+        username=user.username,
+        recovery_code=recovery_code
+    )
+
+    masked_email = user.email[:2] + "***@" + user.email.split("@")[-1] if "@" in user.email else "your email"
+    return {
+        "status": "success",
+        "message": f"Emergency 6-digit recovery code sent to {masked_email}",
+        "email_preview": masked_email
+    }
+
+
+@app.get("/api/auth/2fa/setup", response_model=schemas.TwoFactorSetupResponse)
+def setup_two_factor_auth(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Generates a new TOTP secret key and QR code for the authenticated user to scan with Google Authenticator.
+    """
+    import pyotp
+    import qrcode
+    import base64
+
+    # Generate fresh 32-char base32 secret
+    new_secret = pyotp.random_base32()
+    current_user.totp_secret = new_secret
+    db.commit()
+
+    # Generate otpauth URI standard for authenticator apps
+    issuer = "Manubhai Gathiyawala"
+    otpauth_url = pyotp.totp.TOTP(new_secret).provisioning_uri(
+        name=current_user.username,
+        issuer_name=issuer
+    )
+
+    # Generate QR Code PNG in memory as base64 data URI
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=8,
+        border=3,
+    )
+    qr.add_data(otpauth_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="#111827", back_color="white")
+
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    qr_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    qr_data_uri = f"data:image/png;base64,{qr_b64}"
+
+    return {
+        "secret": new_secret,
+        "otpauth_url": otpauth_url,
+        "qr_code_base64": qr_data_uri
+    }
+
+
+@app.post("/api/auth/2fa/enable")
+def enable_two_factor_auth(
+    payload: schemas.TwoFactorVerifyRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Verifies that the user successfully scanned the QR code before permanently locking 2FA ON.
+    """
+    if not current_user.totp_secret:
+        raise HTTPException(status_code=400, detail="2FA setup not initiated. Please request /api/auth/2fa/setup first.")
+
+    import pyotp
+    totp = pyotp.TOTP(current_user.totp_secret)
+    code = payload.code.strip().replace(" ", "")
+    if not totp.verify(code, valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid 6-digit verification code. Please check Google Authenticator time and try again.")
+
+    current_user.is_2fa_enabled = True
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": "Two-Factor Authentication (2FA) successfully activated for your account!"
+    }
+
+
+@app.post("/api/auth/2fa/disable")
+def disable_two_factor_auth(
+    payload: schemas.TwoFactorDisableRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Disables 2FA on the user's account after confirming current password.
+    """
+    if not auth.verify_password(payload.password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect password. Cannot disable 2FA.")
+
+    current_user.is_2fa_enabled = False
+    current_user.totp_secret = None
+    current_user.email_recovery_code = None
+    current_user.email_recovery_code_expires = None
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": "Two-Factor Authentication (2FA) has been disabled for your account."
+    }
+
 
 
 @app.get("/api/auth/me", response_model=schemas.UserResponse)

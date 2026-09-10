@@ -111,6 +111,8 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     username: str
+    requires_2fa: Optional[bool] = False
+    temp_token: Optional[str] = None
 
 
 class UserResponse(BaseModel):
@@ -118,9 +120,26 @@ class UserResponse(BaseModel):
     username: str
     email: str
     is_active: bool
+    is_2fa_enabled: Optional[bool] = False
 
     class Config:
         from_attributes = True
+
+
+class TwoFactorSetupResponse(BaseModel):
+    secret: str
+    otpauth_url: str
+    qr_code_base64: str
+
+
+class TwoFactorVerifyRequest(BaseModel):
+    code: str
+    temp_token: Optional[str] = None
+
+
+class TwoFactorDisableRequest(BaseModel):
+    password: str
+
 
 class AutomationRuleCreate(BaseModel):
     rule_name: str = Field(..., max_length=100)
