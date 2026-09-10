@@ -133,6 +133,9 @@ class AutomationRuleCreate(BaseModel):
     is_active: bool = True
 
 class AutomationRuleUpdate(BaseModel):
+    rule_name: Optional[str] = None
+    trigger_condition: Optional[str] = None
+    template_name: Optional[str] = None
     is_active: Optional[bool] = None
     threshold_value: Optional[int] = None
     coupon_code: Optional[str] = None

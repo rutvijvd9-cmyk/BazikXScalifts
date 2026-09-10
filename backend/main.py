@@ -919,102 +919,6 @@ def list_automation_rules(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Auto-seed standard 8 automation rules if empty
-    if db.query(models.AutomationRule).count() == 0:
-        default_rules = [
-            {
-                "rule_name": "Abandoned Cart Recovery",
-                "rule_type": "CART_RECOVERY",
-                "trigger_condition": "Cart abandoned for > 30 minutes",
-                "threshold_value": 30,
-                "template_name": "cart_recovery_v1",
-                "coupon_code": "GATHIYA10",
-                "dedup_days": 1,
-                "is_active": True,
-                "total_triggered": 14
-            },
-            {
-                "rule_name": "30-Day Customer Re-engagement",
-                "rule_type": "INACTIVE_DAYS",
-                "trigger_condition": "No order placed in last 30 days",
-                "threshold_value": 30,
-                "template_name": "reengagement_30_days",
-                "coupon_code": "SPECIAL10",
-                "dedup_days": 7,
-                "is_active": True,
-                "total_triggered": 28
-            },
-            {
-                "rule_name": "Birthday Celebration & Special Gift",
-                "rule_type": "BIRTHDAY",
-                "trigger_condition": "Customer birthday matches today",
-                "threshold_value": 0,
-                "template_name": "birthday_special",
-                "coupon_code": "BDAY15",
-                "dedup_days": 365,
-                "is_active": True,
-                "total_triggered": 5
-            },
-            {
-                "rule_name": "Order Milestone Reward (VIP 5th & 10th Order)",
-                "rule_type": "ORDER_COUNT_VIP",
-                "trigger_condition": "Customer reaches 5th or 10th completed order",
-                "threshold_value": 5,
-                "template_name": "order_milestone_reward",
-                "coupon_code": "VIP20",
-                "dedup_days": 14,
-                "is_active": True,
-                "total_triggered": 8
-            },
-            {
-                "rule_name": "Post-Delivery Review & Repeat Snack Upsell",
-                "rule_type": "POST_DELIVERY",
-                "trigger_condition": "48 hours after order delivery",
-                "threshold_value": 48,
-                "template_name": "post_delivery_review",
-                "coupon_code": "FRESHSNACK",
-                "dedup_days": 7,
-                "is_active": True,
-                "total_triggered": 19
-            },
-            {
-                "rule_name": "Back In Stock Priority Notification",
-                "rule_type": "BACK_IN_STOCK",
-                "trigger_condition": "Inventory replenished for favorited snack",
-                "threshold_value": 1,
-                "template_name": "back_in_stock",
-                "coupon_code": "RESTOCK5",
-                "dedup_days": 3,
-                "is_active": True,
-                "total_triggered": 6
-            },
-            {
-                "rule_name": "Low Stock Urgency Alert",
-                "rule_type": "LOW_STOCK",
-                "trigger_condition": "Inventory falls below 50 units",
-                "threshold_value": 50,
-                "template_name": "low_stock_alert",
-                "coupon_code": "HURRY10",
-                "dedup_days": 5,
-                "is_active": False,
-                "total_triggered": 0
-            },
-            {
-                "rule_name": "Rainy Weather Hot Gathiya & Chai Alert",
-                "rule_type": "WEATHER_TRIGGER",
-                "trigger_condition": "Rain detected in customer delivery city",
-                "threshold_value": 1,
-                "template_name": "monsoon_gathiya_special",
-                "coupon_code": "RAINYDAY",
-                "dedup_days": 3,
-                "is_active": False,
-                "total_triggered": 0
-            }
-        ]
-        for r in default_rules:
-            db.add(models.AutomationRule(**r))
-        db.commit()
-
     return db.query(models.AutomationRule).order_by(models.AutomationRule.id.asc()).all()
 
 
@@ -1051,6 +955,12 @@ def update_automation_rule(
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
 
+    if payload.rule_name is not None:
+        rule.rule_name = payload.rule_name
+    if payload.trigger_condition is not None:
+        rule.trigger_condition = payload.trigger_condition
+    if payload.template_name is not None:
+        rule.template_name = payload.template_name
     if payload.is_active is not None:
         rule.is_active = payload.is_active
     if payload.threshold_value is not None:
@@ -1063,6 +973,21 @@ def update_automation_rule(
     db.commit()
     db.refresh(rule)
     return rule
+
+
+@app.delete("/api/automation-rules/{rule_id}")
+def delete_automation_rule(
+    rule_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    rule = db.query(models.AutomationRule).filter(models.AutomationRule.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    db.delete(rule)
+    db.commit()
+    return {"status": "success", "message": f"Rule '{rule.rule_name}' deleted."}
 
 
 @app.post("/api/automation-rules/{rule_id}/trigger")

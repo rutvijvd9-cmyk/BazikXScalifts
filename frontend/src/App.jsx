@@ -396,6 +396,9 @@ export default function App() {
       await axios.patch(
         `/api/automation-rules/${selectedRuleForConfig.id}`,
         {
+          rule_name: selectedRuleForConfig.rule_name,
+          trigger_condition: selectedRuleForConfig.trigger_condition,
+          template_name: selectedRuleForConfig.template_name,
           threshold_value: selectedRuleForConfig.threshold_value,
           coupon_code: selectedRuleForConfig.coupon_code,
           dedup_days: selectedRuleForConfig.dedup_days
@@ -408,6 +411,23 @@ export default function App() {
       setTimeout(() => setActionSuccessMsg(""), 5000);
     } catch (err) {
       alert("Failed to save rule settings: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const handleDeleteRule = async (ruleId, ruleName) => {
+    if (!window.confirm(`Are you sure you want to delete the automation rule "${ruleName}"?`)) return;
+    try {
+      await axios.delete(`/api/automation-rules/${ruleId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setActionSuccessMsg(`🗑️ Automation '${ruleName}' deleted.`);
+      if (selectedRuleForConfig && selectedRuleForConfig.id === ruleId) {
+        setIsConfigModalOpen(false);
+      }
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert("Failed to delete rule: " + (err.response?.data?.detail || err.message));
     }
   };
 
@@ -1154,16 +1174,25 @@ export default function App() {
 
                       {/* Card Footer Actions */}
                       <div className="pt-4 mt-4 border-t border-gray-100 flex items-center justify-between gap-3">
-                        <button
-                          onClick={() => {
-                            setSelectedRuleForConfig(rule);
-                            setIsConfigModalOpen(true);
-                          }}
-                          className="text-xs font-semibold text-gray-700 hover:text-black flex items-center gap-1.5 transition"
-                        >
-                          <Sliders className="w-3.5 h-3.5 text-gray-500" />
-                          Configure & Test
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => {
+                              setSelectedRuleForConfig(rule);
+                              setIsConfigModalOpen(true);
+                            }}
+                            className="text-xs font-semibold text-gray-700 hover:text-black flex items-center gap-1.5 transition"
+                          >
+                            <Sliders className="w-3.5 h-3.5 text-gray-500" />
+                            Configure & Test
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRule(rule.id, rule.rule_name)}
+                            className="text-xs text-red-500 hover:text-red-700 font-semibold flex items-center gap-1 transition"
+                            title="Delete this automation"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
 
                         <button
                           onClick={() => handleTriggerRule(rule)}
@@ -1178,6 +1207,26 @@ export default function App() {
                   );
                 })}
               </div>
+
+              {/* Clean Empty State when 0 automations exist */}
+              {automationRules.length === 0 && (
+                <div className="bg-white rounded-2xl border border-dashed border-gray-300 p-12 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-amber-50 text-[#F5A623] flex items-center justify-center mx-auto mb-4">
+                    <Sliders className="w-7 h-7" />
+                  </div>
+                  <h4 className="text-base font-bold text-gray-900">No Automations Active</h4>
+                  <p className="text-xs text-gray-500 max-w-md mx-auto mt-1 mb-5 leading-relaxed">
+                    All previous automation rules have been deleted. You have a clean slate! Click below to create your first customized automation rule (such as Abandoned Cart Recovery).
+                  </p>
+                  <button
+                    onClick={() => setIsRuleModalOpen(true)}
+                    className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-xs inline-flex items-center gap-2 transition"
+                  >
+                    <Plus className="w-4 h-4" />
+                    + Create First Automation
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1871,10 +1920,20 @@ export default function App() {
                     onChange={(e) => setNewRule({ ...newRule, template_name: e.target.value })}
                     className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                   >
-                    <option value="reorder_reminder">reorder_reminder</option>
-                    <option value="reengagement_30_days">reengagement_30_days</option>
-                    <option value="vip_exclusive_offer">vip_exclusive_offer</option>
-                    <option value="abandoned_cart_recovery">abandoned_cart_recovery</option>
+                    {templates.length > 0 ? (
+                      templates.map((t) => (
+                        <option key={t.id} value={t.template_name}>
+                          {t.template_name} ({t.language})
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="cart_recovery_v1">cart_recovery_v1 (Cart Recovery English)</option>
+                        <option value="abandoned_cart_recovery">abandoned_cart_recovery</option>
+                        <option value="reengagement_30_days">reengagement_30_days</option>
+                        <option value="vip_exclusive_offer">vip_exclusive_offer</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
@@ -2312,7 +2371,32 @@ export default function App() {
             {/* Configuration Form */}
             <form onSubmit={handleSaveConfigRule} className="mt-4 space-y-4">
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3">
-                <h4 className="text-xs font-bold uppercase text-gray-700 tracking-wider">1. Automation Rule Settings</h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase text-gray-700 tracking-wider">1. Automation Rule Settings</h4>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteRule(selectedRuleForConfig.id, selectedRuleForConfig.rule_name)}
+                    className="flex items-center gap-1 text-red-600 hover:text-red-700 text-xs font-semibold hover:bg-red-50 px-2 py-1 rounded transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete Rule
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Rule Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={selectedRuleForConfig.rule_name || ""}
+                    onChange={(e) => setSelectedRuleForConfig({
+                      ...selectedRuleForConfig,
+                      rule_name: e.target.value
+                    })}
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">
@@ -2329,7 +2413,7 @@ export default function App() {
                         ...selectedRuleForConfig,
                         threshold_value: parseInt(e.target.value) || 1
                       })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                      className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                     />
                   </div>
 
@@ -2343,7 +2427,7 @@ export default function App() {
                         coupon_code: e.target.value.toUpperCase()
                       })}
                       placeholder="e.g. GATHIYA10"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                      className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                     />
                   </div>
                 </div>
@@ -2360,7 +2444,7 @@ export default function App() {
                           ...selectedRuleForConfig,
                           dedup_days: parseInt(e.target.value) || 1
                         })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                       />
                       <span className="text-xs text-gray-500 font-semibold">Days</span>
                     </div>
@@ -2368,19 +2452,36 @@ export default function App() {
 
                   <div>
                     <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Template Linked</label>
-                    <input
-                      type="text"
-                      disabled
+                    <select
                       value={selectedRuleForConfig.template_name}
-                      className="w-full px-3 py-2 bg-gray-100 border border-gray-200 rounded-lg text-xs font-mono text-gray-700"
-                    />
+                      onChange={(e) => setSelectedRuleForConfig({
+                        ...selectedRuleForConfig,
+                        template_name: e.target.value
+                      })}
+                      className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                    >
+                      {templates.length > 0 ? (
+                        templates.map((t) => (
+                          <option key={t.id} value={t.template_name}>
+                            {t.template_name} ({t.language})
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="cart_recovery_v1">cart_recovery_v1</option>
+                          <option value="abandoned_cart_recovery">abandoned_cart_recovery</option>
+                          <option value="reengagement_30_days">reengagement_30_days</option>
+                          <option value="festive_promo_offer">festive_promo_offer</option>
+                        </>
+                      )}
+                    </select>
                   </div>
                 </div>
 
                 <div className="flex justify-end pt-1">
                   <button
                     type="submit"
-                    className="bg-[#111827] hover:bg-black text-white px-4 py-1.5 rounded-lg font-bold text-xs shadow-xs transition"
+                    className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2 rounded-lg font-bold text-xs shadow-xs transition"
                   >
                     Save Changes
                   </button>
@@ -2460,7 +2561,14 @@ export default function App() {
               </div>
             </div>
 
-            <div className="pt-4 mt-4 border-t border-gray-100 flex justify-end">
+            <div className="pt-4 mt-4 border-t border-gray-100 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => handleDeleteRule(selectedRuleForConfig.id, selectedRuleForConfig.rule_name)}
+                className="text-xs text-red-600 hover:text-red-700 font-semibold"
+              >
+                Delete this rule
+              </button>
               <button
                 type="button"
                 onClick={() => setIsConfigModalOpen(false)}
