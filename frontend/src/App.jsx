@@ -466,6 +466,38 @@ export default function App() {
     }
   };
 
+  const handleDirectSendTest = async () => {
+    if (!testPhone) {
+      alert("Please enter a test phone number first!");
+      return;
+    }
+    setSimulatingAction(true);
+    try {
+      const res = await axios.post("/api/messages/send-test", {
+        phone: testPhone,
+        template_name: selectedRuleForConfig?.template_name || "abandoned_cart_recovery",
+        language: "en"
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.status === "blocked") {
+        alert(`⚠️ Message blocked: ${res.data.reason}`);
+      } else if (res.data.status === "success_simulated") {
+        setActionSuccessMsg(`📱 Simulated WhatsApp dispatched to ${testPhone} (Logged in DB)`);
+      } else if (res.data.status === "success") {
+        setActionSuccessMsg(`🚀 Live WhatsApp message delivered to ${testPhone}! Meta ID: ${res.data.message_id}`);
+      } else {
+        alert(`Meta response: ${JSON.stringify(res.data)}`);
+      }
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 6000);
+    } catch (err) {
+      alert("Test send error: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setSimulatingAction(false);
+    }
+  };
+
   const handleSimulateOrderCompleted = async (cartToken) => {
     setSimulatingAction(true);
     try {
@@ -852,13 +884,15 @@ export default function App() {
               </button>
             )}
 
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-lg font-semibold text-sm shadow-sm transition shadow-green-500/20"
-            >
-              <Plus className="w-4 h-4" />
-              New Broadcast Campaign
-            </button>
+            {(activeTab === "campaigns" || activeTab === "dashboard") && (
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-lg font-semibold text-sm shadow-sm transition shadow-green-500/20"
+              >
+                <Plus className="w-4 h-4" />
+                New Broadcast Campaign
+              </button>
+            )}
           </div>
         </header>
 
@@ -2703,11 +2737,11 @@ export default function App() {
                 <button
                   type="button"
                   disabled={simulatingAction}
-                  onClick={() => handleTriggerRule(selectedRuleForConfig)}
+                  onClick={handleDirectSendTest}
                   className="bg-[#111827] hover:bg-black text-white font-bold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-xs transition"
                 >
                   <Send className="w-3.5 h-3.5 text-[#F5A623]" />
-                  3. Send WhatsApp
+                  {simulatingAction ? "Sending..." : "3. Send WhatsApp"}
                 </button>
               </div>
             </div>

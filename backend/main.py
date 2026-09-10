@@ -718,6 +718,38 @@ def trigger_manual_reengagement_sweep(
     }
 
 
+class DirectTestMessageRequest(BaseModel):
+    phone: str
+    template_name: str = "abandoned_cart_recovery"
+    language: str = "en"
+    parameters: Optional[dict] = None
+
+@app.post("/api/messages/send-test")
+def send_direct_test_message(
+    payload: DirectTestMessageRequest,
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """
+    Directly dispatches a test WhatsApp template to a specific phone number
+    and returns full status and logs it immediately.
+    """
+    clean_phone = payload.phone.strip()
+    if not clean_phone.startswith("+"):
+        clean_phone = "+" + clean_phone
+
+    res = send_whatsapp_template(
+        recipient_phone=clean_phone,
+        template_name=payload.template_name,
+        language=payload.language,
+        parameters=payload.parameters or {
+            "name": "Valued Customer",
+            "items": "Special Vanela Gathiya (500g)",
+            "cart_value": "₹450"
+        }
+    )
+    return res
+
+
 # --- Templates List & Meta Live Sync API ---
 @app.post("/api/templates/sync-from-meta")
 def sync_templates_from_meta(
