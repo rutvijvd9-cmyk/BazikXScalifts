@@ -473,10 +473,11 @@ export default function App() {
     }
     setSimulatingAction(true);
     try {
+      const selectedTmpl = templates.find((t) => t.template_name === selectedRuleForConfig?.template_name) || templates[0];
       const res = await axios.post("/api/messages/send-test", {
         phone: testPhone,
-        template_name: selectedRuleForConfig?.template_name || "abandoned_cart_recovery",
-        language: "en"
+        template_name: selectedTmpl ? selectedTmpl.template_name : (selectedRuleForConfig?.template_name || "address_update_1"),
+        language: selectedTmpl ? selectedTmpl.language : "en_US"
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });

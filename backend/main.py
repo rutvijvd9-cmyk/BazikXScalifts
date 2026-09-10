@@ -728,25 +728,47 @@ class DirectTestMessageRequest(BaseModel):
 @app.post("/api/messages/send-test")
 def send_direct_test_message(
     payload: DirectTestMessageRequest,
-    current_user: models.User = Depends(auth.get_current_user)
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
 ):
     """
     Directly dispatches a test WhatsApp template to a specific phone number
-    and returns full status and logs it immediately.
+    using the template's exact approved language and placeholder parameters.
     """
     clean_phone = payload.phone.strip()
     if not clean_phone.startswith("+"):
         clean_phone = "+" + clean_phone
 
+    # Look up the template in DB to get its exact language code (e.g. en_US, en, hi, gu)
+    tmpl = db.query(models.Template).filter(models.Template.template_name == payload.template_name).first()
+    lang = payload.language
+    if tmpl and tmpl.language:
+        lang = tmpl.language
+
+    # Prepare parameters matching the template
+    params = payload.parameters
+    if not params:
+        if tmpl and tmpl.body_text:
+            import re
+            # Count placeholders like {{1}}, {{2}}, etc.
+            matches = re.findall(r"\{\{(\d+)\}\}", tmpl.body_text)
+            if matches:
+                sample_vals = [
+                    "Valued Customer",
+                    "Special Vanela Gathiya",
+                    "450",
+                    "SAVE10",
+                    "Ahmedabad"
+                ]
+                params = {f"param_{m}": sample_vals[int(m)-1] if int(m)-1 < len(sample_vals) else f"Val{m}" for m in matches}
+        if not params:
+            params = {}
+
     res = send_whatsapp_template(
         recipient_phone=clean_phone,
         template_name=payload.template_name,
-        language=payload.language,
-        parameters=payload.parameters or {
-            "name": "Valued Customer",
-            "items": "Special Vanela Gathiya (500g)",
-            "cart_value": "₹450"
-        }
+        language=lang,
+        parameters=params
     )
     return res
 
