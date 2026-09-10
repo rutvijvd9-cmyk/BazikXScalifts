@@ -35,7 +35,11 @@ import {
   Clock,
   Star,
   Package,
-  CloudRain
+  CloudRain,
+  Activity,
+  Zap,
+  Radio,
+  BellRing
 } from "lucide-react";
 import axios from "axios";
 
@@ -1010,57 +1014,231 @@ export default function App() {
           {/* ========================================================= */}
           {activeTab === "automations" && (
             <div className="space-y-6">
-              {/* Top 4 KPI Metrics */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Active automations</p>
-                    <h3 className="text-2xl font-black text-gray-900 mt-1">
-                      {automationRules.filter((r) => r.is_active).length} <span className="text-sm font-semibold text-gray-400">/ {automationRules.length}</span>
-                    </h3>
-                  </div>
-                  <div className="w-11 h-11 rounded-xl bg-emerald-50 text-[#10B981] flex items-center justify-center">
-                    <Sliders className="w-5 h-5" />
-                  </div>
-                </div>
+              {/* ── 🚀 UNIFIED AUTOMATION COMMAND DECK (TELEMETRY HUD + LIVE ACTIVITY TICKER) ── */}
+              <div className="bg-[#111827] text-white rounded-2xl p-5 md:p-6 border border-gray-800 shadow-xl overflow-hidden relative">
+                {/* Subtle Ambient Radial Glow */}
+                <div className="absolute -top-24 -left-24 w-80 h-80 bg-[#25D366]/10 rounded-full blur-3xl pointer-events-none"></div>
+                <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-[#F5A623]/10 rounded-full blur-3xl pointer-events-none"></div>
 
-                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Messages sent today</p>
-                    <h3 className="text-2xl font-black text-gray-900 mt-1">
-                      {messageLogs.filter((m) => {
-                        const today = new Date().toISOString().split("T")[0];
-                        return m.created_at && m.created_at.startsWith(today);
-                      }).length}
-                    </h3>
-                  </div>
-                  <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                    <Send className="w-5 h-5" />
-                  </div>
-                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 relative z-10 items-center">
+                  
+                  {/* LEFT: Circular Telemetry HUD (Style 2) */}
+                  <div className="lg:col-span-5 flex flex-col sm:flex-row items-center justify-center gap-6 border-b lg:border-b-0 lg:border-r border-gray-800/80 pb-6 lg:pb-0 lg:pr-6">
+                    {/* Concentric Circular Dial */}
+                    <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
+                      {/* Outer Ring Arc */}
+                      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 160 160">
+                        {/* Background track */}
+                        <circle cx="80" cy="80" r="70" stroke="#1F2937" strokeWidth="6" fill="transparent" />
+                        {/* Active Automations Arc (#25D366) */}
+                        <circle
+                          cx="80"
+                          cy="80"
+                          r="70"
+                          stroke="#25D366"
+                          strokeWidth="6"
+                          strokeDasharray="440"
+                          strokeDashoffset={
+                            automationRules.length > 0
+                              ? 440 - (440 * (automationRules.filter((r) => r.is_active).length / Math.max(1, automationRules.length)))
+                              : 440
+                          }
+                          strokeLinecap="round"
+                          fill="transparent"
+                          className="transition-all duration-700"
+                        />
+                        {/* Inner Ring Arc */}
+                        <circle cx="80" cy="80" r="54" stroke="#374151" strokeWidth="4" strokeDasharray="4 4" fill="transparent" opacity="0.4" />
+                        <circle
+                          cx="80"
+                          cy="80"
+                          r="54"
+                          stroke="#F5A623"
+                          strokeWidth="4"
+                          strokeDasharray="340"
+                          strokeDashoffset={cartEvents.length > 0 ? 100 : 340}
+                          strokeLinecap="round"
+                          fill="transparent"
+                          className="transition-all duration-700"
+                        />
+                      </svg>
 
-                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Carts recovered (30d)</p>
-                    <h3 className="text-2xl font-black text-gray-900 mt-1">
-                      ₹{cartEvents.filter((c) => c.status === "RECOVERED").reduce((sum, c) => sum + (c.cart_value || 0), 0).toLocaleString()}
-                    </h3>
-                  </div>
-                  <div className="w-11 h-11 rounded-xl bg-amber-50 text-[#D35400] flex items-center justify-center">
-                    <ShoppingCart className="w-5 h-5" />
-                  </div>
-                </div>
+                      {/* Center WhatsApp Glowing Badge */}
+                      <div className="absolute flex flex-col items-center justify-center text-center">
+                        <div className="w-13 h-13 rounded-full bg-[#064E3B] border-2 border-[#25D366] flex items-center justify-center shadow-lg shadow-[#25D366]/20">
+                          <MessageSquare className="w-6 h-6 text-[#25D366]" />
+                        </div>
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 mt-1 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#25D366] animate-pulse"></span>
+                          Online
+                        </span>
+                      </div>
+                    </div>
 
-                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Opted out this month</p>
-                    <h3 className="text-2xl font-black text-gray-900 mt-1">{optOuts.length}</h3>
+                    {/* HUD Legend & Radial Readouts */}
+                    <div className="space-y-3 w-full sm:w-auto">
+                      <div className="flex items-center justify-between sm:justify-start gap-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full bg-[#25D366]"></div>
+                          <span className="text-xs text-gray-300 font-medium">Active Automations</span>
+                        </div>
+                        <span className="font-mono font-bold text-sm text-white">
+                          {automationRules.filter((r) => r.is_active).length} <span className="text-gray-500 text-xs">/ {automationRules.length}</span>
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-start gap-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full bg-[#F5A623]"></div>
+                          <span className="text-xs text-gray-300 font-medium">Recovered (30d)</span>
+                        </div>
+                        <span className="font-mono font-bold text-sm text-[#F5A623]">
+                          ₹{cartEvents.filter((c) => c.status === "RECOVERED").reduce((sum, c) => sum + (c.cart_value || 0), 0).toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-start gap-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full bg-blue-400"></div>
+                          <span className="text-xs text-gray-300 font-medium">Sent Today</span>
+                        </div>
+                        <span className="font-mono font-bold text-sm text-blue-300">
+                          {messageLogs.filter((m) => {
+                            const today = new Date().toISOString().split("T")[0];
+                            return m.created_at && m.created_at.startsWith(today);
+                          }).length} msgs
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-start gap-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full bg-red-400"></div>
+                          <span className="text-xs text-gray-300 font-medium">Opt-outs</span>
+                        </div>
+                        <span className="font-mono font-bold text-sm text-gray-300">
+                          {optOuts.length} <span className="text-emerald-400 text-[10px] font-semibold">(Clean List)</span>
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="w-11 h-11 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
-                    <ShieldBan className="w-5 h-5" />
+
+                  {/* RIGHT: Live Streaming Activity Pulse (Style 3) */}
+                  <div className="lg:col-span-7 flex flex-col justify-between space-y-4">
+                    {/* Header with live throughput sparkline */}
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-[#25D366]" />
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-gray-300">
+                          Real-Time Automation Activity Ticker
+                        </h4>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {/* Micro Waveform Sparkline */}
+                        <div className="flex items-end gap-1 h-4 px-2 py-0.5 bg-gray-900/90 rounded border border-gray-800">
+                          <span className="w-1 h-2 bg-[#25D366]/40 rounded-xs"></span>
+                          <span className="w-1 h-3.5 bg-[#25D366] rounded-xs animate-pulse"></span>
+                          <span className="w-1 h-2.5 bg-[#25D366]/70 rounded-xs"></span>
+                          <span className="w-1 h-4 bg-[#25D366] rounded-xs animate-pulse"></span>
+                          <span className="w-1 h-1.5 bg-[#25D366]/50 rounded-xs"></span>
+                        </div>
+                        <span className="text-[11px] font-mono text-gray-400">Live Engine</span>
+                      </div>
+                    </div>
+
+                    {/* Timeline Event Stream Cards */}
+                    <div className="space-y-2.5">
+                      {/* Latest Cart Activity */}
+                      {cartEvents.length > 0 ? (
+                        cartEvents.slice(0, 2).map((cart, idx) => (
+                          <div
+                            key={cart.id || idx}
+                            className="bg-gray-900/70 border border-gray-800/90 hover:border-gray-700 p-2.5 rounded-xl flex items-center justify-between text-xs transition"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-[#F5A623] flex items-center justify-center shrink-0">
+                                <ShoppingCart className="w-3.5 h-3.5" />
+                              </div>
+                              <div>
+                                <span className="font-semibold text-gray-200">
+                                  Cart {cart.status === "RECOVERED" ? "Recovered 🎉" : "Detected"} — ₹{cart.cart_value || 0}
+                                </span>
+                                <span className="text-[11px] text-gray-400 block">
+                                  {cart.customer_phone ? cart.customer_phone.replace(/(\d{5})(\d{5})/, "$1*****") : "Customer"} • {cart.items ? cart.items.length : 1} items
+                                </span>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-mono text-gray-400 bg-gray-800 px-2 py-0.5 rounded">
+                              {cart.status || "WAITING"}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="bg-gray-900/70 border border-dashed border-gray-800 p-3 rounded-xl flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2.5 text-gray-400">
+                            <Radio className="w-4 h-4 text-[#25D366] animate-pulse" />
+                            <span>Scheduler polling store feed & webhook queue for abandoned checkouts...</span>
+                          </div>
+                          <span className="text-[10px] bg-emerald-950/80 text-emerald-400 font-mono px-2 py-0.5 rounded border border-emerald-800/50">
+                            24/7 Listening
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Latest WhatsApp Message Dispatch */}
+                      {messageLogs.length > 0 ? (
+                        <div className="bg-gray-900/70 border border-gray-800/90 p-2.5 rounded-xl flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-3">
+                            <div className="w-7 h-7 rounded-lg bg-[#25D366]/10 text-[#25D366] flex items-center justify-center shrink-0">
+                              <Send className="w-3.5 h-3.5" />
+                            </div>
+                            <div>
+                              <span className="font-semibold text-gray-200">
+                                {messageLogs[0].template_name || "Template Dispatched"}
+                              </span>
+                              <span className="text-[11px] text-gray-400 block">
+                                To: {messageLogs[0].recipient_phone} • Status: {messageLogs[0].status}
+                              </span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 px-2 py-0.5 rounded">
+                            Delivered
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="bg-gray-900/70 border border-dashed border-gray-800 p-3 rounded-xl flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2.5 text-gray-400">
+                            <Zap className="w-4 h-4 text-[#F5A623]" />
+                            <span>No messages dispatched in the last 15 mins. Rate limits in normal range.</span>
+                          </div>
+                          <span className="text-[10px] font-mono text-gray-500">Guardrails OK</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Footer Controls & Simulator Trigger */}
+                    <div className="flex items-center justify-between pt-1 border-t border-gray-800/60 text-[11px]">
+                      <div className="flex items-center gap-2 text-gray-400">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>DND opt-out gate active</span>
+                        <span className="text-gray-600">•</span>
+                        <span>Dedup window: 3-7 days</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const cartRule = automationRules.find((r) => r.rule_type === "CART_RECOVERY") || automationRules[0];
+                          setSelectedRuleForConfig(cartRule);
+                          setIsConfigModalOpen(true);
+                        }}
+                        className="text-[#25D366] hover:text-[#1EBE5D] font-bold flex items-center gap-1 cursor-pointer transition"
+                      >
+                        ⚡ Test Simulator Flow →
+                      </button>
+                    </div>
                   </div>
+
                 </div>
               </div>
+
 
               {/* Subheader & Actions */}
               <div className="flex items-center justify-between flex-wrap gap-4 pt-2">
