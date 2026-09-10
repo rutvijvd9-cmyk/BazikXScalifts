@@ -1900,15 +1900,28 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Threshold Value</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={newRule.threshold_value}
-                    onChange={(e) => setNewRule({ ...newRule, threshold_value: parseInt(e.target.value) || 1 })}
-                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  />
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                    {newRule.rule_type === "CART_RECOVERY" ? "Cart Delay" :
+                     newRule.rule_type === "INACTIVE_DAYS" ? "Inactive Duration" :
+                     newRule.rule_type === "ORDER_COUNT_VIP" ? "Order Milestone Count" :
+                     "Threshold Value"}
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={newRule.threshold_value}
+                      onChange={(e) => setNewRule({ ...newRule, threshold_value: parseInt(e.target.value) || 1 })}
+                      className="w-full pl-3.5 pr-20 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                    />
+                    <span className="absolute right-2.5 px-2.5 py-1 text-xs font-bold rounded-md bg-gray-100 text-gray-700 border border-gray-200 uppercase">
+                      {newRule.rule_type === "CART_RECOVERY" ? "Minutes" :
+                       newRule.rule_type === "INACTIVE_DAYS" ? "Days" :
+                       newRule.rule_type === "ORDER_COUNT_VIP" ? "Orders" :
+                       "Units"}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -2400,21 +2413,29 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">
-                      {selectedRuleForConfig.rule_type === "CART_RECOVERY" ? "Cart Delay (Minutes)" :
-                       selectedRuleForConfig.rule_type === "INACTIVE_DAYS" ? "Inactive Days Threshold" :
+                      {selectedRuleForConfig.rule_type === "CART_RECOVERY" ? "Cart Delay" :
+                       selectedRuleForConfig.rule_type === "INACTIVE_DAYS" ? "Inactive Duration" :
                        selectedRuleForConfig.rule_type === "ORDER_COUNT_VIP" ? "Order Milestone Count" :
                        "Threshold Value"}
                     </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={selectedRuleForConfig.threshold_value}
-                      onChange={(e) => setSelectedRuleForConfig({
-                        ...selectedRuleForConfig,
-                        threshold_value: parseInt(e.target.value) || 1
-                      })}
-                      className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                    />
+                    <div className="relative flex items-center">
+                      <input
+                        type="number"
+                        min="1"
+                        value={selectedRuleForConfig.threshold_value}
+                        onChange={(e) => setSelectedRuleForConfig({
+                          ...selectedRuleForConfig,
+                          threshold_value: parseInt(e.target.value) || 1
+                        })}
+                        className="w-full pl-3 pr-20 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                      />
+                      <span className="absolute right-2 px-2 py-0.5 text-[10px] font-bold rounded bg-gray-100 text-gray-700 border border-gray-200 uppercase">
+                        {selectedRuleForConfig.rule_type === "CART_RECOVERY" ? "Minutes" :
+                         selectedRuleForConfig.rule_type === "INACTIVE_DAYS" ? "Days" :
+                         selectedRuleForConfig.rule_type === "ORDER_COUNT_VIP" ? "Orders" :
+                         "Units"}
+                      </span>
+                    </div>
                   </div>
 
                   <div>
