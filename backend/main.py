@@ -65,22 +65,35 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "dev_secret")
 @app.on_event("startup")
 def on_startup():
     start_scheduler()
-    # Create default admin user if none exists
+    # Create or update default admin user from environment variables
     db = next(get_db())
-    initial_user = os.getenv("INITIAL_ADMIN_USERNAME", "admin")
+    initial_user = os.getenv("INITIAL_ADMIN_USERNAME", "admin").strip()
     initial_pass = os.getenv("INITIAL_ADMIN_PASSWORD")
-    initial_email = os.getenv("INITIAL_ADMIN_EMAIL", "admin@manubhaigathiyawala.com")
+    initial_email = os.getenv("INITIAL_ADMIN_EMAIL", "admin@manubhaigathiyawala.com").strip()
     
-    admin = db.query(models.User).filter(models.User.username == initial_user).first()
-    if not admin and initial_pass:
-        default_admin = models.User(
-            username=initial_user,
-            email=initial_email,
-            hashed_password=auth.get_password_hash(initial_pass),
-            is_active=True
-        )
-        db.add(default_admin)
-        db.commit()
+    if initial_pass:
+        admin = db.query(models.User).filter(models.User.username == initial_user).first()
+        if not admin:
+            # Also check by email to prevent duplicate accounts
+            admin = db.query(models.User).filter(models.User.email == initial_email).first()
+            
+        if admin:
+            admin.username = initial_user
+            admin.email = initial_email
+            admin.hashed_password = auth.get_password_hash(initial_pass)
+            admin.is_active = True
+            db.commit()
+            print(f"🔒 [Security] Initial admin '{initial_user}' credentials synchronized.")
+        else:
+            default_admin = models.User(
+                username=initial_user,
+                email=initial_email,
+                hashed_password=auth.get_password_hash(initial_pass),
+                is_active=True
+            )
+            db.add(default_admin)
+            db.commit()
+            print(f"🔒 [Security] Initial admin '{initial_user}' created successfully.")
     db.close()
 
 
