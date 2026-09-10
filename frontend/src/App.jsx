@@ -1344,8 +1344,8 @@ export default function App() {
                             </span>
                           </td>
                           <td className="px-4 py-3.5 font-semibold text-xs text-gray-700">
-                            {u.username === "admin" ? (
-                              <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-bold">Admin</span>
+                            {u.id === 1 || u.username.toLowerCase().includes("admin") ? (
+                              <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-bold">Admin (Full Access)</span>
                             ) : (
                               <span className="bg-blue-50 text-blue-800 px-2 py-0.5 rounded font-medium">Team Member</span>
                             )}
