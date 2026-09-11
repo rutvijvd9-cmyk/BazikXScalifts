@@ -82,56 +82,47 @@ def on_startup():
 
     # ── Safe column migrations ────────────────────────────────────────────────
     # ADD COLUMN IF NOT EXISTS is idempotent – safe to run on every deploy.
-    # This ensures columns added after initial table creation exist in the live DB.
+    # Uses the already-imported `engine` and `text` from sqlalchemy.
+    _migrations = [
+        # automation_rules: columns added for high-volume safeguard + 2FA approval gate
+        "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS approval_status VARCHAR(50) DEFAULT 'IDLE'",
+        "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS pending_recipients_count INTEGER DEFAULT 0",
+        "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS total_triggered INTEGER DEFAULT 0",
+        "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+        # users: 2FA / TOTP columns
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_email VARCHAR(200)",
+        # contacts: extended profile columns
+        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS city VARCHAR(100)",
+        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS tags VARCHAR(500)",
+        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS order_count INTEGER DEFAULT 0",
+        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_order_date TIMESTAMP",
+    ]
     try:
-        with database.engine.connect() as conn:
-            migrations = [
-                # automation_rules: columns added for high-volume safeguard + 2FA gate
-                "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS approval_status VARCHAR(50) DEFAULT 'IDLE'",
-                "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS pending_recipients_count INTEGER DEFAULT 0",
-                "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS total_triggered INTEGER DEFAULT 0",
-                "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
-                # users: columns added for 2FA (TOTP) support
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64)",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_email VARCHAR(200)",
-                # contacts: columns added for extended profile
-                "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS city VARCHAR(100)",
-                "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS tags VARCHAR(500)",
-                "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE",
-                "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS order_count INTEGER DEFAULT 0",
-                "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_order_date TIMESTAMP",
-                # chat_messages: ensure table exists (created via create_all below)
-            ]
-            for sql in migrations:
+        with engine.connect() as _conn:
+            for _sql in _migrations:
                 try:
-                    conn.execute(database.text(sql))
-                except Exception as col_err:
-                    print(f"⚠️  Migration skipped (may already exist): {col_err}")
-            conn.commit()
+                    _conn.execute(text(_sql))
+                except Exception as _col_err:
+                    print(f"⚠️  Migration note: {_col_err}")
+            _conn.commit()
         print("✅ [DB] Safe column migrations applied.")
-    except Exception as mig_err:
-        print(f"⚠️  [DB] Migration step error (non-fatal): {mig_err}")
-
-    # Ensure all tables defined in models exist (create if missing, no-op if present)
-    try:
-        models.Base.metadata.create_all(bind=database.engine)
-        print("✅ [DB] Table schema verified / created.")
-    except Exception as e:
-        print(f"⚠️  [DB] create_all error: {e}")
+    except Exception as _mig_err:
+        print(f"⚠️  [DB] Migration step error (non-fatal): {_mig_err}")
 
     # ── Admin user sync ───────────────────────────────────────────────────────
     db = next(get_db())
     initial_user = os.getenv("INITIAL_ADMIN_USERNAME", "admin").strip()
     initial_pass = os.getenv("INITIAL_ADMIN_PASSWORD")
     initial_email = os.getenv("INITIAL_ADMIN_EMAIL", "admin@manubhaigathiyawala.com").strip()
-    
+
     if initial_pass:
         admin = db.query(models.User).filter(models.User.username == initial_user).first()
         if not admin:
-            # Also check by email to prevent duplicate accounts
             admin = db.query(models.User).filter(models.User.email == initial_email).first()
-            
+
         if admin:
             admin.username = initial_user
             admin.email = initial_email
@@ -1647,26 +1638,21 @@ def list_automation_rules(
     db: Session = Depends(get_db)
 ):
     """
-    List all automation rules. Uses a resilient raw-SQL query that safely falls back
-    to default values for columns that may not yet exist in an older DB schema.
+    List all automation rules. Falls back gracefully if newer columns are missing from DB.
     """
     try:
-        # Try the ORM query first (works once migration has run)
+        # Normal ORM query — works once startup migration has run
         rules = db.query(models.AutomationRule).order_by(models.AutomationRule.id.asc()).all()
         return rules
     except Exception:
         db.rollback()
-        # Fallback: raw SQL using COALESCE so missing columns don't break the response
+        # Fallback 1: raw SQL with COALESCE for missing newer columns
         try:
-            sql = database.text("""
+            sql = text("""
                 SELECT
-                    id,
-                    rule_name,
-                    rule_type,
-                    trigger_condition,
+                    id, rule_name, rule_type, trigger_condition,
                     COALESCE(threshold_value, 30)         AS threshold_value,
-                    template_name,
-                    coupon_code,
+                    template_name, coupon_code,
                     COALESCE(dedup_days, 7)               AS dedup_days,
                     COALESCE(is_active, true)             AS is_active,
                     COALESCE(total_triggered, 0)          AS total_triggered,
@@ -1678,11 +1664,11 @@ def list_automation_rules(
             """)
             rows = db.execute(sql).mappings().all()
             return [dict(r) for r in rows]
-        except Exception as raw_err:
-            # If even the raw query fails try without the newer columns
-            sql2 = database.text("""
-                SELECT
-                    id, rule_name, rule_type, trigger_condition,
+        except Exception:
+            db.rollback()
+            # Fallback 2: minimal columns only, inject defaults for new ones
+            sql2 = text("""
+                SELECT id, rule_name, rule_type, trigger_condition,
                     COALESCE(threshold_value, 30) AS threshold_value,
                     template_name, coupon_code,
                     COALESCE(dedup_days, 7) AS dedup_days,
@@ -1691,7 +1677,8 @@ def list_automation_rules(
             """)
             rows2 = db.execute(sql2).mappings().all()
             return [
-                {**dict(r), "total_triggered": 0, "approval_status": "IDLE", "pending_recipients_count": 0}
+                {**dict(r), "total_triggered": 0, "approval_status": "IDLE",
+                 "pending_recipients_count": 0, "created_at": None}
                 for r in rows2
             ]
 
