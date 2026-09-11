@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
@@ -18,6 +19,7 @@ class ContactResponse(BaseModel):
     name: Optional[str]
     email: Optional[str]
     total_orders: int
+    last_order_date: Optional[datetime] = None
     city: Optional[str] = None
     tags: Optional[str] = None
     birth_day: Optional[int] = None

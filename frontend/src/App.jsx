@@ -16,6 +16,8 @@ import {
   IndianRupee,
   MessageSquare,
   Search,
+  Filter,
+  ArrowUpDown,
   Trash2,
   AlertTriangle,
   PlayCircle,
@@ -122,9 +124,15 @@ export default function App() {
   // Search filter for lists
   const [searchTerm, setSearchTerm] = useState("");
 
-  // Contacts Pagination State
+  // Contacts Pagination & Filtering State
   const [contactsPage, setContactsPage] = useState(1);
   const [contactsPerPage, setContactsPerPage] = useState(50);
+  const [contactSortField, setContactSortField] = useState("id");
+  const [contactSortOrder, setContactSortOrder] = useState("desc");
+  const [contactFilterCity, setContactFilterCity] = useState("ALL");
+  const [contactFilterTag, setContactFilterTag] = useState("ALL");
+  const [contactFilterVip, setContactFilterVip] = useState("ALL");
+  const [contactFilterOrders, setContactFilterOrders] = useState("ALL");
 
   // New Campaign Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -2060,37 +2068,249 @@ export default function App() {
                 </div>
               </div>
               {(() => {
-                const filteredContacts = contacts.filter(
-                  (c) =>
+                // Unique cities and tags for filter dropdowns
+                const uniqueCities = Array.from(new Set(contacts.map((c) => c.city).filter(Boolean))).sort();
+                const uniqueTags = Array.from(
+                  new Set(
+                    contacts
+                      .flatMap((c) => (c.tags ? c.tags.split(",").map((t) => t.trim()) : []))
+                      .filter(Boolean)
+                  )
+                ).sort();
+
+                const filteredContacts = contacts.filter((c) => {
+                  const matchesSearch =
+                    !searchTerm ||
                     c.phone.includes(searchTerm) ||
                     (c.name && c.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
                     (c.city && c.city.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                    (c.tags && c.tags.toLowerCase().includes(searchTerm.toLowerCase()))
-                );
+                    (c.tags && c.tags.toLowerCase().includes(searchTerm.toLowerCase()));
+
+                  const matchesCity = contactFilterCity === "ALL" || c.city === contactFilterCity;
+
+                  const matchesTag =
+                    contactFilterTag === "ALL" ||
+                    (c.tags && c.tags.toLowerCase().includes(contactFilterTag.toLowerCase()));
+
+                  const matchesVip =
+                    contactFilterVip === "ALL" ||
+                    (contactFilterVip === "SUPER_VIP" && c.total_orders >= 10) ||
+                    (contactFilterVip === "VIP" && c.total_orders >= 5 && c.total_orders < 10) ||
+                    (contactFilterVip === "REGULAR" && c.total_orders < 5);
+
+                  const matchesOrders =
+                    contactFilterOrders === "ALL" ||
+                    (contactFilterOrders === "0" && c.total_orders === 0) ||
+                    (contactFilterOrders === "1_4" && c.total_orders >= 1 && c.total_orders <= 4) ||
+                    (contactFilterOrders === "5_9" && c.total_orders >= 5 && c.total_orders <= 9) ||
+                    (contactFilterOrders === "10_PLUS" && c.total_orders >= 10);
+
+                  return matchesSearch && matchesCity && matchesTag && matchesVip && matchesOrders;
+                });
+
+                // Sorting
+                filteredContacts.sort((a, b) => {
+                  let valA = a[contactSortField];
+                  let valB = b[contactSortField];
+
+                  if (contactSortField === "name") {
+                    valA = (a.name || "").toLowerCase();
+                    valB = (b.name || "").toLowerCase();
+                  } else if (contactSortField === "phone") {
+                    valA = a.phone || "";
+                    valB = b.phone || "";
+                  } else if (contactSortField === "city") {
+                    valA = (a.city || "").toLowerCase();
+                    valB = (b.city || "").toLowerCase();
+                  } else if (contactSortField === "total_orders") {
+                    valA = a.total_orders || 0;
+                    valB = b.total_orders || 0;
+                  } else if (contactSortField === "last_order_date") {
+                    valA = a.last_order_date ? new Date(a.last_order_date).getTime() : 0;
+                    valB = b.last_order_date ? new Date(b.last_order_date).getTime() : 0;
+                  } else if (contactSortField === "id") {
+                    valA = a.id || 0;
+                    valB = b.id || 0;
+                  }
+
+                  if (valA < valB) return contactSortOrder === "asc" ? -1 : 1;
+                  if (valA > valB) return contactSortOrder === "asc" ? 1 : -1;
+                  return 0;
+                });
+
                 const totalContacts = filteredContacts.length;
                 const totalPages = Math.max(1, Math.ceil(totalContacts / contactsPerPage));
                 const currentPage = Math.min(contactsPage, totalPages);
                 const startIndex = (currentPage - 1) * contactsPerPage;
                 const paginatedContacts = filteredContacts.slice(startIndex, startIndex + contactsPerPage);
 
+                const handleSort = (field) => {
+                  if (contactSortField === field) {
+                    setContactSortOrder(contactSortOrder === "asc" ? "desc" : "asc");
+                  } else {
+                    setContactSortField(field);
+                    setContactSortOrder(field === "name" || field === "city" ? "asc" : "desc");
+                  }
+                  setContactsPage(1);
+                };
+
+                const hasActiveFilters =
+                  searchTerm ||
+                  contactFilterCity !== "ALL" ||
+                  contactFilterTag !== "ALL" ||
+                  contactFilterVip !== "ALL" ||
+                  contactFilterOrders !== "ALL";
+
                 return (
                   <>
+                    {/* Filter Toolbar */}
+                    <div className="bg-gray-50/70 border-b border-gray-200 px-6 py-2.5 flex items-center justify-between flex-wrap gap-2.5 text-xs">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1 font-semibold text-gray-700 mr-1">
+                          <Filter className="w-3.5 h-3.5 text-gray-500" />
+                          <span>Filters:</span>
+                        </div>
+
+                        {/* City Filter */}
+                        <select
+                          value={contactFilterCity}
+                          onChange={(e) => {
+                            setContactFilterCity(e.target.value);
+                            setContactsPage(1);
+                          }}
+                          className="bg-white border border-gray-200 rounded-lg px-2.5 py-1 text-xs text-gray-700 font-medium focus:outline-none focus:ring-1 focus:ring-[#25D366]"
+                        >
+                          <option value="ALL">All Cities ({uniqueCities.length})</option>
+                          {uniqueCities.map((city) => (
+                            <option key={city} value={city}>{city}</option>
+                          ))}
+                        </select>
+
+                        {/* Tag Filter */}
+                        <select
+                          value={contactFilterTag}
+                          onChange={(e) => {
+                            setContactFilterTag(e.target.value);
+                            setContactsPage(1);
+                          }}
+                          className="bg-white border border-gray-200 rounded-lg px-2.5 py-1 text-xs text-gray-700 font-medium focus:outline-none focus:ring-1 focus:ring-[#25D366]"
+                        >
+                          <option value="ALL">All Tags ({uniqueTags.length})</option>
+                          {uniqueTags.map((tag) => (
+                            <option key={tag} value={tag}>{tag}</option>
+                          ))}
+                        </select>
+
+                        {/* VIP Status Filter */}
+                        <select
+                          value={contactFilterVip}
+                          onChange={(e) => {
+                            setContactFilterVip(e.target.value);
+                            setContactsPage(1);
+                          }}
+                          className="bg-white border border-gray-200 rounded-lg px-2.5 py-1 text-xs text-gray-700 font-medium focus:outline-none focus:ring-1 focus:ring-[#25D366]"
+                        >
+                          <option value="ALL">All VIP Tiers</option>
+                          <option value="SUPER_VIP">⭐ Super VIP (10+ Orders)</option>
+                          <option value="VIP">🌟 VIP Buyer (5-9 Orders)</option>
+                          <option value="REGULAR">Regular (&lt; 5 Orders)</option>
+                        </select>
+
+                        {/* Order Volume Filter */}
+                        <select
+                          value={contactFilterOrders}
+                          onChange={(e) => {
+                            setContactFilterOrders(e.target.value);
+                            setContactsPage(1);
+                          }}
+                          className="bg-white border border-gray-200 rounded-lg px-2.5 py-1 text-xs text-gray-700 font-medium focus:outline-none focus:ring-1 focus:ring-[#25D366]"
+                        >
+                          <option value="ALL">All Order Counts</option>
+                          <option value="0">0 Orders (New Lead)</option>
+                          <option value="1_4">1 - 4 Orders</option>
+                          <option value="5_9">5 - 9 Orders</option>
+                          <option value="10_PLUS">10+ Orders</option>
+                        </select>
+
+                        {hasActiveFilters && (
+                          <button
+                            onClick={() => {
+                              setSearchTerm("");
+                              setContactFilterCity("ALL");
+                              setContactFilterTag("ALL");
+                              setContactFilterVip("ALL");
+                              setContactFilterOrders("ALL");
+                              setContactsPage(1);
+                            }}
+                            className="text-xs text-red-600 hover:text-red-700 font-bold ml-1 transition cursor-pointer"
+                          >
+                            Clear All
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="text-[11px] text-gray-500 font-medium">
+                        Found <strong className="text-gray-900">{totalContacts}</strong> match{totalContacts === 1 ? "" : "es"}
+                      </div>
+                    </div>
+
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-sm text-gray-600">
                         <thead className="bg-gray-50 text-xs uppercase font-semibold text-gray-500 border-b border-gray-200">
                           <tr>
-                            <th className="px-6 py-3">Customer Name</th>
-                            <th className="px-6 py-3">Phone Number</th>
-                            <th className="px-6 py-3">City / Tags</th>
-                            <th className="px-6 py-3">Total Orders</th>
+                            <th
+                              onClick={() => handleSort("name")}
+                              className="px-6 py-3 cursor-pointer hover:bg-gray-100/80 transition select-none"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span>Customer Name</span>
+                                <ArrowUpDown className={`w-3 h-3 ${contactSortField === "name" ? "text-emerald-600 font-bold" : "text-gray-400"}`} />
+                              </div>
+                            </th>
+                            <th
+                              onClick={() => handleSort("phone")}
+                              className="px-6 py-3 cursor-pointer hover:bg-gray-100/80 transition select-none"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span>Phone Number</span>
+                                <ArrowUpDown className={`w-3 h-3 ${contactSortField === "phone" ? "text-emerald-600 font-bold" : "text-gray-400"}`} />
+                              </div>
+                            </th>
+                            <th
+                              onClick={() => handleSort("city")}
+                              className="px-6 py-3 cursor-pointer hover:bg-gray-100/80 transition select-none"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span>City / Tags</span>
+                                <ArrowUpDown className={`w-3 h-3 ${contactSortField === "city" ? "text-emerald-600 font-bold" : "text-gray-400"}`} />
+                              </div>
+                            </th>
+                            <th
+                              onClick={() => handleSort("total_orders")}
+                              className="px-6 py-3 cursor-pointer hover:bg-gray-100/80 transition select-none"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span>Total Orders</span>
+                                <ArrowUpDown className={`w-3 h-3 ${contactSortField === "total_orders" ? "text-emerald-600 font-bold" : "text-gray-400"}`} />
+                              </div>
+                            </th>
+                            <th
+                              onClick={() => handleSort("last_order_date")}
+                              className="px-6 py-3 cursor-pointer hover:bg-gray-100/80 transition select-none"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span>Last Order Date</span>
+                                <ArrowUpDown className={`w-3 h-3 ${contactSortField === "last_order_date" ? "text-emerald-600 font-bold" : "text-gray-400"}`} />
+                              </div>
+                            </th>
                             <th className="px-6 py-3">VIP Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                           {paginatedContacts.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="px-6 py-10 text-center text-gray-400 text-xs font-medium">
-                                No contacts found matching your search.
+                              <td colSpan={6} className="px-6 py-10 text-center text-gray-400 text-xs font-medium">
+                                No contacts found matching the active filters or search.
                               </td>
                             </tr>
                           ) : (
@@ -2115,6 +2335,22 @@ export default function App() {
                                     <span className="ml-2 text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-bold border border-purple-200">
                                       #{c.total_orders} Milestone
                                     </span>
+                                  )}
+                                </td>
+                                <td className="px-6 py-4 text-xs font-medium text-gray-600 whitespace-nowrap">
+                                  {c.last_order_date ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                                      <span>
+                                        {new Date(c.last_order_date).toLocaleDateString("en-IN", {
+                                          day: "numeric",
+                                          month: "short",
+                                          year: "numeric"
+                                        })}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-400">—</span>
                                   )}
                                 </td>
                                 <td className="px-6 py-4">
@@ -2145,7 +2381,7 @@ export default function App() {
                         Showing <strong className="text-gray-900">{totalContacts === 0 ? 0 : startIndex + 1}</strong> to{" "}
                         <strong className="text-gray-900">{Math.min(startIndex + contactsPerPage, totalContacts)}</strong> of{" "}
                         <strong className="text-gray-900">{totalContacts}</strong> contacts
-                        {searchTerm && <span className="ml-1 text-amber-600">(filtered)</span>}
+                        {hasActiveFilters && <span className="ml-1 text-amber-600 font-semibold">(filtered)</span>}
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -2750,8 +2986,8 @@ export default function App() {
                   <span className="font-bold text-gray-900">Expected CSV Columns:</span>
                   <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded border border-emerald-200">Max 5MB</span>
                 </div>
-                <code className="text-[11px] font-mono text-[#D35400] block">phone, name, email, city, tags, total_orders</code>
-                <div className="text-[11px] text-gray-400">Example phone: +919876543210</div>
+                <code className="text-[11px] font-mono text-[#D35400] block">phone, name, email, city, tags, total_orders, last_order_date</code>
+                <div className="text-[11px] text-gray-400">Example phone: +919876543210 • Date: YYYY-MM-DD</div>
               </div>
 
               <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">

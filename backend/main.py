@@ -572,12 +572,23 @@ async def import_contacts_csv(
         except ValueError:
             total_orders = 0
 
+        last_order_raw = norm_row.get("last_order_date") or norm_row.get("last_order") or norm_row.get("order_date")
+        parsed_last_order = None
+        if last_order_raw:
+            for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y"):
+                try:
+                    parsed_last_order = datetime.strptime(last_order_raw.strip(), fmt)
+                    break
+                except ValueError:
+                    pass
+
         queue_contacts[phone] = {
             "name": name,
             "email": email,
             "city": city,
             "tags": tags,
-            "total_orders": total_orders
+            "total_orders": total_orders,
+            "last_order_date": parsed_last_order
         }
 
     imported_count = 0
@@ -608,6 +619,8 @@ async def import_contacts_csv(
                     c.tags = item["tags"]
                 if item["total_orders"] > 0:
                     c.total_orders = item["total_orders"]
+                if item["last_order_date"]:
+                    c.last_order_date = item["last_order_date"]
                 updated_count += 1
             else:
                 new_c = models.Contact(
@@ -616,7 +629,8 @@ async def import_contacts_csv(
                     email=item["email"],
                     city=item["city"],
                     tags=item["tags"],
-                    total_orders=item["total_orders"]
+                    total_orders=item["total_orders"],
+                    last_order_date=item["last_order_date"]
                 )
                 db.add(new_c)
                 imported_count += 1
