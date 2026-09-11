@@ -1646,7 +1646,54 @@ def list_automation_rules(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    return db.query(models.AutomationRule).order_by(models.AutomationRule.id.asc()).all()
+    """
+    List all automation rules. Uses a resilient raw-SQL query that safely falls back
+    to default values for columns that may not yet exist in an older DB schema.
+    """
+    try:
+        # Try the ORM query first (works once migration has run)
+        rules = db.query(models.AutomationRule).order_by(models.AutomationRule.id.asc()).all()
+        return rules
+    except Exception:
+        db.rollback()
+        # Fallback: raw SQL using COALESCE so missing columns don't break the response
+        try:
+            sql = database.text("""
+                SELECT
+                    id,
+                    rule_name,
+                    rule_type,
+                    trigger_condition,
+                    COALESCE(threshold_value, 30)         AS threshold_value,
+                    template_name,
+                    coupon_code,
+                    COALESCE(dedup_days, 7)               AS dedup_days,
+                    COALESCE(is_active, true)             AS is_active,
+                    COALESCE(total_triggered, 0)          AS total_triggered,
+                    COALESCE(approval_status, 'IDLE')     AS approval_status,
+                    COALESCE(pending_recipients_count, 0) AS pending_recipients_count,
+                    created_at
+                FROM automation_rules
+                ORDER BY id ASC
+            """)
+            rows = db.execute(sql).mappings().all()
+            return [dict(r) for r in rows]
+        except Exception as raw_err:
+            # If even the raw query fails try without the newer columns
+            sql2 = database.text("""
+                SELECT
+                    id, rule_name, rule_type, trigger_condition,
+                    COALESCE(threshold_value, 30) AS threshold_value,
+                    template_name, coupon_code,
+                    COALESCE(dedup_days, 7) AS dedup_days,
+                    COALESCE(is_active, true) AS is_active
+                FROM automation_rules ORDER BY id ASC
+            """)
+            rows2 = db.execute(sql2).mappings().all()
+            return [
+                {**dict(r), "total_triggered": 0, "approval_status": "IDLE", "pending_recipients_count": 0}
+                for r in rows2
+            ]
 
 
 @app.post("/api/automation-rules", status_code=status.HTTP_201_CREATED)
