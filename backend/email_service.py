@@ -262,3 +262,71 @@ def send_2fa_recovery_email(recipient_email: str, username: str, recovery_code: 
     """
     return send_email_alert(subject=subject, html_body=html_body, recipients=[recipient_email], priority="high")
 
+
+def send_automation_approval_email(
+    rule_name: str,
+    rule_id: int,
+    recipient_count: int,
+    template_name: str,
+    condition: str
+) -> dict:
+    """
+    Alerts administrators when an automation triggers on > 10 recipients and is held for approval.
+    """
+    now_str = datetime.now().strftime("%d %b %Y, %I:%M %p IST")
+    subject = f"⚠️ [Approval Required] Automation '{rule_name}' queued for {recipient_count} WhatsApp recipients"
+    html_body = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 580px; margin: 0 auto; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden; background: #FFFFFF;">
+      <div style="background: #111827; padding: 20px 24px; color: white; border-bottom: 3px solid #F5A623;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <h2 style="margin: 0; font-size: 18px; font-weight: bold; color: #F5A623;">⚠️ Permission & Approval Gate</h2>
+          <span style="background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 9999px;">&gt; 10 Recipients</span>
+        </div>
+        <p style="margin: 4px 0 0 0; font-size: 12px; color: #9CA3AF;">Automation Rule execution paused pending admin approval</p>
+      </div>
+
+      <div style="padding: 24px; color: #1F2937; line-height: 1.6;">
+        <p style="margin-top: 0; font-size: 14px;">Hello Admin,</p>
+        <p style="font-size: 13px; color: #4B5563;">
+          The automation rule <strong>"{rule_name}"</strong> has met its trigger condition (<code>{condition}</code>) and has identified <strong>{recipient_count} eligible contacts</strong>.
+        </p>
+
+        <div style="background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 8px; padding: 16px; margin: 18px 0;">
+          <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+            <tr>
+              <td style="color: #6B7280; padding: 4px 0; width: 40%;">Automation Rule:</td>
+              <td style="font-weight: bold; color: #111827;">{rule_name} (ID: #{rule_id})</td>
+            </tr>
+            <tr>
+              <td style="color: #6B7280; padding: 4px 0;">Target Recipients:</td>
+              <td style="font-weight: bold; color: #DC2626;">{recipient_count} contacts (&gt; 10 threshold)</td>
+            </tr>
+            <tr>
+              <td style="color: #6B7280; padding: 4px 0;">WhatsApp Template:</td>
+              <td style="font-weight: bold; color: #111827;"><code>{template_name}</code></td>
+            </tr>
+            <tr>
+              <td style="color: #6B7280; padding: 4px 0;">Status:</td>
+              <td style="font-weight: bold; color: #D97706;">HELD_FOR_APPROVAL</td>
+            </tr>
+          </table>
+        </div>
+
+        <div style="background: #EFF6FF; padding: 12px 16px; border-radius: 8px; border-left: 4px solid #3B82F6; font-size: 12px; color: #1E40AF; margin-bottom: 20px;">
+          <strong>Security Protocol:</strong> Because this action will dispatch messages to more than 10 phone numbers, the system requires your explicit permission and 2FA authentication to prevent accidental mass charges or spam.
+        </div>
+
+        <div style="text-align: center; margin: 24px 0;">
+          <a href="https://bazikscalifts.vercel.app/#automations" style="display: inline-block; background: #25D366; color: #000000; font-weight: bold; font-size: 14px; text-decoration: none; padding: 12px 24px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            Review & Approve in Dashboard →
+          </a>
+        </div>
+      </div>
+
+      <div style="background: #F9FAFB; padding: 12px 24px; text-align: center; font-size: 11px; color: #9CA3AF; border-top: 1px solid #F3F4F6;">
+        Manubhai Gathiyawala WhatsApp CRM • High-Volume Safeguard System
+      </div>
+    </div>
+    """
+    return send_email_alert(subject=subject, html_body=html_body, priority="high")
+

@@ -126,6 +126,8 @@ class AutomationRule(Base):
     dedup_days = Column(Integer, default=7)
     is_active = Column(Boolean, default=True)
     total_triggered = Column(Integer, default=0)
+    approval_status = Column(String(50), default="IDLE")  # IDLE, PENDING_APPROVAL, APPROVED
+    pending_recipients_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

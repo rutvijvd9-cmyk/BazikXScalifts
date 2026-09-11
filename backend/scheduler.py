@@ -290,20 +290,25 @@ def start_scheduler():
         scheduler.start()
         logger.info("🚀 APScheduler started successfully with automatic daily triggers and 10-min digest.")
 
-def run_rule_execution(rule_id: int) -> int:
+def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
     """
     Executes an individual automation rule dynamically based on its condition.
     - INACTIVE_DAYS (e.g. 15 days or 30 days)
     - ORDER_COUNT_VIP (e.g. >= 2 orders)
+
+    🛡️ HIGH-VOLUME SAFEGUARD:
+    If the rule targets more than 10 contacts (> 10), it is held in PENDING_APPROVAL
+    and dispatches an alert email to all admin emails asking for 2FA permission,
+    unless explicitly authorized by admin (force_approved=True).
     """
     db = SessionLocal()
     sent_count = 0
     try:
         rule = db.query(models.AutomationRule).filter(models.AutomationRule.id == rule_id).first()
         if not rule or not rule.is_active:
-            return 0
+            return {"status": "inactive", "messages_dispatched": 0, "requires_approval": False}
 
-        logger.info(f"⚙️ [Rule Engine] Running automation rule: '{rule.rule_name}'")
+        logger.info(f"⚙️ [Rule Engine] Running automation rule: '{rule.rule_name}' (force_approved={force_approved})")
         target_phones = {}
 
         if rule.rule_type == "INACTIVE_DAYS":
@@ -323,18 +328,51 @@ def run_rule_execution(rule_id: int) -> int:
             for c in vip_contacts:
                 target_phones[c.phone] = c.name or "Valued Customer"
 
-        # Apply deduplication gate
+        # Apply deduplication gate to calculate ACTUAL eligible contacts to receive messages
         dedup_cutoff = datetime.utcnow() - timedelta(days=rule.dedup_days)
+        eligible_phones = {}
         for phone, name in target_phones.items():
             recent_msg = db.query(models.MessageLog).filter(
                 models.MessageLog.recipient_phone == phone,
                 models.MessageLog.template_name == rule.template_name,
                 models.MessageLog.created_at >= dedup_cutoff
             ).first()
+            if not recent_msg:
+                eligible_phones[phone] = name
 
-            if recent_msg:
-                continue
+        total_eligible = len(eligible_phones)
 
+        # 🛡️ SAFEGUARD: If > 10 recipients and not force_approved by admin, hold and email alert!
+        if total_eligible > 10 and not force_approved:
+            rule.approval_status = "PENDING_APPROVAL"
+            rule.pending_recipients_count = total_eligible
+            db.commit()
+
+            # Dispatch security email alert to all admin alert email addresses
+            try:
+                from email_service import send_automation_approval_email
+                send_automation_approval_email(
+                    rule_name=rule.rule_name,
+                    rule_id=rule.id,
+                    recipient_count=total_eligible,
+                    template_name=rule.template_name,
+                    condition=rule.trigger_condition
+                )
+            except Exception as mail_err:
+                logger.warning(f"Could not send approval email: {mail_err}")
+
+            logger.info(f"⏸️ Rule '{rule.rule_name}' held: {total_eligible} eligible recipients (> 10 threshold). Admin email dispatched.")
+            return {
+                "status": "pending_approval",
+                "messages_dispatched": 0,
+                "requires_approval": True,
+                "eligible_count": total_eligible,
+                "rule": rule.rule_name,
+                "message": f"Rule held for approval: targets {total_eligible} contacts (>10 threshold). Admin email sent."
+            }
+
+        # If <= 10 OR already approved by admin with 2FA
+        for phone, name in eligible_phones.items():
             res = send_whatsapp_template(
                 recipient_phone=phone,
                 template_name=rule.template_name,
@@ -345,10 +383,18 @@ def run_rule_execution(rule_id: int) -> int:
                 sent_count += 1
 
         rule.total_triggered += sent_count
+        rule.approval_status = "IDLE"
+        rule.pending_recipients_count = 0
         db.commit()
         logger.info(f"🏁 Rule '{rule.rule_name}' finished: {sent_count} messages sent.")
+        return {
+            "status": "success",
+            "messages_dispatched": sent_count,
+            "requires_approval": False,
+            "rule": rule.rule_name
+        }
     except Exception as e:
         logger.error(f"Error executing rule {rule_id}: {e}")
+        return {"status": "error", "error": str(e), "messages_dispatched": 0, "requires_approval": False}
     finally:
         db.close()
-    return sent_count

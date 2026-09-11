@@ -83,6 +83,14 @@ class CampaignCreate(BaseModel):
     target_filter: Optional[str] = "ALL"  # ALL, INACTIVE_30_DAYS, HIGH_VALUE
     scheduled_for: Optional[str] = None  # ISO timestamp or datetime string
     custom_phones: Optional[List[str]] = None  # Optional list of explicit phone numbers
+    # 🔐 Security step-up authentication fields
+    password: Optional[str] = None
+    two_factor_code: Optional[str] = None
+
+
+class RuleApproveRequest(BaseModel):
+    password: str = Field(..., description="User account password to authorize high-volume send")
+    two_factor_code: Optional[str] = Field(None, description="6-digit TOTP or Email OTP code")
 
 
 class CampaignResponse(BaseModel):

@@ -204,6 +204,60 @@ def login(request: Request, payload: schemas.UserLogin, db: Session = Depends(ge
     return {"access_token": access_token, "token_type": "bearer", "username": user.username, "requires_2fa": False}
 
 
+def verify_user_stepup_auth(user: models.User, password: Optional[str], two_factor_code: Optional[str], db: Session):
+    """
+    🔐 Step-Up Authentication Guard for Critical & High-Volume Operations:
+    Validates user password and (if 2FA enabled or code provided) verifies 6-digit TOTP / Email OTP.
+    """
+    if not password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account password is required to authorize this high-impact action."
+        )
+
+    if not auth.verify_password(password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect account password. Authorization denied."
+        )
+
+    # If user has 2FA enabled, 2FA code is mandatory
+    if user.is_2fa_enabled or two_factor_code:
+        code = (two_factor_code or "").strip().replace(" ", "")
+        if not code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="2FA verification code is required to authorize this action."
+            )
+
+        verified = False
+        # 1. TOTP code
+        if user.totp_secret:
+            try:
+                import pyotp
+                totp = pyotp.TOTP(user.totp_secret)
+                if totp.verify(code, valid_window=1):
+                    verified = True
+            except Exception as e:
+                logger.warning(f"Error in TOTP check: {e}")
+
+        # 2. Email recovery OTP
+        if not verified and user.email_recovery_code and user.email_recovery_code_expires:
+            if datetime.utcnow() <= user.email_recovery_code_expires and user.email_recovery_code == code:
+                verified = True
+                user.email_recovery_code = None
+                user.email_recovery_code_expires = None
+                db.commit()
+
+        if not verified:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired 2FA verification code."
+            )
+
+    return True
+
+
 # ==========================================
 # 🛡️ TWO-FACTOR AUTHENTICATION (2FA) ENDPOINTS
 # ==========================================
@@ -731,7 +785,6 @@ def get_message_logs(
     return logs
 
 
-# --- Campaigns / Broadcast API ---
 @app.post("/api/campaigns", response_model=schemas.CampaignResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 def create_and_trigger_campaign(
@@ -740,6 +793,14 @@ def create_and_trigger_campaign(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    # 🔐 CRITICAL SECURITY GUARD: Verify Password + 2FA before mass broadcasting
+    verify_user_stepup_auth(
+        user=current_user,
+        password=payload.password,
+        two_factor_code=payload.two_factor_code,
+        db=db
+    )
+
     scheduled_dt = None
     if payload.scheduled_for:
         try:
@@ -1626,8 +1687,41 @@ def trigger_specific_automation_rule(
         raise HTTPException(status_code=404, detail="Rule not found")
 
     from scheduler import run_rule_execution
-    count = run_rule_execution(rule.id)
-    return {"status": "success", "messages_dispatched": count, "rule": rule.rule_name}
+    res = run_rule_execution(rule.id, force_approved=False)
+    return res
+
+
+@app.post("/api/automation-rules/{rule_id}/approve")
+def approve_and_dispatch_automation_rule(
+    rule_id: int,
+    payload: schemas.RuleApproveRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    🔐 Step-Up 2FA Authorization to release a high-volume automation (> 10 recipients).
+    Requires valid password and 2FA code.
+    """
+    rule = db.query(models.AutomationRule).filter(models.AutomationRule.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    # Verify password and 2FA
+    verify_user_stepup_auth(
+        user=current_user,
+        password=payload.password,
+        two_factor_code=payload.two_factor_code,
+        db=db
+    )
+
+    from scheduler import run_rule_execution
+    res = run_rule_execution(rule.id, force_approved=True)
+    return {
+        "status": "success",
+        "message": f"Automation '{rule.rule_name}' approved with 2FA and dispatched to {res.get('messages_dispatched', 0)} recipients!",
+        "messages_dispatched": res.get("messages_dispatched", 0),
+        "rule": rule.rule_name
+    }
 
 
 @app.get("/api/settings")

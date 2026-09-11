@@ -173,6 +173,19 @@ export default function App() {
     scheduled_for: ""
   });
 
+  // 🔐 Step-Up Security & 2FA Modal States (for Campaign Launch & Automation Release)
+  const [securityActionModal, setSecurityActionModal] = useState({
+    isOpen: false,
+    actionType: null, // "CAMPAIGN" or "AUTOMATION_APPROVAL"
+    title: "",
+    recipientCount: 0,
+    payloadData: null,
+    password: "",
+    twoFactorCode: "",
+    error: "",
+    loading: false
+  });
+
   // CSV Import Modal State
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
   const [csvFile, setCsvFile] = useState(null);
@@ -667,6 +680,24 @@ export default function App() {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
+
+      if (res.data.requires_approval) {
+        // Intercept: More than 10 recipients! Open step-up 2FA approval modal
+        setSecurityActionModal({
+          isOpen: true,
+          actionType: "AUTOMATION_APPROVAL",
+          title: `Approve High-Volume Automation: "${rule.rule_name}"`,
+          recipientCount: res.data.eligible_count,
+          payloadData: { ruleId: rule.id, ruleName: rule.rule_name },
+          password: "",
+          twoFactorCode: "",
+          error: "",
+          loading: false
+        });
+        fetchData();
+        return;
+      }
+
       setActionSuccessMsg(`✅ Automation '${rule.rule_name}' executed: ${res.data.messages_dispatched} messages sent (dedup applied).`);
       fetchData();
       setTimeout(() => setActionSuccessMsg(""), 6000);
@@ -823,20 +854,83 @@ export default function App() {
   const handleCreateCampaign = async (e) => {
     e.preventDefault();
     if (!newCampaign.title || !token) return;
+
+    // Calculate approximate recipient count for confirmation
+    const estCount =
+      newCampaign.target_filter === "INACTIVE_30_DAYS"
+        ? contacts.filter((c) => !c.last_order_date).length || 5
+        : contacts.length;
+
+    // Intercept: open 2FA security verification modal before dispatching!
+    setSecurityActionModal({
+      isOpen: true,
+      actionType: "CAMPAIGN",
+      title: `Confirm WhatsApp Broadcast: "${newCampaign.title}"`,
+      recipientCount: estCount,
+      payloadData: { ...newCampaign },
+      password: "",
+      twoFactorCode: "",
+      error: "",
+      loading: false
+    });
+  };
+
+  const handleExecuteSecurityAction = async (e) => {
+    e.preventDefault();
+    const { actionType, payloadData, password, twoFactorCode } = securityActionModal;
+    if (!password) {
+      setSecurityActionModal((prev) => ({ ...prev, error: "Please enter your account password." }));
+      return;
+    }
+
+    setSecurityActionModal((prev) => ({ ...prev, loading: true, error: "" }));
+
     try {
-      await axios.post("/api/campaigns", newCampaign, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setIsModalOpen(false);
-      setNewCampaign({
-        title: "",
-        template_name: "festive_promo_offer",
-        language: "en",
-        target_filter: "ALL"
-      });
-      fetchData();
+      if (actionType === "CAMPAIGN") {
+        await axios.post(
+          "/api/campaigns",
+          {
+            ...payloadData,
+            password: password,
+            two_factor_code: twoFactorCode.trim()
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        setActionSuccessMsg(`✅ Broadcast Campaign '${payloadData.title}' successfully verified with 2FA and queued for dispatch!`);
+        setIsModalOpen(false);
+        setSecurityActionModal((prev) => ({ ...prev, isOpen: false }));
+        setNewCampaign({
+          title: "",
+          template_name: "festive_promo_offer",
+          language: "en",
+          target_filter: "ALL",
+          scheduled_for: ""
+        });
+        fetchData();
+        setTimeout(() => setActionSuccessMsg(""), 6000);
+
+      } else if (actionType === "AUTOMATION_APPROVAL") {
+        const res = await axios.post(
+          `/api/automation-rules/${payloadData.ruleId}/approve`,
+          {
+            password: password,
+            two_factor_code: twoFactorCode.trim()
+          },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        setActionSuccessMsg(`✅ ${res.data.message}`);
+        setSecurityActionModal((prev) => ({ ...prev, isOpen: false }));
+        fetchData();
+        setTimeout(() => setActionSuccessMsg(""), 6000);
+      }
     } catch (err) {
-      alert("Error triggering campaign: " + (err.response?.data?.detail || err.message));
+      setSecurityActionModal((prev) => ({
+        ...prev,
+        loading: false,
+        error: err.response?.data?.detail || err.message || "Authorization failed."
+      }));
     }
   };
 
@@ -1723,6 +1817,18 @@ export default function App() {
                             <span className="font-medium text-gray-500">Total Dispatched:</span>
                             <span className="font-bold text-gray-900">{rule.total_triggered} sent</span>
                           </div>
+
+                          {rule.approval_status === "PENDING_APPROVAL" && (
+                            <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 flex items-center justify-between">
+                              <span className="font-semibold flex items-center gap-1">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                Held: {rule.pending_recipients_count} contacts (&gt;10 limit)
+                              </span>
+                              <span className="font-bold text-amber-700 underline cursor-pointer" onClick={() => handleTriggerRule(rule)}>
+                                Review & Approve →
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1748,14 +1854,24 @@ export default function App() {
                           </button>
                         </div>
 
-                        <button
-                          onClick={() => handleTriggerRule(rule)}
-                          disabled={!rule.is_active}
-                          className="flex items-center gap-1.5 bg-[#111827] hover:bg-black disabled:opacity-40 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-xs"
-                        >
-                          <PlayCircle className="w-3.5 h-3.5 text-[#F5A623]" />
-                          Execute Now
-                        </button>
+                        {rule.approval_status === "PENDING_APPROVAL" ? (
+                          <button
+                            onClick={() => handleTriggerRule(rule)}
+                            className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-black px-3.5 py-1.5 rounded-lg text-xs font-black transition shadow-xs animate-pulse"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                            2FA Approve ({rule.pending_recipients_count})
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleTriggerRule(rule)}
+                            disabled={!rule.is_active}
+                            className="flex items-center gap-1.5 bg-[#111827] hover:bg-black disabled:opacity-40 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-xs"
+                          >
+                            <PlayCircle className="w-3.5 h-3.5 text-[#F5A623]" />
+                            Execute Now
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -3549,6 +3665,127 @@ export default function App() {
                 >
                   <Send className="w-4 h-4" />
                   {newCampaign.scheduled_for ? "Schedule Broadcast" : "Trigger Broadcast"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── 🔐 Step-Up Authentication & 2FA Confirmation Modal ── */}
+      {securityActionModal.isOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-gray-900">Security & 2FA Authorization</h3>
+                  <p className="text-[11px] text-gray-500">Step-up verification required for mass actions</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSecurityActionModal((prev) => ({ ...prev, isOpen: false }))}
+                className="text-gray-400 hover:text-gray-600 font-bold text-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Target Summary Card */}
+            <div className="mt-4 p-3.5 bg-gray-50 border border-gray-200 rounded-xl space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500 font-medium">Operation:</span>
+                <span className="font-bold text-gray-900">
+                  {securityActionModal.actionType === "CAMPAIGN" ? "WhatsApp Broadcast" : "High-Volume Automation"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500 font-medium">Recipients Affected:</span>
+                <span className="font-mono font-black text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                  {securityActionModal.recipientCount} Contacts
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500 font-medium">Safety Policy:</span>
+                <span className="text-emerald-700 font-bold flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> Mandatory Password + 2FA
+                </span>
+              </div>
+            </div>
+
+            {/* Error Message */}
+            {securityActionModal.error && (
+              <div className="mt-3 p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-lg flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                <span>{securityActionModal.error}</span>
+              </div>
+            )}
+
+            {/* Verification Form */}
+            <form onSubmit={handleExecuteSecurityAction} className="mt-4 space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                  Account Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  placeholder="Enter your CRM login password"
+                  value={securityActionModal.password}
+                  onChange={(e) =>
+                    setSecurityActionModal((prev) => ({ ...prev, password: e.target.value }))
+                  }
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1 flex items-center justify-between">
+                  <span>6-Digit 2FA Code</span>
+                  <span className="text-[10px] text-gray-400 font-normal">Google Authenticator or Email OTP</span>
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={8}
+                  placeholder="000000"
+                  value={securityActionModal.twoFactorCode}
+                  onChange={(e) =>
+                    setSecurityActionModal((prev) => ({
+                      ...prev,
+                      twoFactorCode: e.target.value.replace(/\D/g, "")
+                    }))
+                  }
+                  className="w-full text-center tracking-[8px] font-mono text-xl font-bold px-3.5 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+                <p className="text-[11px] text-gray-400 mt-1 text-center">
+                  If 2FA is not enabled on your user profile, leave empty or enter recovery code.
+                </p>
+              </div>
+
+              <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setSecurityActionModal((prev) => ({ ...prev, isOpen: false }))}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={securityActionModal.loading || !securityActionModal.password}
+                  className="flex items-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] disabled:opacity-50 text-white px-5 py-2 rounded-lg font-bold text-xs shadow-md transition"
+                >
+                  {securityActionModal.loading ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <KeyRound className="w-3.5 h-3.5" />
+                  )}
+                  Authorize & Dispatch
                 </button>
               </div>
             </form>
