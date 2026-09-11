@@ -38,6 +38,7 @@ import {
   CloudRain,
   Activity,
   Zap,
+  Radio,
   BellRing,
   Mail,
   KeyRound,
