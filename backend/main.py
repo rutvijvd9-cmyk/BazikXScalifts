@@ -549,21 +549,20 @@ async def import_contacts_csv(
         decoded = content.decode("latin-1")
 
     reader = csv.DictReader(io.StringIO(decoded))
-    imported_count = 0
-    updated_count = 0
-
+    
+    # 1. Deduplicate queue in memory first (keeps last seen data for duplicate rows in CSV)
+    queue_contacts = {}
     for row in reader:
-        # Normalize header keys to lowercase
         norm_row = {k.strip().lower(): v.strip() for k, v in row.items() if k}
         raw_phone = norm_row.get("phone") or norm_row.get("mobile") or norm_row.get("contact")
         if not raw_phone:
             continue
 
-        phone = raw_phone.strip()
+        phone = raw_phone.strip().replace(" ", "").replace("-", "")
         if not phone.startswith("+"):
             phone = "+" + phone
 
-        name = norm_row.get("name") or norm_row.get("full_name")
+        name = norm_row.get("name") or norm_row.get("full_name") or "Valued Customer"
         email = norm_row.get("email")
         city = norm_row.get("city")
         tags = norm_row.get("tags")
@@ -573,37 +572,63 @@ async def import_contacts_csv(
         except ValueError:
             total_orders = 0
 
-        existing = db.query(models.Contact).filter(models.Contact.phone == phone).first()
-        if existing:
-            if name:
-                existing.name = name
-            if email:
-                existing.email = email
-            if city:
-                existing.city = city
-            if tags:
-                existing.tags = tags
-            if total_orders > 0:
-                existing.total_orders = total_orders
-            updated_count += 1
-        else:
-            contact = models.Contact(
-                phone=phone,
-                name=name,
-                email=email,
-                city=city,
-                tags=tags,
-                total_orders=total_orders
-            )
-            db.add(contact)
-            imported_count += 1
+        queue_contacts[phone] = {
+            "name": name,
+            "email": email,
+            "city": city,
+            "tags": tags,
+            "total_orders": total_orders
+        }
 
-    db.commit()
+    imported_count = 0
+    updated_count = 0
+    BATCH_SIZE = 500
+
+    # 2. Process queue in batches of 500
+    phone_keys = list(queue_contacts.keys())
+    for i in range(0, len(phone_keys), BATCH_SIZE):
+        batch_chunk = phone_keys[i:i + BATCH_SIZE]
+        
+        # Pre-fetch existing contacts for this 500-item batch
+        existing_contacts = {
+            c.phone: c for c in db.query(models.Contact).filter(models.Contact.phone.in_(batch_chunk)).all()
+        }
+
+        for phone in batch_chunk:
+            item = queue_contacts[phone]
+            if phone in existing_contacts:
+                c = existing_contacts[phone]
+                if item["name"]:
+                    c.name = item["name"]
+                if item["email"]:
+                    c.email = item["email"]
+                if item["city"]:
+                    c.city = item["city"]
+                if item["tags"]:
+                    c.tags = item["tags"]
+                if item["total_orders"] > 0:
+                    c.total_orders = item["total_orders"]
+                updated_count += 1
+            else:
+                new_c = models.Contact(
+                    phone=phone,
+                    name=item["name"],
+                    email=item["email"],
+                    city=item["city"],
+                    tags=item["tags"],
+                    total_orders=item["total_orders"]
+                )
+                db.add(new_c)
+                imported_count += 1
+
+        db.commit()
+
     return {
         "status": "success",
         "imported": imported_count,
         "updated": updated_count,
-        "message": f"Successfully processed CSV: {imported_count} new contacts added, {updated_count} existing updated."
+        "total_queued": len(queue_contacts),
+        "message": f"Queue batch processed: {imported_count} new contacts added, {updated_count} existing contacts updated ({len(queue_contacts)} unique)."
     }
 
 
