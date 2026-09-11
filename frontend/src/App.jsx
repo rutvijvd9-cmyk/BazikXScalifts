@@ -252,9 +252,32 @@ export default function App() {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [selectedRuleForConfig, setSelectedRuleForConfig] = useState(null);
   const [testPhone, setTestPhone] = useState("+919876543210");
-  const [testCartValue, setTestCartValue] = useState(450);
-  const [simulatingAction, setSimulatingAction] = useState(false);
+  // Add User from Settings Modal State
+  const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
+  const [newUserForm, setNewUserForm] = useState({ username: "", email: "", password: "" });
+  const [addUserLoading, setAddUserLoading] = useState(false);
+  const [addUserError, setAddUserError] = useState("");
 
+  const handleCreateUserFromSettings = async (e) => {
+    e.preventDefault();
+    if (!token) return;
+    setAddUserLoading(true);
+    setAddUserError("");
+    try {
+      await axios.post("/api/users", newUserForm, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setActionSuccessMsg(`✅ Team user "${newUserForm.username}" registered successfully!`);
+      setIsAddUserModalOpen(false);
+      setNewUserForm({ username: "", email: "", password: "" });
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 6000);
+    } catch (err) {
+      setAddUserError(err.response?.data?.detail || err.message || "Failed to create user");
+    } finally {
+      setAddUserLoading(false);
+    }
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -989,49 +1012,6 @@ export default function App() {
             <p className="text-xs text-gray-500 mt-0.5">Manubhai Gathiyawala • Portal Access</p>
           </div>
 
-          {/* Mode Switcher Tabs */}
-          {!twoFactorRequired && (
-            <div className="grid grid-cols-2 p-1 bg-gray-100 rounded-xl mb-4 text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMode("login");
-                  setLoginError("");
-                  setAuthSuccess("");
-                }}
-                className={`py-2 rounded-lg transition ${
-                  authMode === "login"
-                    ? "bg-white text-gray-900 shadow-xs"
-                    : "text-gray-500 hover:text-gray-900"
-                }`}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMode("register");
-                  setLoginError("");
-                  setAuthSuccess("");
-                }}
-                className={`py-2 rounded-lg transition flex items-center justify-center gap-1.5 ${
-                  authMode === "register"
-                    ? "bg-white text-[#25D366] shadow-xs"
-                    : "text-gray-500 hover:text-gray-900"
-                }`}
-              >
-                <span>+ Create User</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                  registrationStatus.can_register 
-                    ? "bg-emerald-100 text-emerald-800"
-                    : "bg-red-100 text-red-700"
-                }`}>
-                  {registrationStatus.current_users}/{registrationStatus.max_users}
-                </span>
-              </button>
-            </div>
-          )}
-
           {loginError && (
             <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-xs font-semibold">
               {loginError}
@@ -1119,7 +1099,7 @@ export default function App() {
                 </button>
               </div>
             </div>
-          ) : authMode === "login" ? (
+          ) : (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
@@ -1169,90 +1149,6 @@ export default function App() {
               >
                 <Lock className="w-4 h-4" />
                 Sign In Securely
-              </button>
-            </form>
-          ) : !registrationStatus.can_register ? (
-            <div className="py-6 px-4 bg-amber-50 border border-amber-200 rounded-xl text-center space-y-3">
-              <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto text-amber-600">
-                <Lock className="w-6 h-6" />
-              </div>
-              <h3 className="font-bold text-gray-900 text-sm">User Limit Reached</h3>
-              <p className="text-xs text-gray-600 leading-relaxed">
-                Maximum capacity of <strong>5 users</strong> has been reached. No further user accounts can be created.
-              </p>
-              <button
-                type="button"
-                onClick={() => setAuthMode("login")}
-                className="mt-2 text-xs font-bold text-[#F5A623] hover:underline"
-              >
-                ← Return to Sign In
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={handleRegister} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
-                  New Username
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. friend_name"
-                  value={registerForm.username}
-                  onChange={(e) => setRegisterForm({ ...registerForm, username: e.target.value })}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="name@manubhaigathiyawala.com"
-                  value={registerForm.email}
-                  onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
-                  New Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    required
-                    minLength={6}
-                    placeholder="At least 6 characters"
-                    value={registerForm.password}
-                    onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
-                    className="w-full pl-3.5 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 focus:outline-none p-0.5"
-                    title={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full flex items-center justify-center gap-2 bg-[#F5A623] hover:bg-[#E67E22] text-black font-bold py-2.5 rounded-lg text-sm shadow-md transition"
-              >
-                <Plus className="w-4 h-4" />
-                Register New User
               </button>
             </form>
           )}
@@ -1987,117 +1883,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Email & Security Alert Notifications Card */}
-              <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-6">
-                <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-5">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-[#10B981]">
-                      <Mail className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-gray-900 text-base">Gmail SMTP & Security Alert System</h3>
-                      <p className="text-xs text-gray-500">Real-time intrusion detection, delivery failure alerts, and 10-minute digests</p>
-                    </div>
-                  </div>
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
-                    systemSettings.email_alerts_configured ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-700 border border-amber-200"
-                  }`}>
-                    {systemSettings.email_alerts_configured ? "● Alerts Active" : "⚠️ Needs Config"}
-                  </span>
-                </div>
-
-                <div className="space-y-4 text-sm">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
-                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Sender Mailbox</span>
-                      <div className="font-mono text-xs font-bold text-gray-900 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                        {systemSettings.smtp_sender || "sendermailpro@gmail.com"}
-                      </div>
-                      <p className="text-[11px] text-gray-400 mt-1">Google App Password Authenticated (TLS 587)</p>
-                    </div>
-
-                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
-                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Configured Alert Recipients</span>
-                      <div className="font-mono text-xs font-bold text-[#25D366] flex flex-wrap gap-1">
-                        {systemSettings.admin_alert_emails && systemSettings.admin_alert_emails.length > 0 ? (
-                          systemSettings.admin_alert_emails.map((em) => (
-                            <span key={em} className="bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-800">
-                              {em}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-amber-600 font-normal">No emails in ADMIN_ALERT_EMAIL</span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-gray-400 mt-1">Supports multiple emails separated by comma</p>
-                    </div>
-                  </div>
-
-                  {/* Monitored Alert Channels */}
-                  <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
-                    <h4 className="font-bold text-gray-900 text-xs mb-2">Automated Incident Triggers:</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                      <div className="bg-white p-3 rounded-lg border border-gray-200">
-                        <div className="font-bold text-red-600 flex items-center gap-1.5 mb-1">
-                          <span>🚨</span> WhatsApp Failed
-                        </div>
-                        <p className="text-gray-500 text-[11px]">Instant alert detailing which phone number failed and exact Meta API reason</p>
-                      </div>
-                      <div className="bg-white p-3 rounded-lg border border-gray-200">
-                        <div className="font-bold text-amber-600 flex items-center gap-1.5 mb-1">
-                          <span>🛡️</span> Intrusion / Hack
-                        </div>
-                        <p className="text-gray-500 text-[11px]">Fires immediately upon 3+ failed logins or suspicious API brute-force with IP</p>
-                      </div>
-                      <div className="bg-white p-3 rounded-lg border border-gray-200">
-                        <div className="font-bold text-emerald-600 flex items-center gap-1.5 mb-1">
-                          <span>📊</span> 10-Min Digest
-                        </div>
-                        <p className="text-gray-500 text-[11px]">Every 10 minutes sends server health, messages delivered, and recovered revenue</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Send Test Email Action */}
-                  <div className="pt-2 flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-gray-500">Send an instant test email through Gmail SMTP to verify inbox delivery.</p>
-                      {testEmailFeedback && (
-                        <p className={`text-xs mt-1 font-semibold ${testEmailFeedback.success ? "text-emerald-600" : "text-red-600"}`}>
-                          {testEmailFeedback.message}
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      disabled={testEmailLoading}
-                      onClick={async () => {
-                        setTestEmailLoading(true);
-                        setTestEmailFeedback(null);
-                        try {
-                          const res = await axios.post("/api/admin/test-email", {}, {
-                            headers: { Authorization: `Bearer ${token}` }
-                          });
-                          setTestEmailFeedback({ success: true, message: "✅ " + (res.data?.message || "Test email dispatched successfully!") });
-                        } catch (err) {
-                          setTestEmailFeedback({
-                            success: false,
-                            message: "❌ " + (err.response?.data?.detail || err.message || "Failed to dispatch test email")
-                          });
-                        } finally {
-                          setTestEmailLoading(false);
-                        }
-                      }}
-                      className="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 disabled:opacity-50"
-                    >
-                      {testEmailLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                      {testEmailLoading ? "Sending..." : "Send Test Alert Email"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
               {/* Team & User Accounts Card */}
               <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-6">
                 <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-5">
@@ -2110,11 +1895,26 @@ export default function App() {
                       <p className="text-xs text-gray-500">Registered users who have access to this WhatsApp CRM</p>
                     </div>
                   </div>
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
-                    systemUsers.length >= 5 ? "bg-red-50 text-red-700 border border-red-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                  }`}>
-                    {systemUsers.length} / 5 Users Registered
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
+                      systemUsers.length >= 5 ? "bg-red-50 text-red-700 border border-red-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    }`}>
+                      {systemUsers.length} / 5 Users Registered
+                    </span>
+                    {systemUsers.length < 5 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddUserError("");
+                          setIsAddUserModalOpen(true);
+                        }}
+                        className="flex items-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-xs"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        + Add User
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -3424,6 +3224,100 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {/* ── Add User from Settings Modal ── */}
+      {isAddUserModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#25D366] flex items-center justify-center">
+                  <UserPlus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-gray-900">Add Team Account</h3>
+                  <p className="text-[11px] text-gray-400">Grant authorized CRM access ({systemUsers.length}/5 used)</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsAddUserModalOpen(false)} 
+                className="text-gray-400 hover:text-gray-600 font-bold text-xl leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            {addUserError && (
+              <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-xs font-semibold">
+                {addUserError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateUserFromSettings} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. rahul_manager"
+                  value={newUserForm.username}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, username: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="rahul@manubhaigathiyawala.com"
+                  value={newUserForm.email}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  placeholder="At least 6 characters"
+                  value={newUserForm.password}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsAddUserModalOpen(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-xs font-bold text-gray-700 hover:bg-gray-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={addUserLoading}
+                  className="flex items-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2 rounded-lg font-bold text-xs shadow-xs transition disabled:opacity-50"
+                >
+                  {addUserLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+                  {addUserLoading ? "Creating..." : "Create Team Member"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ── Create Rule Modal ── */}
       {isRuleModalOpen && (

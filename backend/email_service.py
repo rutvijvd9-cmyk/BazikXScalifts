@@ -14,6 +14,7 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "sendermailpro@gmail.com")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
 ADMIN_ALERT_EMAIL = os.getenv("ADMIN_ALERT_EMAIL", "")
+ENABLE_SMTP = os.getenv("ENABLE_SMTP", "false").lower() in ("true", "1", "yes")
 
 def get_recipient_list(override_to: Optional[str] = None) -> List[str]:
     """
@@ -33,7 +34,12 @@ def send_email_alert(
 ) -> dict:
     """
     Sends a formatted HTML email via Gmail SMTP TLS to one or multiple recipients.
+    Bypasses connection if ENABLE_SMTP is false (default) to avoid Render port blockage.
     """
+    if not ENABLE_SMTP:
+        logger.debug(f"📧 [Email Alert Bypassed] SMTP is disabled. Alert: {subject}")
+        return {"status": "disabled", "reason": "SMTP email delivery is disabled"}
+
     to_list = recipients or get_recipient_list()
     if not to_list:
         logger.warning("No recipient emails configured for alerts. Skipping email send.")

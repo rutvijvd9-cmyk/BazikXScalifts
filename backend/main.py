@@ -160,7 +160,12 @@ def health_check():
 
 @app.post("/api/auth/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
-def register_user(request: Request, payload: schemas.UserCreate, db: Session = Depends(get_db)):
+def register_user(
+    request: Request,
+    payload: schemas.UserCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
     MAX_USERS = 5
     current_user_count = db.query(models.User).count()
     if current_user_count >= MAX_USERS:
@@ -176,8 +181,8 @@ def register_user(request: Request, payload: schemas.UserCreate, db: Session = D
         raise HTTPException(status_code=400, detail="Username or email already registered")
 
     user = models.User(
-        username=payload.username,
-        email=payload.email,
+        username=payload.username.strip(),
+        email=payload.email.strip().lower(),
         hashed_password=auth.get_password_hash(payload.password),
         is_active=True
     )
@@ -535,6 +540,41 @@ def list_system_users(
     Returns all registered team users (up to 5 maximum).
     """
     return db.query(models.User).order_by(models.User.id.asc()).all()
+
+
+@app.post("/api/users", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
+def create_system_user(
+    payload: schemas.UserCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Creates a new team member account (authenticated admin only, 5 user limit).
+    """
+    MAX_USERS = 5
+    current_user_count = db.query(models.User).count()
+    if current_user_count >= MAX_USERS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User limit reached ({MAX_USERS}/{MAX_USERS} users created). Cannot register more accounts."
+        )
+
+    existing = db.query(models.User).filter(
+        (models.User.username == payload.username) | (models.User.email == payload.email)
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username or email already registered")
+
+    user = models.User(
+        username=payload.username.strip(),
+        email=payload.email.strip().lower(),
+        hashed_password=auth.get_password_hash(payload.password),
+        is_active=True
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 # ==========================================
@@ -1803,17 +1843,12 @@ def approve_and_dispatch_automation_rule(
 def get_system_settings(
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    from email_service import SMTP_USER, ADMIN_ALERT_EMAIL, get_recipient_list
-    recipients = get_recipient_list()
     return {
         "daily_limit": int(os.getenv("DAILY_MESSAGE_SEND_LIMIT", "500")),
         "cart_delay_minutes": 30,
         "active_phone_id": os.getenv("WHATSAPP_PHONE_NUMBER_ID", "Not Configured (Simulation Mode)"),
         "webhook_endpoint": "https://api.manubhaigathiyawala.com/api/webhooks/whatsapp",
-        "dnd_keywords": ["STOP", "UNSUBSCRIBE", "બંધ કરો", "સંદેશા બંધ કરો", "રોકો", "बंद करो"],
-        "smtp_sender": SMTP_USER,
-        "admin_alert_emails": recipients,
-        "email_alerts_configured": bool(os.getenv("SMTP_PASSWORD")) and len(recipients) > 0
+        "dnd_keywords": ["STOP", "UNSUBSCRIBE", "બંધ કરો", "સંદેશા બંધ કરો", "રોકો", "बंद करो"]
     }
 
 
@@ -1823,66 +1858,10 @@ def send_test_admin_email(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     """
-    Triggers an instant test email to verify Gmail SMTP delivery to all configured ADMIN_ALERT_EMAIL addresses.
+    SMTP test email decommissioned (Render free tier blocks raw SMTP ports 587/465).
     """
-    from email_service import send_email_alert, get_recipient_list, SMTP_USER
-    target = payload.get("email")
-    recipients = [target] if target else get_recipient_list()
-    
-    if not recipients:
-        raise HTTPException(
-            status_code=400,
-            detail="No alert recipient emails found. Please configure ADMIN_ALERT_EMAIL in Render environment variables."
-        )
-
-    now_str = datetime.now().strftime("%d %b %Y, %I:%M %p IST")
-    subject = "🧪 [System Test] Manubhai WhatsApp CRM Alert Verification"
-    html_body = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden; background: #FFFFFF;">
-      <div style="background: #111827; padding: 18px 24px; color: white; border-bottom: 3px solid #25D366;">
-        <h2 style="margin: 0; font-size: 18px; font-weight: bold;">🧪 Gmail SMTP Verification Successful</h2>
-        <p style="margin: 4px 0 0 0; font-size: 12px; color: #9CA3AF;">Manubhai Gathiyawala • Alert Pipeline Test</p>
-      </div>
-      <div style="padding: 24px; color: #1F2937; line-height: 1.6;">
-        <p style="margin-top: 0;">This is a test notification confirming that your automated alert system is <strong>operational</strong> and connected to Gmail SMTP.</p>
-        
-        <table style="width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 13px;">
-          <tr style="border-bottom: 1px solid #F3F4F6;">
-            <td style="padding: 8px 0; font-weight: bold; color: #4B5563;">Sender Mailbox:</td>
-            <td style="padding: 8px 0; font-family: monospace; color: #111827;">{SMTP_USER}</td>
-          </tr>
-          <tr style="border-bottom: 1px solid #F3F4F6;">
-            <td style="padding: 8px 0; font-weight: bold; color: #4B5563;">Configured Recipients:</td>
-            <td style="padding: 8px 0; font-family: monospace; color: #25D366; font-weight: bold;">{", ".join(recipients)}</td>
-          </tr>
-          <tr style="border-bottom: 1px solid #F3F4F6;">
-            <td style="padding: 8px 0; font-weight: bold; color: #4B5563;">Triggered By:</td>
-            <td style="padding: 8px 0; color: #111827;">{current_user.username} (Admin Portal)</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 0; font-weight: bold; color: #4B5563;">Timestamp:</td>
-            <td style="padding: 8px 0; color: #111827;">{now_str}</td>
-          </tr>
-        </table>
-
-        <div style="background: #F0FDF4; padding: 14px; border-radius: 8px; border-left: 4px solid #10B981; margin-top: 20px; font-size: 12px; color: #166534;">
-          <strong>Active Monitored Triggers:</strong><br/>
-          • 🚨 WhatsApp Delivery Failures (Instant alert with failed phone number)<br/>
-          • 🛡️ Server Brute-Force & Security Intrusions<br/>
-          • 📊 10-Minute Activity Heartbeat & Summary
-        </div>
-      </div>
-      <div style="background: #F9FAFB; padding: 12px 24px; text-align: center; font-size: 11px; color: #9CA3AF; border-top: 1px solid #F3F4F6;">
-        Manubhai Gathiyawala WhatsApp CRM • Powered by Scalifts
-      </div>
-    </div>
-    """
-
-    res = send_email_alert(subject=subject, html_body=html_body, recipients=recipients, priority="high")
-    if res.get("status") == "error":
-        raise HTTPException(status_code=500, detail=f"SMTP Error: {res.get('error')}")
-    if res.get("status") == "skipped":
-        raise HTTPException(status_code=400, detail=f"Skipped: {res.get('reason')}")
-        
-    return {"status": "success", "message": f"Test email dispatched to {recipients}", "details": res}
+    return {
+        "status": "disabled",
+        "message": "SMTP email system has been decommissioned."
+    }
 
