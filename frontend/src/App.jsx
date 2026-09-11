@@ -349,16 +349,16 @@ export default function App() {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes, discRes, meRes, convRes] = await Promise.all([
-        axios.get("/api/campaigns", { headers }),
-        axios.get("/api/contacts", { headers }),
-        axios.get("/api/cart-events", { headers }),
-        axios.get("/api/message-logs", { headers }),
-        axios.get("/api/opt-outs", { headers }),
-        axios.get("/api/templates", { headers }),
-        axios.get("/api/automation-rules", { headers }),
-        axios.get("/api/settings", { headers }),
-        axios.get("/api/users", { headers }),
-        axios.get("/api/discount-codes", { headers }),
+        axios.get("/api/campaigns", { headers }).catch(() => ({ data: [] })),
+        axios.get("/api/contacts", { headers }).catch((e) => { if (e.response?.status === 401) throw e; return { data: [] }; }),
+        axios.get("/api/cart-events", { headers }).catch(() => ({ data: [] })),
+        axios.get("/api/message-logs", { headers }).catch(() => ({ data: [] })),
+        axios.get("/api/opt-outs", { headers }).catch(() => ({ data: [] })),
+        axios.get("/api/templates", { headers }).catch(() => ({ data: [] })),
+        axios.get("/api/automation-rules", { headers }).catch(() => ({ data: [] })),
+        axios.get("/api/settings", { headers }).catch(() => ({ data: {} })),
+        axios.get("/api/users", { headers }).catch(() => ({ data: [] })),
+        axios.get("/api/discount-codes", { headers }).catch(() => ({ data: [] })),
         axios.get("/api/auth/me", { headers }).catch(() => ({ data: null })),
         axios.get("/api/chat/conversations", { headers }).catch(() => ({ data: [] }))
       ]);
