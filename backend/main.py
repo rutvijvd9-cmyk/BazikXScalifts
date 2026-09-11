@@ -79,7 +79,48 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "dev_secret")
 @app.on_event("startup")
 def on_startup():
     start_scheduler()
-    # Create or update default admin user from environment variables
+
+    # ── Safe column migrations ────────────────────────────────────────────────
+    # ADD COLUMN IF NOT EXISTS is idempotent – safe to run on every deploy.
+    # This ensures columns added after initial table creation exist in the live DB.
+    try:
+        with database.engine.connect() as conn:
+            migrations = [
+                # automation_rules: columns added for high-volume safeguard + 2FA gate
+                "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS approval_status VARCHAR(50) DEFAULT 'IDLE'",
+                "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS pending_recipients_count INTEGER DEFAULT 0",
+                "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS total_triggered INTEGER DEFAULT 0",
+                "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+                # users: columns added for 2FA (TOTP) support
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_email VARCHAR(200)",
+                # contacts: columns added for extended profile
+                "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS city VARCHAR(100)",
+                "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS tags VARCHAR(500)",
+                "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS order_count INTEGER DEFAULT 0",
+                "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_order_date TIMESTAMP",
+                # chat_messages: ensure table exists (created via create_all below)
+            ]
+            for sql in migrations:
+                try:
+                    conn.execute(database.text(sql))
+                except Exception as col_err:
+                    print(f"⚠️  Migration skipped (may already exist): {col_err}")
+            conn.commit()
+        print("✅ [DB] Safe column migrations applied.")
+    except Exception as mig_err:
+        print(f"⚠️  [DB] Migration step error (non-fatal): {mig_err}")
+
+    # Ensure all tables defined in models exist (create if missing, no-op if present)
+    try:
+        models.Base.metadata.create_all(bind=database.engine)
+        print("✅ [DB] Table schema verified / created.")
+    except Exception as e:
+        print(f"⚠️  [DB] create_all error: {e}")
+
+    # ── Admin user sync ───────────────────────────────────────────────────────
     db = next(get_db())
     initial_user = os.getenv("INITIAL_ADMIN_USERNAME", "admin").strip()
     initial_pass = os.getenv("INITIAL_ADMIN_PASSWORD")
