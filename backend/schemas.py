@@ -173,3 +173,35 @@ class AutomationRuleUpdate(BaseModel):
     threshold_value: Optional[int] = None
     coupon_code: Optional[str] = None
     dedup_days: Optional[int] = None
+
+
+class ChatSendMessageRequest(BaseModel):
+    customer_phone: str = Field(..., description="Customer WhatsApp phone number e.g. +919876543210")
+    text: str = Field(..., min_length=1, description="Message text content to send to customer")
+
+
+class ChatMessageResponse(BaseModel):
+    id: int
+    customer_phone: str
+    sender_type: str
+    message_type: str
+    text: Optional[str]
+    meta_message_id: Optional[str]
+    status: str
+    is_read: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ChatConversationSummary(BaseModel):
+    customer_phone: str
+    customer_name: Optional[str] = "Customer"
+    customer_city: Optional[str] = None
+    total_orders: int = 0
+    unread_count: int = 0
+    last_message_text: Optional[str] = None
+    last_message_time: Optional[datetime] = None
+    last_sender: Optional[str] = None
+

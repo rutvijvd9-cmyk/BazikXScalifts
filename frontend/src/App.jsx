@@ -47,7 +47,11 @@ import {
   BellRing,
   Mail,
   KeyRound,
-  Smartphone
+  Smartphone,
+  Check,
+  CheckCheck,
+  Sparkles,
+  PhoneCall
 } from "lucide-react";
 import axios from "axios";
 
@@ -93,7 +97,7 @@ export default function App() {
 
   const getInitialTab = () => {
     const hash = window.location.hash.replace("#", "");
-    if (hash && ["dashboard", "automations", "campaigns", "templates", "contacts", "discount_codes", "cart_recovery", "logs", "opt_out", "settings"].includes(hash)) {
+    if (hash && ["dashboard", "chat", "automations", "campaigns", "templates", "contacts", "discount_codes", "cart_recovery", "logs", "opt_out", "settings"].includes(hash)) {
       return hash;
     }
     return localStorage.getItem("activeTab") || "dashboard";
@@ -122,6 +126,15 @@ export default function App() {
   const [actionSuccessMsg, setActionSuccessMsg] = useState("");
   const [testEmailLoading, setTestEmailLoading] = useState(false);
   const [testEmailFeedback, setTestEmailFeedback] = useState(null);
+
+  // Two-Way WhatsApp Live Chat States
+  const [chatConversations, setChatConversations] = useState([]);
+  const [selectedChatPhone, setSelectedChatPhone] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatReplyText, setChatReplyText] = useState("");
+  const [chatSending, setChatSending] = useState(false);
+  const [chatFilterUnreadOnly, setChatFilterUnreadOnly] = useState(false);
 
   // Search filter for lists
   const [searchTerm, setSearchTerm] = useState("");
@@ -322,7 +335,7 @@ export default function App() {
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes, discRes, meRes] = await Promise.all([
+      const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes, discRes, meRes, convRes] = await Promise.all([
         axios.get("/api/campaigns", { headers }),
         axios.get("/api/contacts", { headers }),
         axios.get("/api/cart-events", { headers }),
@@ -333,7 +346,8 @@ export default function App() {
         axios.get("/api/settings", { headers }),
         axios.get("/api/users", { headers }),
         axios.get("/api/discount-codes", { headers }),
-        axios.get("/api/auth/me", { headers }).catch(() => ({ data: null }))
+        axios.get("/api/auth/me", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/chat/conversations", { headers }).catch(() => ({ data: [] }))
       ]);
       setCampaigns(campRes.data || []);
       setContacts(contRes.data || []);
@@ -345,6 +359,7 @@ export default function App() {
       setSystemSettings(setRes.data || {});
       setSystemUsers(usersRes.data || []);
       setDiscountCodes(discRes.data || []);
+      setChatConversations(convRes.data || []);
       if (meRes?.data) setCurrentUserProfile(meRes.data);
     } catch (err) {
       console.error("Failed to fetch protected data:", err);
@@ -353,6 +368,87 @@ export default function App() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchChatConversations = async (silent = false) => {
+    if (!token) return;
+    try {
+      const res = await axios.get("/api/chat/conversations", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setChatConversations(res.data || []);
+    } catch (err) {
+      if (!silent) console.error("Failed to fetch chat conversations:", err);
+    }
+  };
+
+  const fetchChatMessages = async (phone, silent = false) => {
+    if (!token || !phone) return;
+    if (!silent) setChatLoading(true);
+    try {
+      const res = await axios.get(`/api/chat/messages/${encodeURIComponent(phone)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setChatMessages(res.data || []);
+      // Update local unread counter for this conversation
+      setChatConversations((prev) =>
+        prev.map((c) => (c.customer_phone === phone ? { ...c, unread_count: 0 } : c))
+      );
+    } catch (err) {
+      if (!silent) console.error("Failed to fetch messages for " + phone, err);
+    } finally {
+      if (!silent) setChatLoading(false);
+    }
+  };
+
+  const handleSelectConversation = (phone) => {
+    setSelectedChatPhone(phone);
+    fetchChatMessages(phone, false);
+  };
+
+  const handleSendChatMessage = async (e) => {
+    e?.preventDefault();
+    if (!chatReplyText.trim() || !selectedChatPhone || chatSending) return;
+
+    const messageText = chatReplyText.trim();
+    setChatSending(true);
+
+    // Optimistic local bubble
+    const optimisticMsg = {
+      id: "opt_" + Date.now(),
+      customer_phone: selectedChatPhone,
+      sender_type: "AGENT",
+      message_type: "text",
+      text: messageText,
+      status: "SENDING",
+      is_read: true,
+      created_at: new Date().toISOString()
+    };
+    setChatMessages((prev) => [...prev, optimisticMsg]);
+    setChatReplyText("");
+
+    try {
+      const res = await axios.post(
+        "/api/chat/send",
+        {
+          customer_phone: selectedChatPhone,
+          text: messageText
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      // Replace optimistic message with actual backend response
+      setChatMessages((prev) =>
+        prev.map((m) => (m.id === optimisticMsg.id ? res.data : m))
+      );
+      // Refresh conversation preview
+      fetchChatConversations(true);
+    } catch (err) {
+      alert("Failed to send message: " + (err.response?.data?.detail || err.message));
+      setChatMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
+      setChatReplyText(messageText);
+    } finally {
+      setChatSending(false);
     }
   };
 
@@ -522,6 +618,18 @@ export default function App() {
       fetchData();
     }
   }, [token]);
+
+  // Periodic polling for Live Two-Way Chat (polls conversations every 6s, and active chat messages every 4s)
+  useEffect(() => {
+    if (!token) return;
+    const interval = setInterval(() => {
+      fetchChatConversations(true);
+      if (selectedChatPhone && activeTab === "chat") {
+        fetchChatMessages(selectedChatPhone, true);
+      }
+    }, 4500);
+    return () => clearInterval(interval);
+  }, [token, selectedChatPhone, activeTab]);
 
   const handleSyncMetaTemplates = async () => {
     setLoading(true);
@@ -1057,6 +1165,12 @@ export default function App() {
           <nav className="p-3 space-y-1.5 mt-2">
             {[
               { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+              {
+                id: "chat",
+                label: "Live Chat / Inbox",
+                icon: MessageSquare,
+                badge: chatConversations.reduce((acc, c) => acc + (c.unread_count || 0), 0)
+              },
               { id: "automations", label: "Automations", icon: Sliders, badge: automationRules.length },
               { id: "campaigns", label: "Campaigns", icon: Megaphone },
               { id: "templates", label: "Templates", icon: BookOpen, badge: templates.length },
@@ -1088,6 +1202,8 @@ export default function App() {
                       className={`px-2 py-0.5 text-xs font-bold rounded-full ${
                         item.id === "opt_out"
                           ? "bg-red-900/60 text-red-300 border border-red-700"
+                          : item.id === "chat"
+                          ? "bg-[#25D366] text-black font-black animate-pulse shadow-sm shadow-green-500/50"
                           : item.id === "automations"
                           ? "bg-emerald-900/60 text-[#25D366] border border-emerald-700"
                           : "bg-amber-900/60 text-[#F5A623] border border-amber-700"
@@ -1129,6 +1245,8 @@ export default function App() {
             <h2 className="text-xl font-bold text-gray-900 capitalize">
               {activeTab === "opt_out"
                 ? "Opt-Out (DND) Registry"
+                : activeTab === "chat"
+                ? "Two-Way WhatsApp Live Chat / Inbox"
                 : activeTab === "templates"
                 ? "WhatsApp Template Messages (Doc 04)"
                 : activeTab === "automations"
@@ -2786,6 +2904,379 @@ export default function App() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 10: TWO-WAY LIVE CHAT & INBOX */}
+          {/* ========================================================= */}
+          {activeTab === "chat" && (
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[calc(100vh-160px)]">
+              {/* Top Banner / Live Status Indicator */}
+              <div className="px-6 py-3 bg-gradient-to-r from-emerald-50 via-gray-50 to-white border-b border-gray-200 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-[#25D366]"></span>
+                    </span>
+                    <span className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                      Meta Cloud Webhook Active
+                    </span>
+                  </div>
+                  <span className="text-xs text-gray-400">|</span>
+                  <span className="text-xs text-gray-600">
+                    Two-way synchronized live customer conversations
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <Clock className="w-3.5 h-3.5 text-gray-400" />
+                  Auto-syncing every 4.5s
+                </div>
+              </div>
+
+              {/* 2-Column WhatsApp Web Layout */}
+              <div className="flex-1 flex overflow-hidden">
+                {/* ── Left Column: Conversation Sidebar ── */}
+                <div className="w-80 md:w-96 border-r border-gray-200 flex flex-col bg-gray-50/60">
+                  {/* Search and Filters */}
+                  <div className="p-3 border-b border-gray-200 space-y-2 bg-white">
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search chats by name or phone..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 bg-gray-100/70 border border-gray-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        onClick={() => setChatFilterUnreadOnly(!chatFilterUnreadOnly)}
+                        className={`text-xs px-2.5 py-1 rounded-full font-medium transition flex items-center gap-1.5 ${
+                          chatFilterUnreadOnly
+                            ? "bg-[#25D366] text-black font-bold shadow-xs"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        }`}
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        Unread only ({chatConversations.filter((c) => (c.unread_count || 0) > 0).length})
+                      </button>
+                      <span className="text-[11px] text-gray-500">
+                        {chatConversations.length} conversation{chatConversations.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Conversation List */}
+                  <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+                    {chatConversations
+                      .filter((conv) => {
+                        if (chatFilterUnreadOnly && (conv.unread_count || 0) === 0) return false;
+                        if (!searchTerm.trim()) return true;
+                        const q = searchTerm.toLowerCase();
+                        return (
+                          (conv.customer_name && conv.customer_name.toLowerCase().includes(q)) ||
+                          conv.customer_phone.includes(q) ||
+                          (conv.last_message_text && conv.last_message_text.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((conv) => {
+                        const isSelected = selectedChatPhone === conv.customer_phone;
+                        const isUnread = (conv.unread_count || 0) > 0;
+                        const isVip = (conv.total_orders || 0) >= 5;
+
+                        return (
+                          <div
+                            key={conv.customer_phone}
+                            onClick={() => handleSelectConversation(conv.customer_phone)}
+                            className={`p-3.5 cursor-pointer transition flex items-start gap-3 border-l-4 ${
+                              isSelected
+                                ? "bg-white border-l-[#25D366] shadow-xs"
+                                : isUnread
+                                ? "bg-emerald-50/40 border-l-emerald-500 hover:bg-emerald-50/80"
+                                : "hover:bg-gray-100/70 border-l-transparent"
+                            }`}
+                          >
+                            {/* Avatar */}
+                            <div className="relative flex-shrink-0">
+                              <div
+                                className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm text-white shadow-xs ${
+                                  isVip
+                                    ? "bg-amber-500 ring-2 ring-amber-300"
+                                    : "bg-emerald-600"
+                                }`}
+                              >
+                                {conv.customer_name ? conv.customer_name.charAt(0).toUpperCase() : "C"}
+                              </div>
+                              {isVip && (
+                                <span
+                                  title="VIP Customer (5+ orders)"
+                                  className="absolute -bottom-0.5 -right-0.5 bg-amber-400 text-black rounded-full p-0.5 border border-white shadow-xs"
+                                >
+                                  <Star className="w-2.5 h-2.5 fill-current text-amber-900" />
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between mb-1">
+                                <h4 className="text-xs font-bold text-gray-900 truncate">
+                                  {conv.customer_name || conv.customer_phone}
+                                </h4>
+                                {conv.last_message_time && (
+                                  <span className="text-[10px] text-gray-400 whitespace-nowrap ml-1 font-mono">
+                                    {new Date(conv.last_message_time).toLocaleTimeString([], {
+                                      hour: "2-digit",
+                                      minute: "2-digit"
+                                    })}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs text-gray-500 truncate flex-1 pr-2">
+                                  {conv.last_sender === "AGENT" && (
+                                    <span className="text-emerald-600 font-semibold mr-1">You:</span>
+                                  )}
+                                  {conv.last_message_text || "No messages yet"}
+                                </p>
+                                {isUnread && (
+                                  <span className="min-w-[18px] h-[18px] px-1.5 flex items-center justify-center bg-[#25D366] text-black text-[10px] font-black rounded-full shadow-xs">
+                                    {conv.unread_count}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* City & Orders Tag */}
+                              <div className="flex items-center gap-1.5 mt-1.5 text-[10px] text-gray-400">
+                                <span className="font-mono">{conv.customer_phone}</span>
+                                {conv.customer_city && (
+                                  <>
+                                    <span>•</span>
+                                    <span>{conv.customer_city}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                    {chatConversations.length === 0 && (
+                      <div className="p-8 text-center text-gray-400">
+                        <MessageSquare className="w-8 h-8 mx-auto mb-2 text-gray-300 opacity-60" />
+                        <p className="text-xs font-semibold">No conversations yet</p>
+                        <p className="text-[11px] text-gray-400 mt-1">
+                          When customers reply to WhatsApp campaigns or message your business, their chats will appear here in real-time.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Right Column: Selected Chat Thread & Reply Box ── */}
+                {selectedChatPhone ? (
+                  <div className="flex-1 flex flex-col bg-[#EFEAE2]/30">
+                    {/* Active Conversation Header */}
+                    {(() => {
+                      const activeConv = chatConversations.find(
+                        (c) => c.customer_phone === selectedChatPhone
+                      );
+                      const matchingContact = contacts.find(
+                        (c) => c.phone === selectedChatPhone
+                      );
+                      return (
+                        <div className="px-6 py-3 bg-white border-b border-gray-200 flex items-center justify-between shadow-xs">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-[#25D366] text-white flex items-center justify-center font-bold text-sm">
+                              {activeConv?.customer_name
+                                ? activeConv.customer_name.charAt(0).toUpperCase()
+                                : "C"}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h3 className="text-sm font-bold text-gray-900">
+                                  {activeConv?.customer_name || matchingContact?.name || "Customer"}
+                                </h3>
+                                {(matchingContact?.total_orders || activeConv?.total_orders || 0) >= 5 && (
+                                  <span className="px-2 py-0.5 bg-amber-100 text-amber-800 font-bold rounded text-[10px] flex items-center gap-1">
+                                    <Star className="w-3 h-3 fill-amber-500 text-amber-500" /> VIP
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <span className="font-mono">{selectedChatPhone}</span>
+                                {(matchingContact?.city || activeConv?.customer_city) && (
+                                  <>
+                                    <span>•</span>
+                                    <span>{matchingContact?.city || activeConv?.customer_city}</span>
+                                  </>
+                                )}
+                                <span>•</span>
+                                <span>
+                                  Orders: {matchingContact?.total_orders ?? activeConv?.total_orders ?? 0}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <a
+                              href={`https://wa.me/${selectedChatPhone.replace("+", "")}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-3 py-1.5 border border-emerald-300 text-emerald-700 bg-emerald-50 rounded-lg text-xs font-semibold hover:bg-emerald-100 transition flex items-center gap-1.5"
+                              title="Open in WhatsApp Web"
+                            >
+                              <PhoneCall className="w-3.5 h-3.5" />
+                              WhatsApp Web
+                            </a>
+                            <button
+                              onClick={() => fetchChatMessages(selectedChatPhone, false)}
+                              disabled={chatLoading}
+                              className="p-2 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition"
+                              title="Refresh messages"
+                            >
+                              <RefreshCw className={`w-4 h-4 ${chatLoading ? "animate-spin" : ""}`} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Messages Scroll Area */}
+                    <div className="flex-1 p-6 overflow-y-auto space-y-3 bg-[#E5DDD5]/20">
+                      {chatLoading && chatMessages.length === 0 ? (
+                        <div className="flex items-center justify-center h-full text-xs text-gray-400 gap-2">
+                          <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
+                          Loading chat history...
+                        </div>
+                      ) : chatMessages.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
+                          <MessageSquare className="w-10 h-10 text-gray-300 mb-2" />
+                          <p className="text-xs font-semibold text-gray-600">No messages in this chat yet</p>
+                          <p className="text-[11px] text-gray-400 max-w-xs mt-1">
+                            Type a friendly reply below to start conversing with this customer on WhatsApp.
+                          </p>
+                        </div>
+                      ) : (
+                        chatMessages.map((msg, index) => {
+                          const isAgent = msg.sender_type === "AGENT";
+                          return (
+                            <div
+                              key={msg.id || index}
+                              className={`flex ${isAgent ? "justify-end" : "justify-start"}`}
+                            >
+                              <div
+                                className={`max-w-md rounded-2xl px-4 py-2.5 shadow-xs text-sm relative ${
+                                  isAgent
+                                    ? "bg-[#D9FDD3] text-gray-900 rounded-tr-xs border border-emerald-200/60"
+                                    : "bg-white text-gray-900 rounded-tl-xs border border-gray-200/80"
+                                }`}
+                              >
+                                {!isAgent && (
+                                  <div className="text-[10px] font-bold text-emerald-700 mb-0.5">
+                                    Customer
+                                  </div>
+                                )}
+                                <p className="whitespace-pre-wrap leading-relaxed text-xs md:text-sm">
+                                  {msg.text}
+                                </p>
+                                <div
+                                  className={`flex items-center gap-1.5 justify-end mt-1 text-[10px] ${
+                                    isAgent ? "text-emerald-800/70" : "text-gray-400"
+                                  }`}
+                                >
+                                  <span>
+                                    {new Date(msg.created_at).toLocaleTimeString([], {
+                                      hour: "2-digit",
+                                      minute: "2-digit"
+                                    })}
+                                  </span>
+                                  {isAgent && (
+                                    <span>
+                                      {msg.status === "SENDING" ? (
+                                        <Clock className="w-3 h-3 text-gray-400 animate-spin" />
+                                      ) : msg.status === "DELIVERED" || msg.status === "READ" ? (
+                                        <CheckCheck className="w-3.5 h-3.5 text-blue-500" />
+                                      ) : (
+                                        <Check className="w-3.5 h-3.5 text-emerald-700" />
+                                      )}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* Quick Reply Suggestions */}
+                    <div className="px-4 py-2 bg-white/90 border-t border-gray-200 flex items-center gap-2 overflow-x-auto">
+                      <span className="text-[10px] font-bold uppercase text-gray-400 flex items-center gap-1 flex-shrink-0">
+                        <Sparkles className="w-3 h-3 text-[#F5A623]" /> Quick replies:
+                      </span>
+                      {[
+                        "નમસ્તે! મનુભાઈ ગાંઠિયાવાળામાં આપનું સ્વાગત છે. હું આપની શું સહાય કરી શકું?",
+                        "તમારો ઓર્ડર તૈયાર છે અને ટૂંક સમયમાં ડિલિવર થશે! 🚚",
+                        "આજનો સ્પેશિયલ ગરમા ગરમ ગાંઠિયા અને જલેબી નો સ્ટોક ઉપલબ્ધ છે! 😋",
+                        "Hello! How can we help you today with your order?",
+                        "Special 10% discount code for you: SAVE10"
+                      ].map((snippet, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setChatReplyText(snippet)}
+                          className="px-2.5 py-1 bg-gray-100 hover:bg-emerald-50 hover:text-emerald-700 border border-gray-200 rounded-full text-[11px] whitespace-nowrap text-gray-600 transition"
+                        >
+                          {snippet.length > 35 ? snippet.slice(0, 35) + "..." : snippet}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Chat Input Bar */}
+                    <form
+                      onSubmit={handleSendChatMessage}
+                      className="p-3.5 bg-white border-t border-gray-200 flex items-center gap-2"
+                    >
+                      <input
+                        type="text"
+                        placeholder="Type a message to reply on WhatsApp..."
+                        value={chatReplyText}
+                        onChange={(e) => setChatReplyText(e.target.value)}
+                        disabled={chatSending}
+                        className="flex-1 px-4 py-2.5 bg-gray-100/80 border border-gray-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!chatReplyText.trim() || chatSending}
+                        className="px-5 py-2.5 bg-[#25D366] hover:bg-[#1EBE5D] disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center gap-2"
+                      >
+                        {chatSending ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Send className="w-4 h-4" />
+                        )}
+                        Send
+                      </button>
+                    </form>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gray-50/50">
+                    <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-[#25D366] flex items-center justify-center mb-4 shadow-xs">
+                      <MessageSquare className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-base font-bold text-gray-900">Select a Conversation</h3>
+                    <p className="text-xs text-gray-500 max-w-sm mt-1 leading-relaxed">
+                      Choose a customer from the left sidebar to view their full message history and reply directly via WhatsApp Cloud API.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}

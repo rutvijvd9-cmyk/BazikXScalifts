@@ -15,6 +15,7 @@ logger = logging.getLogger("main")
 from fastapi import FastAPI, Depends, HTTPException, Header, Request, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -958,8 +959,8 @@ async def receive_inbound_whatsapp_message(
 ):
     """
     Receives incoming customer messages/replies from Meta WhatsApp Cloud API.
-    If the customer types 'STOP', 'બંધ કરો', or 'रोको',
-    they are automatically added to the opt_outs DND table.
+    1. If the customer types 'STOP', 'બંધ કરો', or 'रोકો', they are automatically added to the opt_outs DND table.
+    2. All incoming messages are saved into ChatMessage for real-time 2-Way Chat.
     """
     try:
         data = await request.json()
@@ -980,33 +981,215 @@ async def receive_inbound_whatsapp_message(
 
     if not messages:
         # Might be a status update (delivered, read)
+        statuses = value.get("statuses", [])
+        if statuses:
+            for st in statuses:
+                wamid = st.get("id")
+                new_status = st.get("status", "").upper()
+                if wamid:
+                    chat_msg = db.query(models.ChatMessage).filter(models.ChatMessage.meta_message_id == wamid).first()
+                    if chat_msg:
+                        chat_msg.status = new_status
+                        db.commit()
         return {"status": "status_update_acknowledged"}
 
     for msg in messages:
         sender_phone = "+" + msg.get("from", "").strip("+")
-        msg_type = msg.get("type", "")
-        body_text = ""
+        msg_type = msg.get("type", "text")
+        raw_body = ""
+        meta_id = msg.get("id", "")
 
         if msg_type == "text":
-            body_text = msg.get("text", {}).get("body", "").strip().lower()
+            raw_body = msg.get("text", {}).get("body", "").strip()
+        elif msg_type == "button":
+            raw_body = msg.get("button", {}).get("text", "")
+        elif msg_type == "interactive":
+            interactive = msg.get("interactive", {})
+            raw_body = interactive.get("button_reply", {}).get("title") or interactive.get("list_reply", {}).get("title") or "Interactive Response"
+        else:
+            raw_body = f"[{msg_type.upper()} message received]"
 
         # Check for opt-out keywords
-        is_opt_out = any(keyword in body_text for keyword in OPT_OUT_KEYWORDS)
+        is_opt_out = any(keyword in raw_body.lower() for keyword in OPT_OUT_KEYWORDS)
 
         if is_opt_out:
             existing_opt = db.query(models.OptOut).filter(models.OptOut.phone == sender_phone).first()
             if not existing_opt:
-                opt_record = models.OptOut(phone=sender_phone, reason=f"INBOUND_REPLY: {body_text}")
+                opt_record = models.OptOut(phone=sender_phone, reason=f"INBOUND_REPLY: {raw_body}")
                 db.add(opt_record)
                 db.commit()
-                print(f"🛑 [AUTO-DND] Customer {sender_phone} texted '{body_text}'. Added to Opt-Out DND list immediately.")
-            return {
-                "status": "opted_out",
-                "phone": sender_phone,
-                "action": "Customer unsubscribed successfully"
-            }
+                print(f"🛑 [AUTO-DND] Customer {sender_phone} texted '{raw_body}'. Added to Opt-Out DND list.")
+
+        # Save to ChatMessage database
+        new_chat_msg = models.ChatMessage(
+            customer_phone=sender_phone,
+            sender_type="CUSTOMER",
+            message_type=msg_type,
+            text=raw_body,
+            meta_message_id=meta_id,
+            status="RECEIVED",
+            is_read=False
+        )
+        db.add(new_chat_msg)
+
+        # Also auto-create contact if not existing yet
+        existing_contact = db.query(models.Contact).filter(models.Contact.phone == sender_phone).first()
+        if not existing_contact:
+            profile_name = value.get("contacts", [{}])[0].get("profile", {}).get("name") or "New WhatsApp Lead"
+            new_contact = models.Contact(
+                phone=sender_phone,
+                name=profile_name,
+                total_orders=0,
+                tags="Inbound Lead",
+                city="WhatsApp"
+            )
+            db.add(new_contact)
+
+        db.commit()
 
     return {"status": "message_processed"}
+
+
+# ==========================================
+# 💬 TWO-WAY CONVERSATION INBOX APIs
+# ==========================================
+
+@app.get("/api/chat/conversations", response_model=List[schemas.ChatConversationSummary])
+def list_conversations(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns active conversation threads grouped by customer phone,
+    with unread counts, contact details, and last message snippet.
+    """
+    # Get distinct customer phones ordered by latest message
+    subquery = (
+        db.query(
+            models.ChatMessage.customer_phone,
+            func.max(models.ChatMessage.created_at).label("latest_time")
+        )
+        .group_by(models.ChatMessage.customer_phone)
+        .order_by(desc("latest_time"))
+        .all()
+    )
+
+    results = []
+    for phone, latest_time in subquery:
+        # Fetch last message
+        last_msg = (
+            db.query(models.ChatMessage)
+            .filter(models.ChatMessage.customer_phone == phone)
+            .order_by(models.ChatMessage.created_at.desc())
+            .first()
+        )
+        # Unread count (customer messages not yet read by agent)
+        unread = (
+            db.query(models.ChatMessage)
+            .filter(
+                models.ChatMessage.customer_phone == phone,
+                models.ChatMessage.sender_type == "CUSTOMER",
+                models.ChatMessage.is_read == False
+            )
+            .count()
+        )
+        # Contact metadata
+        contact = db.query(models.Contact).filter(models.Contact.phone == phone).first()
+
+        results.append(
+            schemas.ChatConversationSummary(
+                customer_phone=phone,
+                customer_name=contact.name if contact and contact.name else "Customer",
+                customer_city=contact.city if contact else None,
+                total_orders=contact.total_orders if contact else 0,
+                unread_count=unread,
+                last_message_text=last_msg.text if last_msg else None,
+                last_message_time=latest_time,
+                last_sender=last_msg.sender_type if last_msg else None
+            )
+        )
+
+    return results
+
+
+@app.get("/api/chat/messages/{phone}", response_model=List[schemas.ChatMessageResponse])
+def get_chat_history(
+    phone: str,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves full chronological message history for a specific customer phone.
+    Marks customer messages as read.
+    """
+    clean_phone = phone.strip()
+    if not clean_phone.startswith("+"):
+        clean_phone = "+" + clean_phone
+
+    # Mark as read
+    db.query(models.ChatMessage).filter(
+        models.ChatMessage.customer_phone == clean_phone,
+        models.ChatMessage.sender_type == "CUSTOMER",
+        models.ChatMessage.is_read == False
+    ).update({"is_read": True})
+    db.commit()
+
+    messages = (
+        db.query(models.ChatMessage)
+        .filter(models.ChatMessage.customer_phone == clean_phone)
+        .order_by(models.ChatMessage.created_at.asc())
+        .limit(200)
+        .all()
+    )
+    return messages
+
+
+@app.post("/api/chat/send", response_model=schemas.ChatMessageResponse)
+def send_agent_reply(
+    payload: schemas.ChatSendMessageRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Allows store owner/agent to send an outbound text reply to a customer's WhatsApp.
+    Dispatches via Meta Cloud API or simulation mode and saves to chat history.
+    """
+    clean_phone = payload.customer_phone.strip()
+    if not clean_phone.startswith("+"):
+        clean_phone = "+" + clean_phone
+
+    # Dispatch via whatsapp_service
+    from whatsapp_service import send_whatsapp_free_text
+    res = send_whatsapp_free_text(clean_phone, payload.text)
+
+    msg_id = res.get("message_id")
+    status_str = "SENT" if res.get("status") in ["success", "success_simulated"] else "FAILED"
+
+    chat_entry = models.ChatMessage(
+        customer_phone=clean_phone,
+        sender_type="AGENT",
+        message_type="text",
+        text=payload.text,
+        meta_message_id=msg_id,
+        status=status_str,
+        is_read=True
+    )
+    db.add(chat_entry)
+
+    # Also log in general message_logs table
+    log_entry = models.MessageLog(
+        recipient_phone=clean_phone,
+        template_name="two_way_custom_chat",
+        language="en",
+        status=status_str,
+        meta_message_id=msg_id
+    )
+    db.add(log_entry)
+    db.commit()
+    db.refresh(chat_entry)
+
+    return chat_entry
+
 
 # --- Cart Events List API ---
 @app.get("/api/cart-events")

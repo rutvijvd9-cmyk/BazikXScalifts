@@ -127,3 +127,18 @@ class AutomationRule(Base):
     is_active = Column(Boolean, default=True)
     total_triggered = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_phone = Column(String(20), index=True, nullable=False)
+    sender_type = Column(String(20), default="CUSTOMER")  # "CUSTOMER" (inbound) or "AGENT" (outbound)
+    message_type = Column(String(20), default="text")      # text, template, image, document
+    text = Column(Text, nullable=True)
+    meta_message_id = Column(String(100), nullable=True, index=True)
+    status = Column(String(30), default="DELIVERED")      # RECEIVED, SENT, DELIVERED, READ, FAILED
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+

@@ -235,3 +235,55 @@ def create_meta_template(
         logger.error(f"Error submitting template to Meta: {e}")
         return {"error": str(e), "status": "FAILED"}
 
+
+def send_whatsapp_free_text(recipient_phone: str, message_text: str) -> dict:
+    """
+    Sends a free-form customer service text message (used within Meta's 24-hour service window).
+    Falls back to simulation mode if API credentials are not set.
+    """
+    clean_phone = recipient_phone.strip().replace(" ", "").replace("-", "")
+    if not clean_phone.startswith("+"):
+        clean_phone = "+" + clean_phone
+
+    # Check if simulated or live
+    if not WHATSAPP_API_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
+        mock_id = f"sim_chat_{int(datetime.utcnow().timestamp())}"
+        logger.info(f"💬 [SIMULATED 2-WAY CHAT] Agent sent to {clean_phone}: '{message_text}'")
+        return {
+            "status": "success_simulated",
+            "message_id": mock_id,
+            "info": "Simulated locally without live Meta credentials"
+        }
+
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_API_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": clean_phone.replace("+", ""),
+        "type": "text",
+        "text": {
+            "preview_url": False,
+            "body": message_text
+        }
+    }
+
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(META_API_URL, headers=headers, json=payload)
+            data = resp.json()
+            if resp.status_code == 200:
+                msg_id = data.get("messages", [{}])[0].get("id", "")
+                return {"status": "success", "message_id": msg_id}
+            else:
+                error_info = str(data.get("error", {}))
+                logger.error(f"Meta chat send error: {error_info}")
+                return {"status": "failed", "error": error_info}
+    except Exception as e:
+        logger.error(f"Error in send_whatsapp_free_text: {e}")
+        return {"status": "error", "message": str(e)}
+
+
