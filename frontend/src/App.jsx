@@ -19,6 +19,8 @@ import {
   Filter,
   ArrowUpDown,
   Trash2,
+  Edit2,
+  UserPlus,
   AlertTriangle,
   PlayCircle,
   BookOpen,
@@ -133,6 +135,20 @@ export default function App() {
   const [contactFilterTag, setContactFilterTag] = useState("ALL");
   const [contactFilterVip, setContactFilterVip] = useState("ALL");
   const [contactFilterOrders, setContactFilterOrders] = useState("ALL");
+
+  // Single Contact Add / Edit Modal State
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [editingContactId, setEditingContactId] = useState(null);
+  const [contactForm, setContactForm] = useState({
+    phone: "",
+    name: "",
+    email: "",
+    city: "",
+    tags: "",
+    total_orders: 0,
+    last_order_date: ""
+  });
+  const [contactSaving, setContactSaving] = useState(false);
 
   // New Campaign Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -363,6 +379,84 @@ export default function App() {
       alert("Failed to import CSV: " + (err.response?.data?.detail || err.message));
     } finally {
       setCsvImporting(false);
+    }
+  };
+
+  const handleOpenAddContact = () => {
+    setEditingContactId(null);
+    setContactForm({
+      phone: "+91",
+      name: "",
+      email: "",
+      city: "",
+      tags: "",
+      total_orders: 0,
+      last_order_date: ""
+    });
+    setIsContactModalOpen(true);
+  };
+
+  const handleOpenEditContact = (c) => {
+    setEditingContactId(c.id);
+    setContactForm({
+      phone: c.phone || "",
+      name: c.name || "",
+      email: c.email || "",
+      city: c.city || "",
+      tags: c.tags || "",
+      total_orders: Number(c.total_orders) || 0,
+      last_order_date: c.last_order_date ? c.last_order_date.split("T")[0] : ""
+    });
+    setIsContactModalOpen(true);
+  };
+
+  const handleSaveContact = async (e) => {
+    e.preventDefault();
+    setContactSaving(true);
+    try {
+      const payload = {
+        phone: contactForm.phone.trim(),
+        name: contactForm.name.trim() || null,
+        email: contactForm.email.trim() || null,
+        city: contactForm.city.trim() || null,
+        tags: contactForm.tags.trim() || null,
+        total_orders: Number(contactForm.total_orders) || 0,
+        last_order_date: contactForm.last_order_date ? contactForm.last_order_date : null
+      };
+
+      if (editingContactId) {
+        await axios.put(`/api/contacts/${editingContactId}`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setActionSuccessMsg(`✅ Contact ${payload.phone} updated successfully!`);
+      } else {
+        await axios.post("/api/contacts", payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setActionSuccessMsg(`✅ Contact ${payload.phone} added successfully!`);
+      }
+
+      setIsContactModalOpen(false);
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert("Failed to save contact: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setContactSaving(false);
+    }
+  };
+
+  const handleDeleteContact = async (c) => {
+    if (!window.confirm(`Are you sure you want to delete contact ${c.phone} (${c.name || "Customer"})?`)) return;
+    try {
+      await axios.delete(`/api/contacts/${c.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setActionSuccessMsg(`🗑️ Contact ${c.phone} deleted successfully!`);
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert("Failed to delete contact: " + (err.response?.data?.detail || err.message));
     }
   };
 
@@ -2059,6 +2153,13 @@ export default function App() {
                     />
                   </div>
                   <button
+                    onClick={handleOpenAddContact}
+                    className="flex items-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-3.5 py-1.5 rounded-lg font-bold text-xs shadow-xs transition"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    Add Contact
+                  </button>
+                  <button
                     onClick={() => setIsCsvModalOpen(true)}
                     className="flex items-center gap-1.5 bg-[#111827] hover:bg-gray-800 text-[#F5A623] px-3.5 py-1.5 rounded-lg font-bold text-xs shadow-xs transition"
                   >
@@ -2079,6 +2180,7 @@ export default function App() {
                 ).sort();
 
                 const filteredContacts = contacts.filter((c) => {
+                  const orders = Number(c.total_orders) || 0;
                   const matchesSearch =
                     !searchTerm ||
                     c.phone.includes(searchTerm) ||
@@ -2094,16 +2196,16 @@ export default function App() {
 
                   const matchesVip =
                     contactFilterVip === "ALL" ||
-                    (contactFilterVip === "SUPER_VIP" && c.total_orders >= 10) ||
-                    (contactFilterVip === "VIP" && c.total_orders >= 5 && c.total_orders < 10) ||
-                    (contactFilterVip === "REGULAR" && c.total_orders < 5);
+                    (contactFilterVip === "SUPER_VIP" && orders >= 10) ||
+                    (contactFilterVip === "VIP" && orders >= 5 && orders < 10) ||
+                    (contactFilterVip === "REGULAR" && orders < 5);
 
                   const matchesOrders =
                     contactFilterOrders === "ALL" ||
-                    (contactFilterOrders === "0" && c.total_orders === 0) ||
-                    (contactFilterOrders === "1_4" && c.total_orders >= 1 && c.total_orders <= 4) ||
-                    (contactFilterOrders === "5_9" && c.total_orders >= 5 && c.total_orders <= 9) ||
-                    (contactFilterOrders === "10_PLUS" && c.total_orders >= 10);
+                    (contactFilterOrders === "0" && orders === 0) ||
+                    (contactFilterOrders === "1_4" && orders >= 1 && orders <= 4) ||
+                    (contactFilterOrders === "5_9" && orders >= 5 && orders <= 9) ||
+                    (contactFilterOrders === "10_PLUS" && orders >= 10);
 
                   return matchesSearch && matchesCity && matchesTag && matchesVip && matchesOrders;
                 });
@@ -2123,14 +2225,14 @@ export default function App() {
                     valA = (a.city || "").toLowerCase();
                     valB = (b.city || "").toLowerCase();
                   } else if (contactSortField === "total_orders") {
-                    valA = a.total_orders || 0;
-                    valB = b.total_orders || 0;
+                    valA = Number(a.total_orders) || 0;
+                    valB = Number(b.total_orders) || 0;
                   } else if (contactSortField === "last_order_date") {
                     valA = a.last_order_date ? new Date(a.last_order_date).getTime() : 0;
                     valB = b.last_order_date ? new Date(b.last_order_date).getTime() : 0;
                   } else if (contactSortField === "id") {
-                    valA = a.id || 0;
-                    valB = b.id || 0;
+                    valA = Number(a.id) || 0;
+                    valB = Number(b.id) || 0;
                   }
 
                   if (valA < valB) return contactSortOrder === "asc" ? -1 : 1;
@@ -2304,72 +2406,94 @@ export default function App() {
                               </div>
                             </th>
                             <th className="px-6 py-3">VIP Status</th>
+                            <th className="px-6 py-3 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                           {paginatedContacts.length === 0 ? (
                             <tr>
-                              <td colSpan={6} className="px-6 py-10 text-center text-gray-400 text-xs font-medium">
+                              <td colSpan={7} className="px-6 py-10 text-center text-gray-400 text-xs font-medium">
                                 No contacts found matching the active filters or search.
                               </td>
                             </tr>
                           ) : (
-                            paginatedContacts.map((c) => (
-                              <tr key={c.id} className="hover:bg-gray-50/80 transition">
-                                <td className="px-6 py-4 font-semibold text-gray-900">
-                                  {c.name || "Customer"}
-                                  {c.email && <div className="text-xs text-gray-400 font-normal">{c.email}</div>}
-                                </td>
-                                <td className="px-6 py-4 font-mono font-medium text-gray-900">{c.phone}</td>
-                                <td className="px-6 py-4 text-xs text-gray-700">
-                                  {c.city && <span className="font-semibold text-gray-900 block">{c.city}</span>}
-                                  {c.tags ? (
-                                    <span className="inline-block bg-amber-50 text-[#D35400] text-[10px] font-bold px-2 py-0.5 rounded mt-0.5 border border-amber-200">
-                                      {c.tags}
-                                    </span>
-                                  ) : "—"}
-                                </td>
-                                <td className="px-6 py-4 font-bold text-gray-900">
-                                  {c.total_orders}
-                                  {c.total_orders >= 5 && (
-                                    <span className="ml-2 text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-bold border border-purple-200">
-                                      #{c.total_orders} Milestone
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="px-6 py-4 text-xs font-medium text-gray-600 whitespace-nowrap">
-                                  {c.last_order_date ? (
-                                    <div className="flex items-center gap-1.5">
-                                      <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                                      <span>
-                                        {new Date(c.last_order_date).toLocaleDateString("en-IN", {
-                                          day: "numeric",
-                                          month: "short",
-                                          year: "numeric"
-                                        })}
+                            paginatedContacts.map((c) => {
+                              const orders = Number(c.total_orders) || 0;
+                              return (
+                                <tr key={c.id} className="hover:bg-gray-50/80 transition">
+                                  <td className="px-6 py-4 font-semibold text-gray-900">
+                                    {c.name || "Customer"}
+                                    {c.email && <div className="text-xs text-gray-400 font-normal">{c.email}</div>}
+                                  </td>
+                                  <td className="px-6 py-4 font-mono font-medium text-gray-900">{c.phone}</td>
+                                  <td className="px-6 py-4 text-xs text-gray-700">
+                                    {c.city && <span className="font-semibold text-gray-900 block">{c.city}</span>}
+                                    {c.tags ? (
+                                      <span className="inline-block bg-amber-50 text-[#D35400] text-[10px] font-bold px-2 py-0.5 rounded mt-0.5 border border-amber-200">
+                                        {c.tags}
                                       </span>
+                                    ) : "—"}
+                                  </td>
+                                  <td className="px-6 py-4 font-bold text-gray-900">
+                                    {orders}
+                                    {orders >= 5 && (
+                                      <span className="ml-2 text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-bold border border-purple-200">
+                                        #{orders} Milestone
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4 text-xs font-medium text-gray-600 whitespace-nowrap">
+                                    {c.last_order_date ? (
+                                      <div className="flex items-center gap-1.5">
+                                        <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                                        <span>
+                                          {new Date(c.last_order_date).toLocaleDateString("en-IN", {
+                                            day: "numeric",
+                                            month: "short",
+                                            year: "numeric"
+                                          })}
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-400">—</span>
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    {orders >= 10 ? (
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                        ⭐ Super VIP
+                                      </span>
+                                    ) : orders >= 5 ? (
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                        🌟 VIP Buyer
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                        Regular
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                    <div className="flex items-center justify-end gap-2">
+                                      <button
+                                        onClick={() => handleOpenEditContact(c)}
+                                        className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition"
+                                        title="Edit Contact"
+                                      >
+                                        <Edit2 className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteContact(c)}
+                                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                                        title="Delete Contact"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
                                     </div>
-                                  ) : (
-                                    <span className="text-gray-400">—</span>
-                                  )}
-                                </td>
-                                <td className="px-6 py-4">
-                                  {c.total_orders >= 10 ? (
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                      ⭐ Super VIP
-                                    </span>
-                                  ) : c.total_orders >= 5 ? (
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                                      🌟 VIP Buyer
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                                      Regular
-                                    </span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))
+                                  </td>
+                                </tr>
+                              );
+                            })
                           )}
                         </tbody>
                       </table>
@@ -3004,6 +3128,142 @@ export default function App() {
                   className="bg-[#25D366] hover:bg-[#1EBE5D] disabled:opacity-50 text-white px-5 py-2 rounded-lg font-semibold text-sm shadow-md"
                 >
                   {csvImporting ? "Importing..." : "Upload & Process"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add / Edit Single Contact Modal ── */}
+      {isContactModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                  {editingContactId ? <Edit2 className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-gray-900">
+                    {editingContactId ? "Edit Customer Contact" : "Add New Customer Contact"}
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    {editingContactId ? "Update customer profile, order history, and tags" : "Add a single verified WhatsApp number"}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsContactModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 font-bold text-xl"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveContact} className="mt-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                    Phone Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="+919876543210"
+                    value={contactForm.phone}
+                    onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })}
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                  <span className="text-[10px] text-gray-400">Include country code (+91, +1, etc.)</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Full Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Rutvij Dhameliya"
+                    value={contactForm.name}
+                    onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Email Address</label>
+                  <input
+                    type="email"
+                    placeholder="customer@example.com"
+                    value={contactForm.email}
+                    onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">City</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Surat / Ahmedabad"
+                    value={contactForm.city}
+                    onChange={(e) => setContactForm({ ...contactForm, city: e.target.value })}
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                  Tags <span className="text-[11px] text-gray-400 font-normal">(comma-separated)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="VIP, Wholesale, Fafda Lover, Regular"
+                  value={contactForm.tags}
+                  onChange={(e) => setContactForm({ ...contactForm, tags: e.target.value })}
+                  className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Total Orders</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={contactForm.total_orders}
+                    onChange={(e) => setContactForm({ ...contactForm, total_orders: e.target.value })}
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Last Order Date</label>
+                  <input
+                    type="date"
+                    value={contactForm.last_order_date}
+                    onChange={(e) => setContactForm({ ...contactForm, last_order_date: e.target.value })}
+                    className="w-full px-3.5 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsContactModalOpen(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={contactSaving || !contactForm.phone.trim()}
+                  className="bg-[#25D366] hover:bg-[#1EBE5D] disabled:opacity-50 text-white px-5 py-2 rounded-lg font-semibold text-xs shadow-md flex items-center gap-1.5"
+                >
+                  {contactSaving ? "Saving..." : editingContactId ? "Update Contact" : "Save Contact"}
                 </button>
               </div>
             </form>

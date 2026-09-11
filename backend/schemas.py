@@ -9,8 +9,20 @@ class ContactCreate(BaseModel):
     email: Optional[str] = Field(None, max_length=120)
     city: Optional[str] = Field(None, max_length=100)
     tags: Optional[str] = Field(None, max_length=255)
+    total_orders: Optional[int] = Field(default=0, ge=0)
+    last_order_date: Optional[datetime] = None
     birth_day: Optional[int] = Field(None, ge=1, le=31)
     birth_month: Optional[int] = Field(None, ge=1, le=12)
+
+
+class ContactUpdate(BaseModel):
+    phone: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    city: Optional[str] = None
+    tags: Optional[str] = None
+    total_orders: Optional[int] = None
+    last_order_date: Optional[datetime] = None
 
 
 class ContactResponse(BaseModel):

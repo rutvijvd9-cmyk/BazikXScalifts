@@ -475,6 +475,10 @@ def create_or_get_contact(
             contact.city = payload.city
         if payload.tags:
             contact.tags = payload.tags
+        if payload.total_orders is not None and payload.total_orders > 0:
+            contact.total_orders = payload.total_orders
+        if payload.last_order_date:
+            contact.last_order_date = payload.last_order_date
         if payload.birth_day:
             contact.birth_day = payload.birth_day
         if payload.birth_month:
@@ -489,6 +493,8 @@ def create_or_get_contact(
         email=payload.email,
         city=payload.city,
         tags=payload.tags,
+        total_orders=payload.total_orders or 0,
+        last_order_date=payload.last_order_date,
         birth_day=payload.birth_day,
         birth_month=payload.birth_month
     )
@@ -496,6 +502,60 @@ def create_or_get_contact(
     db.commit()
     db.refresh(new_contact)
     return new_contact
+
+
+@app.put("/api/contacts/{contact_id}", response_model=schemas.ContactResponse)
+def update_contact(
+    contact_id: int,
+    payload: schemas.ContactUpdate,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    contact = db.query(models.Contact).filter(models.Contact.id == contact_id).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    if payload.phone:
+        clean_phone = payload.phone.strip()
+        if not clean_phone.startswith("+"):
+            clean_phone = "+" + clean_phone
+        # Check if phone is taken by another contact
+        existing = db.query(models.Contact).filter(models.Contact.phone == clean_phone, models.Contact.id != contact_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Phone {clean_phone} is already registered to another contact")
+        contact.phone = clean_phone
+
+    if payload.name is not None:
+        contact.name = payload.name
+    if payload.email is not None:
+        contact.email = payload.email
+    if payload.city is not None:
+        contact.city = payload.city
+    if payload.tags is not None:
+        contact.tags = payload.tags
+    if payload.total_orders is not None:
+        contact.total_orders = max(0, payload.total_orders)
+    if payload.last_order_date is not None:
+        contact.last_order_date = payload.last_order_date
+
+    db.commit()
+    db.refresh(contact)
+    return contact
+
+
+@app.delete("/api/contacts/{contact_id}")
+def delete_contact(
+    contact_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    contact = db.query(models.Contact).filter(models.Contact.id == contact_id).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    db.delete(contact)
+    db.commit()
+    return {"status": "success", "message": f"Contact {contact.phone} deleted successfully"}
 
 
 @app.get("/api/contacts", response_model=List[schemas.ContactResponse])
