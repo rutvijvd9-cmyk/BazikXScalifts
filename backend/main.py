@@ -503,7 +503,7 @@ def list_contacts(
     search: Optional[str] = None,
     tag: Optional[str] = None,
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 5000,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):

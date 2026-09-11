@@ -31,6 +31,7 @@ import {
   Upload,
   Calendar,
   Gift,
+  ChevronLeft,
   ChevronRight,
   Clock,
   Star,
@@ -120,6 +121,10 @@ export default function App() {
 
   // Search filter for lists
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Contacts Pagination State
+  const [contactsPage, setContactsPage] = useState(1);
+  const [contactsPerPage, setContactsPerPage] = useState(50);
 
   // New Campaign Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -2015,13 +2020,33 @@ export default function App() {
                   <p className="text-xs text-gray-500 mt-0.5">Customer list with tags, order milestones, and CSV import</p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="relative w-64">
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500 font-medium bg-gray-50 px-2.5 py-1 rounded-lg border border-gray-200">
+                    <span>Show:</span>
+                    <select
+                      value={contactsPerPage}
+                      onChange={(e) => {
+                        setContactsPerPage(Number(e.target.value));
+                        setContactsPage(1);
+                      }}
+                      className="bg-transparent font-bold text-gray-800 focus:outline-none cursor-pointer"
+                    >
+                      <option value={20}>20 / page</option>
+                      <option value={50}>50 / page</option>
+                      <option value={100}>100 / page</option>
+                      <option value={200}>200 / page</option>
+                      <option value={500}>500 / page</option>
+                    </select>
+                  </div>
+                  <div className="relative w-56">
                     <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
                     <input
                       type="text"
                       placeholder="Search phone, name, city..."
                       value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        setContactsPage(1);
+                      }}
                       className="w-full pl-9 pr-3.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                     />
                   </div>
@@ -2034,69 +2059,123 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm text-gray-600">
-                  <thead className="bg-gray-50 text-xs uppercase font-semibold text-gray-500 border-b border-gray-200">
-                    <tr>
-                      <th className="px-6 py-3">Customer Name</th>
-                      <th className="px-6 py-3">Phone Number</th>
-                      <th className="px-6 py-3">City / Tags</th>
-                      <th className="px-6 py-3">Total Orders</th>
-                      <th className="px-6 py-3">VIP Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {contacts
-                      .filter(
-                        (c) =>
-                          c.phone.includes(searchTerm) ||
-                          (c.name && c.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                          (c.city && c.city.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                          (c.tags && c.tags.toLowerCase().includes(searchTerm.toLowerCase()))
-                      )
-                      .map((c) => (
-                        <tr key={c.id} className="hover:bg-gray-50/80 transition">
-                          <td className="px-6 py-4 font-semibold text-gray-900">
-                            {c.name || "Customer"}
-                            {c.email && <div className="text-xs text-gray-400 font-normal">{c.email}</div>}
-                          </td>
-                          <td className="px-6 py-4 font-mono font-medium text-gray-900">{c.phone}</td>
-                          <td className="px-6 py-4 text-xs text-gray-700">
-                            {c.city && <span className="font-semibold text-gray-900 block">{c.city}</span>}
-                            {c.tags ? (
-                              <span className="inline-block bg-amber-50 text-[#D35400] text-[10px] font-bold px-2 py-0.5 rounded mt-0.5 border border-amber-200">
-                                {c.tags}
-                              </span>
-                            ) : "—"}
-                          </td>
-                          <td className="px-6 py-4 font-bold text-gray-900">
-                            {c.total_orders}
-                            {c.total_orders >= 5 && (
-                              <span className="ml-2 text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-bold border border-purple-200">
-                                #{c.total_orders} Milestone
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4">
-                            {c.total_orders >= 10 ? (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                ⭐ Super VIP
-                              </span>
-                            ) : c.total_orders >= 5 ? (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                                🌟 VIP Buyer
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                                Regular
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
+              {(() => {
+                const filteredContacts = contacts.filter(
+                  (c) =>
+                    c.phone.includes(searchTerm) ||
+                    (c.name && c.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                    (c.city && c.city.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                    (c.tags && c.tags.toLowerCase().includes(searchTerm.toLowerCase()))
+                );
+                const totalContacts = filteredContacts.length;
+                const totalPages = Math.max(1, Math.ceil(totalContacts / contactsPerPage));
+                const currentPage = Math.min(contactsPage, totalPages);
+                const startIndex = (currentPage - 1) * contactsPerPage;
+                const paginatedContacts = filteredContacts.slice(startIndex, startIndex + contactsPerPage);
+
+                return (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm text-gray-600">
+                        <thead className="bg-gray-50 text-xs uppercase font-semibold text-gray-500 border-b border-gray-200">
+                          <tr>
+                            <th className="px-6 py-3">Customer Name</th>
+                            <th className="px-6 py-3">Phone Number</th>
+                            <th className="px-6 py-3">City / Tags</th>
+                            <th className="px-6 py-3">Total Orders</th>
+                            <th className="px-6 py-3">VIP Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {paginatedContacts.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="px-6 py-10 text-center text-gray-400 text-xs font-medium">
+                                No contacts found matching your search.
+                              </td>
+                            </tr>
+                          ) : (
+                            paginatedContacts.map((c) => (
+                              <tr key={c.id} className="hover:bg-gray-50/80 transition">
+                                <td className="px-6 py-4 font-semibold text-gray-900">
+                                  {c.name || "Customer"}
+                                  {c.email && <div className="text-xs text-gray-400 font-normal">{c.email}</div>}
+                                </td>
+                                <td className="px-6 py-4 font-mono font-medium text-gray-900">{c.phone}</td>
+                                <td className="px-6 py-4 text-xs text-gray-700">
+                                  {c.city && <span className="font-semibold text-gray-900 block">{c.city}</span>}
+                                  {c.tags ? (
+                                    <span className="inline-block bg-amber-50 text-[#D35400] text-[10px] font-bold px-2 py-0.5 rounded mt-0.5 border border-amber-200">
+                                      {c.tags}
+                                    </span>
+                                  ) : "—"}
+                                </td>
+                                <td className="px-6 py-4 font-bold text-gray-900">
+                                  {c.total_orders}
+                                  {c.total_orders >= 5 && (
+                                    <span className="ml-2 text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-bold border border-purple-200">
+                                      #{c.total_orders} Milestone
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-6 py-4">
+                                  {c.total_orders >= 10 ? (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                      ⭐ Super VIP
+                                    </span>
+                                  ) : c.total_orders >= 5 ? (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                      🌟 VIP Buyer
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                      Regular
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination Bar */}
+                    <div className="px-6 py-3.5 bg-gray-50 border-t border-gray-200 flex items-center justify-between flex-wrap gap-3">
+                      <div className="text-xs text-gray-500 font-medium">
+                        Showing <strong className="text-gray-900">{totalContacts === 0 ? 0 : startIndex + 1}</strong> to{" "}
+                        <strong className="text-gray-900">{Math.min(startIndex + contactsPerPage, totalContacts)}</strong> of{" "}
+                        <strong className="text-gray-900">{totalContacts}</strong> contacts
+                        {searchTerm && <span className="ml-1 text-amber-600">(filtered)</span>}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setContactsPage((prev) => Math.max(1, prev - 1))}
+                          disabled={currentPage <= 1}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-white transition cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                          Prev
+                        </button>
+
+                        <div className="text-xs font-semibold text-gray-700 px-2">
+                          Page <span className="font-bold text-gray-900">{currentPage}</span> of{" "}
+                          <span className="font-bold text-gray-900">{totalPages}</span>
+                        </div>
+
+                        <button
+                          onClick={() => setContactsPage((prev) => Math.min(totalPages, prev + 1))}
+                          disabled={currentPage >= totalPages}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-white transition cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          Next
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 
