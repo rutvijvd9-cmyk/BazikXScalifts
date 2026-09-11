@@ -271,7 +271,7 @@ def send_automation_approval_email(
     condition: str
 ) -> dict:
     """
-    Alerts administrators when an automation triggers on > 10 recipients and is held for approval.
+    Alerts administrators when an automation triggers on > 100 recipients and is held for approval.
     """
     now_str = datetime.now().strftime("%d %b %Y, %I:%M %p IST")
     subject = f"⚠️ [Approval Required] Automation '{rule_name}' queued for {recipient_count} WhatsApp recipients"
@@ -280,7 +280,7 @@ def send_automation_approval_email(
       <div style="background: #111827; padding: 20px 24px; color: white; border-bottom: 3px solid #F5A623;">
         <div style="display: flex; align-items: center; justify-content: space-between;">
           <h2 style="margin: 0; font-size: 18px; font-weight: bold; color: #F5A623;">⚠️ Permission & Approval Gate</h2>
-          <span style="background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 9999px;">&gt; 10 Recipients</span>
+          <span style="background: #FEF3C7; color: #92400E; font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 9999px;">&gt; 100 Recipients</span>
         </div>
         <p style="margin: 4px 0 0 0; font-size: 12px; color: #9CA3AF;">Automation Rule execution paused pending admin approval</p>
       </div>
@@ -299,7 +299,7 @@ def send_automation_approval_email(
             </tr>
             <tr>
               <td style="color: #6B7280; padding: 4px 0;">Target Recipients:</td>
-              <td style="font-weight: bold; color: #DC2626;">{recipient_count} contacts (&gt; 10 threshold)</td>
+              <td style="font-weight: bold; color: #DC2626;">{recipient_count} contacts (&gt; 100 threshold)</td>
             </tr>
             <tr>
               <td style="color: #6B7280; padding: 4px 0;">WhatsApp Template:</td>
@@ -313,7 +313,7 @@ def send_automation_approval_email(
         </div>
 
         <div style="background: #EFF6FF; padding: 12px 16px; border-radius: 8px; border-left: 4px solid #3B82F6; font-size: 12px; color: #1E40AF; margin-bottom: 20px;">
-          <strong>Security Protocol:</strong> Because this action will dispatch messages to more than 10 phone numbers, the system requires your explicit permission and 2FA authentication to prevent accidental mass charges or spam.
+          <strong>Security Protocol:</strong> Because this action will dispatch messages to more than 100 phone numbers, the system requires your explicit permission and 2FA authentication to prevent accidental mass charges or spam.
         </div>
 
         <div style="text-align: center; margin: 24px 0;">

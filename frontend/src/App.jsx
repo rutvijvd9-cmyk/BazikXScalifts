@@ -682,7 +682,7 @@ export default function App() {
       );
 
       if (res.data.requires_approval) {
-        // Intercept: More than 10 recipients! Open step-up 2FA approval modal
+        // Intercept: More than 100 recipients! Open step-up 2FA approval modal
         setSecurityActionModal({
           isOpen: true,
           actionType: "AUTOMATION_APPROVAL",
@@ -1822,7 +1822,7 @@ export default function App() {
                             <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 flex items-center justify-between">
                               <span className="font-semibold flex items-center gap-1">
                                 <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                                Held: {rule.pending_recipients_count} contacts (&gt;10 limit)
+                                Held: {rule.pending_recipients_count} contacts (&gt;100 limit)
                               </span>
                               <span className="font-bold text-amber-700 underline cursor-pointer" onClick={() => handleTriggerRule(rule)}>
                                 Review & Approve →

@@ -297,7 +297,7 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
     - ORDER_COUNT_VIP (e.g. >= 2 orders)
 
     🛡️ HIGH-VOLUME SAFEGUARD:
-    If the rule targets more than 10 contacts (> 10), it is held in PENDING_APPROVAL
+    If the rule targets more than 100 contacts (> 100), it is held in PENDING_APPROVAL
     and dispatches an alert email to all admin emails asking for 2FA permission,
     unless explicitly authorized by admin (force_approved=True).
     """
@@ -342,8 +342,8 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
 
         total_eligible = len(eligible_phones)
 
-        # 🛡️ SAFEGUARD: If > 10 recipients and not force_approved by admin, hold and email alert!
-        if total_eligible > 10 and not force_approved:
+        # 🛡️ SAFEGUARD: If > 100 recipients and not force_approved by admin, hold and email alert!
+        if total_eligible > 100 and not force_approved:
             rule.approval_status = "PENDING_APPROVAL"
             rule.pending_recipients_count = total_eligible
             db.commit()
@@ -361,17 +361,17 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
             except Exception as mail_err:
                 logger.warning(f"Could not send approval email: {mail_err}")
 
-            logger.info(f"⏸️ Rule '{rule.rule_name}' held: {total_eligible} eligible recipients (> 10 threshold). Admin email dispatched.")
+            logger.info(f"⏸️ Rule '{rule.rule_name}' held: {total_eligible} eligible recipients (> 100 threshold). Admin email dispatched.")
             return {
                 "status": "pending_approval",
                 "messages_dispatched": 0,
                 "requires_approval": True,
                 "eligible_count": total_eligible,
                 "rule": rule.rule_name,
-                "message": f"Rule held for approval: targets {total_eligible} contacts (>10 threshold). Admin email sent."
+                "message": f"Rule held for approval: targets {total_eligible} contacts (>100 threshold). Admin email sent."
             }
 
-        # If <= 10 OR already approved by admin with 2FA
+        # If <= 100 OR already approved by admin with 2FA
         for phone, name in eligible_phones.items():
             res = send_whatsapp_template(
                 recipient_phone=phone,
