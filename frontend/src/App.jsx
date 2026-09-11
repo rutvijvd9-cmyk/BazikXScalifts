@@ -112,6 +112,7 @@ export default function App() {
   const [systemSettings, setSystemSettings] = useState({});
   const [systemUsers, setSystemUsers] = useState([]);
   const [templateFilterLang, setTemplateFilterLang] = useState("ALL");
+  const [loading, setLoading] = useState(false);
   const [actionSuccessMsg, setActionSuccessMsg] = useState("");
   const [testEmailLoading, setTestEmailLoading] = useState(false);
   const [testEmailFeedback, setTestEmailFeedback] = useState(null);
