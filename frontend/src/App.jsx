@@ -167,11 +167,23 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newCampaign, setNewCampaign] = useState({
     title: "",
-    template_name: "festive_promo_offer",
+    template_name: "",
     language: "en",
     target_filter: "ALL",
     scheduled_for: ""
   });
+
+  const handleOpenCampaignModal = () => {
+    const approvedTmpl = templates.find((t) => t.status === "APPROVED") || templates[0];
+    setNewCampaign({
+      title: "",
+      template_name: approvedTmpl ? approvedTmpl.template_name : "",
+      language: approvedTmpl ? (approvedTmpl.language || "en") : "en",
+      target_filter: "ALL",
+      scheduled_for: ""
+    });
+    setIsModalOpen(true);
+  };
 
   // 🔐 Step-Up Security & 2FA Modal States (for Campaign Launch & Automation Release)
   const [securityActionModal, setSecurityActionModal] = useState({
@@ -218,10 +230,23 @@ export default function App() {
     rule_name: "",
     rule_type: "INACTIVE_DAYS",
     threshold_value: 15,
-    template_name: "reorder_reminder",
-    coupon_code: "SAVE10",
+    template_name: "cart_recovery_v1",
+    coupon_code: "",
     dedup_days: 7
   });
+
+  const handleOpenRuleModal = () => {
+    const approvedTmpl = templates.find((t) => t.status === "APPROVED") || templates[0];
+    setNewRule({
+      rule_name: "",
+      rule_type: "INACTIVE_DAYS",
+      threshold_value: 15,
+      template_name: approvedTmpl ? approvedTmpl.template_name : "cart_recovery_v1",
+      coupon_code: discountCodes[0]?.code || "",
+      dedup_days: 7
+    });
+    setIsRuleModalOpen(true);
+  };
 
   // Configure & Test Simulator Modal State
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
@@ -900,10 +925,11 @@ export default function App() {
         setActionSuccessMsg(`✅ Broadcast Campaign '${payloadData.title}' successfully verified with 2FA and queued for dispatch!`);
         setIsModalOpen(false);
         setSecurityActionModal((prev) => ({ ...prev, isOpen: false }));
+        const approvedTmpl = templates.find((t) => t.status === "APPROVED") || templates[0];
         setNewCampaign({
           title: "",
-          template_name: "festive_promo_offer",
-          language: "en",
+          template_name: approvedTmpl ? approvedTmpl.template_name : "",
+          language: approvedTmpl ? (approvedTmpl.language || "en") : "en",
           target_filter: "ALL",
           scheduled_for: ""
         });
@@ -1360,7 +1386,7 @@ export default function App() {
 
             {activeTab === "automations" && (
               <button
-                onClick={() => setIsRuleModalOpen(true)}
+                onClick={handleOpenRuleModal}
                 className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#E67E22] text-black px-4 py-2 rounded-lg font-bold text-sm shadow-sm transition"
               >
                 <Plus className="w-4 h-4" />
@@ -1370,7 +1396,7 @@ export default function App() {
 
             {(activeTab === "campaigns" || activeTab === "dashboard") && (
               <button
-                onClick={() => setIsModalOpen(true)}
+                onClick={handleOpenCampaignModal}
                 className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-lg font-semibold text-sm shadow-sm transition shadow-green-500/20"
               >
                 <Plus className="w-4 h-4" />
@@ -1889,7 +1915,7 @@ export default function App() {
                     All previous automation rules have been deleted. You have a clean slate! Click below to create your first customized automation rule (such as Abandoned Cart Recovery).
                   </p>
                   <button
-                    onClick={() => setIsRuleModalOpen(true)}
+                    onClick={handleOpenRuleModal}
                     className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-xs inline-flex items-center gap-2 transition"
                   >
                     <Plus className="w-4 h-4" />
@@ -2303,7 +2329,7 @@ export default function App() {
                   <p className="text-xs text-gray-500 mt-0.5">Manage and trigger promotional WhatsApp broadcasts</p>
                 </div>
                 <button
-                  onClick={() => setIsModalOpen(true)}
+                  onClick={handleOpenCampaignModal}
                   className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-3.5 py-1.5 rounded-lg font-semibold text-xs shadow-sm transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -3470,18 +3496,18 @@ export default function App() {
                     className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                   >
                     {templates.length > 0 ? (
-                      templates.map((t) => (
-                        <option key={t.id} value={t.template_name}>
-                          {t.template_name} ({t.language})
-                        </option>
-                      ))
+                      [...templates]
+                        .sort((a, b) => (a.status === "APPROVED" ? -1 : 1))
+                        .map((t) => {
+                          const isApproved = t.status === "APPROVED";
+                          return (
+                            <option key={t.id} value={t.template_name}>
+                              {isApproved ? "🟢 [APPROVED]" : "🟡 [PENDING]"} {t.template_name} ({t.language})
+                            </option>
+                          );
+                        })
                     ) : (
-                      <>
-                        <option value="cart_recovery_v1">cart_recovery_v1 (Cart Recovery English)</option>
-                        <option value="abandoned_cart_recovery">abandoned_cart_recovery</option>
-                        <option value="reengagement_30_days">reengagement_30_days</option>
-                        <option value="vip_exclusive_offer">vip_exclusive_offer</option>
-                      </>
+                      <option value="cart_recovery_v1">cart_recovery_v1</option>
                     )}
                   </select>
                 </div>
@@ -3595,33 +3621,77 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">WhatsApp Approved Template</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold uppercase text-gray-700">WhatsApp Approved Template</label>
+                  {templates.length > 0 && (
+                    <span className="text-[11px] font-semibold text-emerald-600">
+                      {templates.filter((t) => t.status === "APPROVED").length} Approved by Meta
+                    </span>
+                  )}
+                </div>
                 <select
                   value={newCampaign.template_name}
-                  onChange={(e) => setNewCampaign({ ...newCampaign, template_name: e.target.value })}
+                  onChange={(e) => {
+                    const sel = templates.find((t) => t.template_name === e.target.value);
+                    setNewCampaign({
+                      ...newCampaign,
+                      template_name: e.target.value,
+                      language: sel?.language || newCampaign.language || "en"
+                    });
+                  }}
                   className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                 >
-                  <option value="festive_promo_offer">festive_promo_offer (Festive Discounts)</option>
-                  <option value="abandoned_cart_recovery">abandoned_cart_recovery (Cart Reminder)</option>
-                  <option value="reengagement_30_days">reengagement_30_days (30-Day Winback)</option>
-                  <option value="vip_exclusive_offer">vip_exclusive_offer (VIP Tasting Invite)</option>
-                  <option value="weekend_teatime_snack">weekend_teatime_snack (Weekend Tea Reminder)</option>
-                  <option value="reorder_reminder">reorder_reminder (Namkeen Refill Reminder)</option>
+                  {templates.length > 0 ? (
+                    [...templates]
+                      .sort((a, b) => (a.status === "APPROVED" ? -1 : 1))
+                      .map((t) => {
+                        const isApproved = t.status === "APPROVED";
+                        return (
+                          <option key={t.id} value={t.template_name}>
+                            {isApproved ? "🟢 [APPROVED]" : "🟡 [PENDING]"} {t.template_name} ({t.language})
+                          </option>
+                        );
+                      })
+                  ) : (
+                    <option value="" disabled>No templates synced from Meta</option>
+                  )}
                 </select>
+
+                {(() => {
+                  const currentTmpl = templates.find((t) => t.template_name === newCampaign.template_name);
+                  if (!currentTmpl) return null;
+                  const isApproved = currentTmpl.status === "APPROVED";
+                  return (
+                    <div className={`mt-2 p-2.5 rounded-lg text-xs flex items-center justify-between border ${
+                      isApproved 
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-200" 
+                        : "bg-amber-50 text-amber-800 border-amber-200"
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${isApproved ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`}></span>
+                        <span className="font-semibold">
+                          {isApproved ? "Approved by Meta • Ready for broadcast" : "Pending Meta Review • WhatsApp may reject broadcast"}
+                        </span>
+                      </div>
+                      <span className="font-mono text-[11px] bg-white px-2 py-0.5 rounded border border-gray-200 font-bold text-gray-700">
+                        {currentTmpl.language}
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Language</label>
-                  <select
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Language Code</label>
+                  <input
+                    type="text"
+                    readOnly
                     value={newCampaign.language}
-                    onChange={(e) => setNewCampaign({ ...newCampaign, language: e.target.value })}
-                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  >
-                    <option value="en">English (en)</option>
-                    <option value="gu">ગુજરાતી (gu)</option>
-                    <option value="hi">हिंदी (hi)</option>
-                  </select>
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-800 font-mono font-semibold focus:outline-none cursor-not-allowed"
+                    title="Matched automatically from the selected Meta template."
+                  />
+                  <p className="text-[10px] text-gray-400 mt-0.5">Matched from Meta template</p>
                 </div>
 
                 <div>
@@ -4368,18 +4438,18 @@ export default function App() {
                       className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                     >
                       {templates.length > 0 ? (
-                        templates.map((t) => (
-                          <option key={t.id} value={t.template_name}>
-                            {t.template_name} ({t.language})
-                          </option>
-                        ))
+                        [...templates]
+                          .sort((a, b) => (a.status === "APPROVED" ? -1 : 1))
+                          .map((t) => {
+                            const isApproved = t.status === "APPROVED";
+                            return (
+                              <option key={t.id} value={t.template_name}>
+                                {isApproved ? "🟢 [APPROVED]" : "🟡 [PENDING]"} {t.template_name} ({t.language})
+                              </option>
+                            );
+                          })
                       ) : (
-                        <>
-                          <option value="cart_recovery_v1">cart_recovery_v1</option>
-                          <option value="abandoned_cart_recovery">abandoned_cart_recovery</option>
-                          <option value="reengagement_30_days">reengagement_30_days</option>
-                          <option value="festive_promo_offer">festive_promo_offer</option>
-                        </>
+                        <option value="cart_recovery_v1">cart_recovery_v1</option>
                       )}
                     </select>
                   </div>
