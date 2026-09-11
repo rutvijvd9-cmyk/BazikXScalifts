@@ -2439,14 +2439,56 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Discount Coupon Code</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. VIP15 or SPECIAL5"
-                    value={newRule.coupon_code}
-                    onChange={(e) => setNewRule({ ...newRule, coupon_code: e.target.value })}
-                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold uppercase text-gray-700">Discount Coupon Code</label>
+                    {discountCodes.length > 0 && (
+                      <span className="text-[10px] text-gray-400">({discountCodes.length} available)</span>
+                    )}
+                  </div>
+                  {discountCodes.length > 0 ? (
+                    <div className="space-y-1.5">
+                      <select
+                        value={
+                          discountCodes.some((d) => d.code === newRule.coupon_code)
+                            ? newRule.coupon_code
+                            : newRule.coupon_code ? "__CUSTOM__" : ""
+                        }
+                        onChange={(e) => {
+                          if (e.target.value === "__CUSTOM__") {
+                            setNewRule({ ...newRule, coupon_code: "" });
+                          } else {
+                            setNewRule({ ...newRule, coupon_code: e.target.value });
+                          }
+                        }}
+                        className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                      >
+                        <option value="">-- Select Active Coupon --</option>
+                        {discountCodes.map((d) => (
+                          <option key={d.id} value={d.code}>
+                            {d.code} ({d.discount_type === "PERCENT" ? `${d.discount_value}% OFF` : `₹${d.discount_value} OFF`})
+                          </option>
+                        ))}
+                        <option value="__CUSTOM__">✍️ Custom Code (Type below)</option>
+                      </select>
+                      {(!discountCodes.some((d) => d.code === newRule.coupon_code) || newRule.coupon_code === "") && (
+                        <input
+                          type="text"
+                          placeholder="Type custom coupon (e.g. BAZIK7)"
+                          value={newRule.coupon_code}
+                          onChange={(e) => setNewRule({ ...newRule, coupon_code: e.target.value.toUpperCase() })}
+                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      placeholder="e.g. VIP15 or BAZIK7"
+                      value={newRule.coupon_code}
+                      onChange={(e) => setNewRule({ ...newRule, coupon_code: e.target.value.toUpperCase() })}
+                      className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                    />
+                  )}
                 </div>
               </div>
 
@@ -2927,17 +2969,68 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Discount Coupon Code</label>
-                    <input
-                      type="text"
-                      value={selectedRuleForConfig.coupon_code || ""}
-                      onChange={(e) => setSelectedRuleForConfig({
-                        ...selectedRuleForConfig,
-                        coupon_code: e.target.value.toUpperCase()
-                      })}
-                      placeholder="e.g. GATHIYA10"
-                      className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                    />
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-bold uppercase text-gray-600">Discount Coupon Code</label>
+                      {discountCodes.length > 0 && (
+                        <span className="text-[10px] text-gray-400">({discountCodes.length} available)</span>
+                      )}
+                    </div>
+                    {discountCodes.length > 0 ? (
+                      <div className="space-y-1.5">
+                        <select
+                          value={
+                            discountCodes.some((d) => d.code === selectedRuleForConfig.coupon_code)
+                              ? selectedRuleForConfig.coupon_code
+                              : selectedRuleForConfig.coupon_code ? "__CUSTOM__" : ""
+                          }
+                          onChange={(e) => {
+                            if (e.target.value === "__CUSTOM__") {
+                              setSelectedRuleForConfig({
+                                ...selectedRuleForConfig,
+                                coupon_code: ""
+                              });
+                            } else {
+                              setSelectedRuleForConfig({
+                                ...selectedRuleForConfig,
+                                coupon_code: e.target.value
+                              });
+                            }
+                          }}
+                          className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                        >
+                          <option value="">-- Select Active Coupon --</option>
+                          {discountCodes.map((d) => (
+                            <option key={d.id} value={d.code}>
+                              {d.code} ({d.discount_type === "PERCENT" ? `${d.discount_value}% OFF` : `₹${d.discount_value} OFF`})
+                            </option>
+                          ))}
+                          <option value="__CUSTOM__">✍️ Custom Code (Type below)</option>
+                        </select>
+                        {(!discountCodes.some((d) => d.code === selectedRuleForConfig.coupon_code) || selectedRuleForConfig.coupon_code === "") && (
+                          <input
+                            type="text"
+                            value={selectedRuleForConfig.coupon_code || ""}
+                            onChange={(e) => setSelectedRuleForConfig({
+                              ...selectedRuleForConfig,
+                              coupon_code: e.target.value.toUpperCase()
+                            })}
+                            placeholder="Type coupon code (e.g. BAZIK7)"
+                            className="w-full px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={selectedRuleForConfig.coupon_code || ""}
+                        onChange={(e) => setSelectedRuleForConfig({
+                          ...selectedRuleForConfig,
+                          coupon_code: e.target.value.toUpperCase()
+                        })}
+                        placeholder="e.g. BAZIK7"
+                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                      />
+                    )}
                   </div>
                 </div>
 
