@@ -1168,7 +1168,11 @@ async def receive_inbound_whatsapp_message(
         # Also auto-create contact if not existing yet
         existing_contact = db.query(models.Contact).filter(models.Contact.phone == sender_phone).first()
         if not existing_contact:
-            profile_name = value.get("contacts", [{}])[0].get("profile", {}).get("name") or "New WhatsApp Lead"
+            contacts_list = value.get("contacts") or []
+            profile_name = "New WhatsApp Lead"
+            if isinstance(contacts_list, list) and len(contacts_list) > 0 and isinstance(contacts_list[0], dict):
+                profile_name = contacts_list[0].get("profile", {}).get("name") or "New WhatsApp Lead"
+
             new_contact = models.Contact(
                 phone=sender_phone,
                 name=profile_name,

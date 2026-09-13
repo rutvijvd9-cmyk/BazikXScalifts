@@ -527,7 +527,7 @@ export default function App() {
           "Content-Type": "multipart/form-data"
         }
       });
-      setActionSuccessMsg(`✅ ${res.data.message}`);
+      setActionSuccessMsg(`${res.data.message}`);
       setIsCsvModalOpen(false);
       setCsvFile(null);
       fetchData();
@@ -585,12 +585,12 @@ export default function App() {
         await axios.put(`/api/contacts/${editingContactId}`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setActionSuccessMsg(`✅ Contact ${payload.phone} updated successfully!`);
+        setActionSuccessMsg(`Contact ${payload.phone} updated successfully!`);
       } else {
         await axios.post("/api/contacts", payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setActionSuccessMsg(`✅ Contact ${payload.phone} added successfully!`);
+        setActionSuccessMsg(`Contact ${payload.phone} added successfully!`);
       }
 
       setIsContactModalOpen(false);
@@ -623,7 +623,7 @@ export default function App() {
       await axios.post("/api/discount-codes", newDiscountCode, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setActionSuccessMsg(`✅ Discount Code '${newDiscountCode.code}' created successfully!`);
+      setActionSuccessMsg(`Discount Code '${newDiscountCode.code}' created successfully!`);
       setIsDiscountModalOpen(false);
       setNewDiscountCode({
         code: "",
@@ -657,7 +657,7 @@ export default function App() {
       const res = await axios.post("/api/templates", newTemplate, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setActionSuccessMsg(`✅ Template '${res.data.template_name}' submitted and saved!`);
+      setActionSuccessMsg(`Template '${res.data.template_name}' submitted and saved!`);
       setIsTemplateModalOpen(false);
       setNewTemplate({
         template_name: "",
@@ -698,7 +698,7 @@ export default function App() {
       const res = await axios.post("/api/templates/sync-from-meta", {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setActionSuccessMsg(`✅ ${res.data.message}`);
+      setActionSuccessMsg(`${res.data.message}`);
       fetchData();
       setTimeout(() => setActionSuccessMsg(""), 5000);
     } catch (err) {
@@ -746,7 +746,7 @@ export default function App() {
         return;
       }
 
-      setActionSuccessMsg(`✅ Automation '${rule.rule_name}' executed: ${res.data.messages_dispatched} messages sent (dedup applied).`);
+      setActionSuccessMsg(`Automation '${rule.rule_name}' executed: ${res.data.messages_dispatched} messages sent (dedup applied).`);
       fetchData();
       setTimeout(() => setActionSuccessMsg(""), 6000);
     } catch (err) {
@@ -795,7 +795,7 @@ export default function App() {
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setActionSuccessMsg(`✅ Automation '${selectedRuleForConfig.rule_name}' updated successfully!`);
+      setActionSuccessMsg(`Automation '${selectedRuleForConfig.rule_name}' updated successfully!`);
       setIsConfigModalOpen(false);
       fetchData();
       setTimeout(() => setActionSuccessMsg(""), 5000);
@@ -1254,7 +1254,7 @@ export default function App() {
       </aside>
 
       {/* ── Main Content Area ── */}
-      <main className="flex-1 flex flex-col overflow-y-auto">
+      <main className={`flex-1 flex flex-col ${activeTab === "chat" ? "overflow-hidden h-screen" : "overflow-y-auto"}`}>
         {/* Top App Bar */}
         <header className="h-16 bg-white border-b border-gray-200 px-8 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2">
@@ -1311,7 +1311,7 @@ export default function App() {
         )}
 
         {/* Dynamic Views */}
-        <div className="p-8 space-y-6">
+        <div className={activeTab === "chat" ? "p-3 md:p-5 flex-1 flex flex-col min-h-0 overflow-hidden" : "p-8 space-y-6"}>
           {/* ========================================================= */}
           {/* TAB 1: DASHBOARD OVERVIEW */}
           {/* ========================================================= */}
@@ -2785,9 +2785,20 @@ export default function App() {
                           {new Date(log.created_at).toLocaleString()}
                         </td>
                         <td className="px-6 py-4">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-[#10B981] border border-emerald-200">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            log.status === "FAILED"
+                              ? "bg-red-50 text-red-700 border border-red-200"
+                              : log.status === "SENT_SIMULATED"
+                              ? "bg-amber-50 text-amber-700 border border-amber-200"
+                              : "bg-emerald-50 text-[#10B981] border border-emerald-200"
+                          }`}>
                             {log.status}
                           </span>
+                          {log.error_message && (
+                            <p className="text-[10px] text-red-600 font-mono mt-1 max-w-xs truncate" title={log.error_message}>
+                              {log.error_message}
+                            </p>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -2854,9 +2865,9 @@ export default function App() {
           {/* TAB 10: TWO-WAY LIVE CHAT & INBOX */}
           {/* ========================================================= */}
           {activeTab === "chat" && (
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[calc(100vh-160px)]">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col flex-1 min-h-0">
               {/* Top Banner / Live Status Indicator */}
-              <div className="px-6 py-3 bg-gradient-to-r from-emerald-50 via-gray-50 to-white border-b border-gray-200 flex items-center justify-between">
+              <div className="px-6 py-2.5 bg-gradient-to-r from-emerald-50 via-gray-50 to-white border-b border-gray-200 flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2">
                     <span className="relative flex h-3 w-3">
@@ -2879,16 +2890,16 @@ export default function App() {
               </div>
 
               {/* 2-Column WhatsApp Web Layout */}
-              <div className="flex-1 flex overflow-hidden">
+              <div className="flex-1 flex overflow-hidden min-h-0">
                 {/* ── Left Column: Conversation Sidebar ── */}
-                <div className="w-80 md:w-96 border-r border-gray-200 flex flex-col bg-gray-50/60">
+                <div className="w-80 md:w-96 border-r border-gray-200 flex flex-col bg-gray-50/60 min-h-0">
                   {/* Search and Filters */}
-                  <div className="p-3 border-b border-gray-200 space-y-2 bg-white">
+                  <div className="p-3 border-b border-gray-200 space-y-2 bg-white flex-shrink-0">
                     <div className="relative">
                       <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
-                        placeholder="Search chats by name or phone..."
+                        placeholder="Search chats..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full pl-9 pr-3 py-2 bg-gray-100/70 border border-gray-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#25D366]"
@@ -3159,8 +3170,8 @@ export default function App() {
                     </div>
 
                     {/* Quick Reply Suggestions */}
-                    <div className="px-4 py-2 bg-white/90 border-t border-gray-200 flex items-center gap-2 overflow-x-auto">
-                      <span className="text-[10px] font-bold uppercase text-gray-400 flex items-center gap-1 flex-shrink-0">
+                    <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center gap-2 overflow-x-auto flex-shrink-0">
+                      <span className="text-[10px] font-bold uppercase text-gray-500 flex items-center gap-1 flex-shrink-0 pl-1">
                         <Sparkles className="w-3 h-3 text-[#F5A623]" /> Quick replies:
                       </span>
                       {[
@@ -3174,7 +3185,7 @@ export default function App() {
                           key={idx}
                           type="button"
                           onClick={() => setChatReplyText(snippet)}
-                          className="px-2.5 py-1 bg-gray-100 hover:bg-emerald-50 hover:text-emerald-700 border border-gray-200 rounded-full text-[11px] whitespace-nowrap text-gray-600 transition"
+                          className="px-3 py-1 bg-white hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 border border-gray-200 rounded-full text-xs whitespace-nowrap text-gray-700 transition shadow-2xs font-medium"
                         >
                           {snippet.length > 35 ? snippet.slice(0, 35) + "..." : snippet}
                         </button>
@@ -3184,7 +3195,7 @@ export default function App() {
                     {/* Chat Input Bar */}
                     <form
                       onSubmit={handleSendChatMessage}
-                      className="p-3.5 bg-white border-t border-gray-200 flex items-center gap-2"
+                      className="p-3 bg-white border-t border-gray-200 flex items-center gap-2.5 flex-shrink-0"
                     >
                       <input
                         type="text"
@@ -3192,12 +3203,12 @@ export default function App() {
                         value={chatReplyText}
                         onChange={(e) => setChatReplyText(e.target.value)}
                         disabled={chatSending}
-                        className="flex-1 px-4 py-2.5 bg-gray-100/80 border border-gray-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                        className="flex-1 px-4 py-2 bg-gray-100/80 border border-gray-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                       />
                       <button
                         type="submit"
                         disabled={!chatReplyText.trim() || chatSending}
-                        className="px-5 py-2.5 bg-[#25D366] hover:bg-[#1EBE5D] disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center gap-2"
+                        className="px-5 py-2 bg-[#25D366] hover:bg-[#1EBE5D] disabled:opacity-50 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center gap-2 flex-shrink-0"
                       >
                         {chatSending ? (
                           <RefreshCw className="w-4 h-4 animate-spin" />

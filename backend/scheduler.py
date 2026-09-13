@@ -207,15 +207,29 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
         success_count = 0
         fail_count = 0
 
+        import re
+        tmpl = db.query(models.Template).filter(models.Template.template_name == campaign.template_name).first()
+        placeholder_count = 2
+        if tmpl and tmpl.body_text:
+            matches = re.findall(r"\{\{(\d+)\}\}", tmpl.body_text)
+            if matches:
+                placeholder_count = max([int(m) for m in matches])
+
         for phone in phones:
             contact = db.query(models.Contact).filter(models.Contact.phone == phone).first()
             customer_name = contact.name if contact and contact.name else "Valued Customer"
+
+            # Build parameter dictionary matching the template's required count
+            fallback_values = [customer_name, campaign.title, "+91 98765 43210", "10% OFF", "Ahmedabad", "Manubhai Gathiyawala"]
+            params = {}
+            for i in range(1, placeholder_count + 1):
+                params[f"param_{i}"] = fallback_values[(i - 1) % len(fallback_values)]
 
             res = send_whatsapp_template(
                 recipient_phone=phone,
                 template_name=campaign.template_name,
                 language=campaign.language,
-                parameters={"name": customer_name, "campaign": campaign.title}
+                parameters=params
             )
 
             if res.get("status") in ["success", "success_simulated"]:
