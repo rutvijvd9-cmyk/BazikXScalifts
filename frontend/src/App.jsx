@@ -3792,13 +3792,9 @@ export default function App() {
                                 onChange={(e) => updateMapping("coupon", e.target.value)}
                                 className="flex-1 px-2.5 py-1.5 border border-[#F5A623] bg-amber-50/60 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
                               >
-                                <option value="code">🏷️ Coupon Code: {newRule.coupon_code || "OFFER"}</option>
-                                <option value="discount_value">
-                                  🎁 Discount Value: {discountCodes.find((d) => d.code === newRule.coupon_code)?.discount_value ? `${discountCodes.find((d) => d.code === newRule.coupon_code).discount_value}%` : "7% OFF"}
-                                </option>
-                                <option value="expires_at">
-                                  ⏳ Expiry Date: {newRule.expires_at || discountCodes.find((d) => d.code === newRule.coupon_code)?.expires_at?.split("T")[0] || "30/09/2026"}
-                                </option>
+                                <option value="code">🏷️ Coupon Code</option>
+                                <option value="discount_value">🎁 Discount Value (%)</option>
+                                <option value="expires_at">⏳ Coupon Expiry Date</option>
                               </select>
                             ) : (
                               <input
@@ -4684,7 +4680,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
                   <div>
                     <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Cooldown / Dedup</label>
                     <div className="flex items-center gap-1.5">
@@ -4700,21 +4696,6 @@ export default function App() {
                       />
                       <span className="text-[11px] text-gray-500 font-semibold">Days</span>
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">
-                      Expiry Deadline
-                    </label>
-                    <input
-                      type="date"
-                      value={selectedRuleForConfig.expires_at ? selectedRuleForConfig.expires_at.split("T")[0] : ""}
-                      onChange={(e) => setSelectedRuleForConfig({
-                        ...selectedRuleForConfig,
-                        expires_at: e.target.value
-                      })}
-                      className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                    />
                   </div>
 
                   <div>
@@ -4743,6 +4724,21 @@ export default function App() {
                       )}
                     </select>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">
+                    ⏳ Expiry Deadline <span className="normal-case font-normal text-gray-400">(automation auto-stops on this date)</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={selectedRuleForConfig.expires_at ? selectedRuleForConfig.expires_at.split("T")[0] : ""}
+                    onChange={(e) => setSelectedRuleForConfig({
+                      ...selectedRuleForConfig,
+                      expires_at: e.target.value
+                    })}
+                    className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
                 </div>
 
                 {/* Dynamic Meta Template Variable Mapper for Configure Modal */}
@@ -4837,13 +4833,9 @@ export default function App() {
                                   onChange={(e) => updateConfigMapping("coupon", e.target.value)}
                                   className="flex-1 px-2 py-1 border border-[#F5A623] bg-amber-50/60 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
                                 >
-                                  <option value="code">🏷️ Coupon Code: {selectedRuleForConfig.coupon_code || "OFFER"}</option>
-                                  <option value="discount_value">
-                                    🎁 Discount Value: {discountCodes.find((d) => d.code === selectedRuleForConfig.coupon_code)?.discount_value ? `${discountCodes.find((d) => d.code === selectedRuleForConfig.coupon_code).discount_value}%` : "7% OFF"}
-                                  </option>
-                                  <option value="expires_at">
-                                    ⏳ Expiry Date: {selectedRuleForConfig.expires_at ? selectedRuleForConfig.expires_at.split("T")[0] : discountCodes.find((d) => d.code === selectedRuleForConfig.coupon_code)?.expires_at?.split("T")[0] || "30/09/2026"}
-                                  </option>
+                                  <option value="code">🏷️ Coupon Code</option>
+                                  <option value="discount_value">🎁 Discount Value (%)</option>
+                                  <option value="expires_at">⏳ Coupon Expiry Date</option>
                                 </select>
                               ) : (
                                 <input

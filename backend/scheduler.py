@@ -524,7 +524,7 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                     else:
                         val_str = rule.coupon_code or "OFFER"
                 elif m_type == "static":
-                    val_str = str(m_val) if m_val else ""
+                    val_str = str(m_val).strip() if m_val else "-"
                 else:
                     # Default intelligent fallback if no explicit user mapping
                     if idx == 1:

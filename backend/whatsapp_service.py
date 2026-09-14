@@ -88,7 +88,16 @@ def send_whatsapp_template(
         
         components = []
         if parameters:
-            body_params = [{"type": "text", "text": str(v)} for v in parameters.values()]
+            # Sort by key (param_1, param_2 ...) to guarantee correct positional order
+            sorted_params = sorted(parameters.items(), key=lambda x: x[0])
+            body_params = []
+            for k, v in sorted_params:
+                text_val = str(v).strip() if v is not None else ""
+                if not text_val:
+                    # Meta rejects empty parameters (#131008) — use a safe placeholder
+                    text_val = "-"
+                body_params.append({"type": "text", "text": text_val})
+            logger.info(f"📤 [Meta Payload] template={template_name} to={recipient_phone} params={[p['text'] for p in body_params]}")
             components.append({
                 "type": "body",
                 "parameters": body_params
