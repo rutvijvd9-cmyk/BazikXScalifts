@@ -868,6 +868,7 @@ export default function App() {
           { item: "Papdi Gathiya with Kadhi 500g", price: 140, qty: 1 }
         ]
       }, {
+        headers: { Authorization: `Bearer ${token}` },
         params: { delay_seconds: 10 } // 10 second delay for rapid testing!
       });
       setActionSuccessMsg(`🛒 Test Cart Abandonment simulated! Cart #${mockToken.slice(-6)} recorded. WhatsApp recovery scheduled in 10s.`);
@@ -917,6 +918,7 @@ export default function App() {
     setSimulatingAction(true);
     try {
       const res = await axios.post("/api/webhooks/order-completed", null, {
+        headers: { Authorization: `Bearer ${token}` },
         params: {
           cart_token: cartToken || `cart_test_${Date.now()}`,
           customer_phone: testPhone

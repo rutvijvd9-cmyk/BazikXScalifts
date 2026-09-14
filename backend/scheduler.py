@@ -127,9 +127,35 @@ def process_abandoned_cart_job(cart_event_id: int):
             logger.info(f"✅ Abandoned cart recovery dispatched for {cart.customer_phone}")
         else:
             logger.warning(f"Cart message was not sent: {result}")
+            try:
+                reason = result.get("reason") or result.get("error") or "Template dispatch failed"
+                fail_entry = models.MessageLog(
+                    recipient_phone=cart.customer_phone,
+                    template_name=target_template,
+                    language=target_lang,
+                    status="FAILED",
+                    error_message=f"Recovery failed: {reason}"
+                )
+                db.add(fail_entry)
+                db.commit()
+            except Exception as log_err:
+                logger.warning(f"Could not save un-sent MessageLog: {log_err}")
 
     except Exception as e:
         logger.error(f"Error in process_abandoned_cart_job: {e}")
+        try:
+            cart = db.query(models.CartEvent).filter(models.CartEvent.id == cart_event_id).first()
+            fail_entry = models.MessageLog(
+                recipient_phone=cart.customer_phone if cart else "Unknown",
+                template_name="cart_recovery_v1",
+                language="en_IN",
+                status="FAILED",
+                error_message=f"Cart job crashed: {str(e)[:400]}"
+            )
+            db.add(fail_entry)
+            db.commit()
+        except Exception as log_err:
+            logger.warning(f"Could not save exception MessageLog: {log_err}")
     finally:
         db.close()
 

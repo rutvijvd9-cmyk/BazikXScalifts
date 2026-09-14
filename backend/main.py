@@ -142,6 +142,30 @@ def on_startup():
             db.add(default_admin)
             db.commit()
             print(f"🔒 [Security] Initial admin '{initial_user}' created successfully.")
+
+    # ── Service Account user sync (For external PHP store integration) ────────
+    svc_username = os.getenv("ECOM_SERVICE_USERNAME", "ecom_service").strip()
+    svc_password = os.getenv("ECOM_SERVICE_PASSWORD", "ManubhaiEcom@2026Auth!").strip()
+    svc_email = os.getenv("ECOM_SERVICE_EMAIL", "ecommerce@manubhaigathiyawala.com").strip()
+
+    svc_user = db.query(models.User).filter(models.User.username == svc_username).first()
+    if not svc_user:
+        svc_user = models.User(
+            username=svc_username,
+            email=svc_email,
+            hashed_password=auth.get_password_hash(svc_password),
+            is_active=True,
+            is_2fa_enabled=False
+        )
+        db.add(svc_user)
+        db.commit()
+        print(f"🔒 [Security] Service account '{svc_username}' created successfully.")
+    else:
+        svc_user.hashed_password = auth.get_password_hash(svc_password)
+        svc_user.is_active = True
+        svc_user.is_2fa_enabled = False
+        db.commit()
+
     db.close()
 
 
@@ -939,8 +963,47 @@ def get_campaign(
 
 
 # ==========================================
-# 🛡️ WEBHOOK ENDPOINTS (Rate limited & Validated)
+# 🛡️ WEBHOOK ENDPOINTS (Strictly Authenticated & Rate limited)
 # ==========================================
+
+def get_webhook_authenticated_user(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> models.User:
+    """
+    Guards external webhook endpoints against unauthorized invocation.
+    Accepts:
+    1. System JWT Bearer token obtained by logging in as 'ecom_service' (or any active user)
+    2. Secure WEBHOOK_SECRET / API Key in X-API-Key, X-Webhook-Secret, or Authorization: Bearer <secret>
+    """
+    auth_header = request.headers.get("Authorization", "").strip()
+    api_key_header = (request.headers.get("X-API-Key", "") or request.headers.get("X-Webhook-Secret", "")).strip()
+    secret_key = os.getenv("WEBHOOK_SECRET", "manubhai_webhook_secret_key_987654")
+
+    # 1. API Key Header
+    if api_key_header and api_key_header == secret_key:
+        svc = db.query(models.User).filter(models.User.username == "ecom_service").first()
+        return svc or models.User(username="ecom_service", is_active=True)
+
+    # 2. Bearer Token in Authorization header
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+        if token and token == secret_key:
+            svc = db.query(models.User).filter(models.User.username == "ecom_service").first()
+            return svc or models.User(username="ecom_service", is_active=True)
+        try:
+            return auth.get_current_user(token=token, db=db)
+        except HTTPException as he:
+            raise he
+        except Exception:
+            pass
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Unauthorized: Access to this webhook requires an authorized Bearer token or API key from Manubhai CRM.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
 
 @app.post("/api/webhooks/cart-event", status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit("60/minute")
@@ -948,6 +1011,7 @@ def receive_cart_webhook(
     request: Request,
     payload: schemas.CartEventPayload,
     delay_seconds: Optional[int] = 0,
+    current_user: models.User = Depends(get_webhook_authenticated_user),
     db: Session = Depends(get_db)
 ):
     # Check if user is in opt-out list
@@ -976,6 +1040,7 @@ def receive_cart_webhook(
         "status": "received",
         "cart_event_id": cart_record.id,
         "scheduled_in_seconds": eff_delay,
+        "authenticated_as": current_user.username,
         "message": f"Cart abandonment event recorded. {msg_detail}."
     }
 
@@ -986,6 +1051,7 @@ def receive_order_completed_webhook(
     request: Request,
     cart_token: str,
     customer_phone: str,
+    current_user: models.User = Depends(get_webhook_authenticated_user),
     db: Session = Depends(get_db)
 ):
     clean_phone = customer_phone.strip()
