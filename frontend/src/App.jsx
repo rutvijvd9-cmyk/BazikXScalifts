@@ -136,6 +136,10 @@ export default function App() {
   const [chatReplyText, setChatReplyText] = useState("");
   const [chatSending, setChatSending] = useState(false);
   const [chatFilterUnreadOnly, setChatFilterUnreadOnly] = useState(false);
+  const [chatListCollapsed, setChatListCollapsed] = useState(false);
+
+  // Layout UI States
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Search filter for lists
   const [searchTerm, setSearchTerm] = useState("");
@@ -234,6 +238,7 @@ export default function App() {
     template_name: "cart_recovery_v1",
     coupon_code: "",
     dedup_days: 7,
+    expires_at: "",
     variable_mappings: {}
   });
 
@@ -246,6 +251,7 @@ export default function App() {
       template_name: approvedTmpl ? approvedTmpl.template_name : "cart_recovery_v1",
       coupon_code: discountCodes[0]?.code || "",
       dedup_days: 7,
+      expires_at: "",
       variable_mappings: {}
     });
     setIsRuleModalOpen(true);
@@ -792,6 +798,7 @@ export default function App() {
         "/api/automation-rules",
         {
           ...newRule,
+          expires_at: newRule.expires_at ? new Date(newRule.expires_at).toISOString() : null,
           trigger_condition: triggerDesc
         },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -799,7 +806,7 @@ export default function App() {
       setIsRuleModalOpen(false);
       fetchData();
     } catch (err) {
-      alert("Failed to create rule");
+      alert("Failed to create rule: " + (err.response?.data?.detail || err.message));
     }
   };
 
@@ -816,6 +823,7 @@ export default function App() {
           threshold_value: selectedRuleForConfig.threshold_value,
           coupon_code: selectedRuleForConfig.coupon_code,
           dedup_days: selectedRuleForConfig.dedup_days,
+          expires_at: selectedRuleForConfig.expires_at ? new Date(selectedRuleForConfig.expires_at).toISOString() : null,
           variable_mappings: selectedRuleForConfig.variable_mappings || {}
         },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -1188,22 +1196,41 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#F8F9FA] text-[#111827]">
-      {/* ── Left Sidebar ── */}
-      <aside className="w-64 flex-shrink-0 bg-[#111827] text-gray-300 flex flex-col justify-between border-r border-gray-800">
+      {/* ── Left Sidebar (Collapsible) ── */}
+      <aside
+        className={`${
+          sidebarCollapsed ? "w-16" : "w-64"
+        } flex-shrink-0 bg-[#111827] text-gray-300 flex flex-col justify-between border-r border-gray-800 transition-all duration-300 ease-in-out relative`}
+      >
+        {/* Sidebar Collapse / Expand Floating Toggle */}
+        <button
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className="absolute -right-3 top-6 z-30 w-6 h-6 rounded-full bg-[#F5A623] hover:bg-[#E67E22] text-black flex items-center justify-center shadow-md transition transform hover:scale-110"
+          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {sidebarCollapsed ? (
+            <ChevronRight className="w-3.5 h-3.5" />
+          ) : (
+            <ChevronLeft className="w-3.5 h-3.5" />
+          )}
+        </button>
+
         <div>
           {/* Brand Header */}
-          <div className="p-5 flex items-center gap-3 border-b border-gray-800">
-            <div className="w-10 h-10 rounded-lg bg-[#F5A623] flex items-center justify-center font-bold text-black text-xl shadow-md">
+          <div className={`p-4 flex items-center ${sidebarCollapsed ? "justify-center" : "gap-3"} border-b border-gray-800`}>
+            <div className="w-10 h-10 rounded-lg bg-[#F5A623] flex items-center justify-center font-bold text-black text-xl shadow-md flex-shrink-0">
               MG
             </div>
-            <div>
-              <h1 className="font-bold text-white text-base leading-tight">Manubhai</h1>
-              <span className="text-xs text-[#F5A623] font-medium tracking-wide">Gathiyawala/Scalifts</span>
-            </div>
+            {!sidebarCollapsed && (
+              <div className="overflow-hidden whitespace-nowrap">
+                <h1 className="font-bold text-white text-base leading-tight">Manubhai</h1>
+                <span className="text-xs text-[#F5A623] font-medium tracking-wide">Gathiyawala/Scalifts</span>
+              </div>
+            )}
           </div>
 
           {/* Navigation Links */}
-          <nav className="p-3 space-y-1.5 mt-2">
+          <nav className="p-2 space-y-1.5 mt-2">
             {[
               { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
               {
@@ -1228,30 +1255,46 @@ export default function App() {
                 <button
                   key={item.id}
                   onClick={() => handleTabChange(item.id)}
-                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  title={sidebarCollapsed ? item.label : undefined}
+                  className={`w-full flex items-center ${
+                    sidebarCollapsed ? "justify-center px-0 py-2.5" : "justify-between px-3.5 py-2.5"
+                  } rounded-lg text-sm font-medium transition-all relative group ${
                     isActive
-                      ? "bg-[#1F2937] text-[#F5A623] border-l-4 border-[#F5A623]"
+                      ? `bg-[#1F2937] text-[#F5A623] ${!sidebarCollapsed ? "border-l-4 border-[#F5A623]" : "ring-1 ring-[#F5A623]"}`
                       : "hover:bg-gray-800/60 hover:text-white"
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <Icon className={`w-5 h-5 ${isActive ? "text-[#F5A623]" : "text-gray-400"}`} />
-                    {item.label}
+                  <div className={`flex items-center ${sidebarCollapsed ? "justify-center" : "gap-3"}`}>
+                    <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? "text-[#F5A623]" : "text-gray-400"}`} />
+                    {!sidebarCollapsed && <span>{item.label}</span>}
                   </div>
+
+                  {/* Badge */}
                   {item.badge !== undefined && item.badge > 0 && (
                     <span
-                      className={`px-2 py-0.5 text-xs font-bold rounded-full ${
+                      className={`${
+                        sidebarCollapsed
+                          ? "absolute -top-1 -right-1 min-w-[16px] h-4 text-[9px] px-1 flex items-center justify-center font-black rounded-full"
+                          : "px-2 py-0.5 text-xs font-bold rounded-full"
+                      } ${
                         item.id === "opt_out"
-                          ? "bg-red-900/60 text-red-300 border border-red-700"
+                          ? "bg-red-900/80 text-red-200 border border-red-700"
                           : item.id === "chat"
                           ? "bg-[#25D366] text-black font-black animate-pulse shadow-sm shadow-green-500/50"
                           : item.id === "automations"
-                          ? "bg-emerald-900/60 text-[#25D366] border border-emerald-700"
-                          : "bg-amber-900/60 text-[#F5A623] border border-amber-700"
+                          ? "bg-emerald-900/80 text-[#25D366] border border-emerald-700"
+                          : "bg-amber-900/80 text-[#F5A623] border border-amber-700"
                       }`}
                     >
                       {item.badge}
                     </span>
+                  )}
+
+                  {/* Tooltip on hover when collapsed */}
+                  {sidebarCollapsed && (
+                    <div className="absolute left-full ml-2.5 px-2.5 py-1 bg-gray-900 text-white text-xs font-semibold rounded-md opacity-0 group-hover:opacity-100 pointer-events-none transition shadow-lg whitespace-nowrap z-50">
+                      {item.label}
+                    </div>
                   )}
                 </button>
               );
@@ -1260,21 +1303,34 @@ export default function App() {
         </div>
 
         {/* Bottom Status & Logout */}
-        <div className="p-4 border-t border-gray-800 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#25D366] animate-pulse"></span>
-              <span className="text-gray-300 font-semibold">{username}</span>
+        <div className="p-3 border-t border-gray-800 space-y-2">
+          {!sidebarCollapsed ? (
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#25D366] animate-pulse"></span>
+                <span className="text-gray-300 font-semibold truncate max-w-[120px]">{username}</span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1 text-gray-400 hover:text-red-400 transition"
+                title="Logout"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Exit
+              </button>
             </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-1 text-gray-400 hover:text-red-400 transition"
-              title="Logout"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              Exit
-            </button>
-          </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#25D366] animate-pulse" title={`Logged in as ${username}`}></span>
+              <button
+                onClick={handleLogout}
+                className="p-1 text-gray-400 hover:text-red-400 transition rounded"
+                title="Logout"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -1760,6 +1816,18 @@ export default function App() {
                             <span className="font-medium text-gray-500">Dedup Cooldown:</span>
                             <span className="font-semibold text-gray-700">{rule.dedup_days} Days</span>
                           </div>
+                          {rule.expires_at && (
+                            <div className="flex items-center justify-between text-gray-600">
+                              <span className="font-medium text-gray-500">Expiry Deadline:</span>
+                              <span className={`font-semibold px-2 py-0.5 rounded text-[11px] ${
+                                new Date(rule.expires_at) < new Date()
+                                  ? "bg-red-100 text-red-700 font-bold"
+                                  : "bg-emerald-100 text-emerald-800"
+                              }`}>
+                                {new Date(rule.expires_at).toLocaleDateString()} {new Date(rule.expires_at) < new Date() ? "(Expired)" : ""}
+                              </span>
+                            </div>
+                          )}
                           <div className="flex items-center justify-between text-gray-600 border-t border-gray-200/60 pt-2">
                             <span className="font-medium text-gray-500">Total Dispatched:</span>
                             <span className="font-bold text-gray-900">{rule.total_triggered} sent</span>
@@ -2987,20 +3055,33 @@ export default function App() {
               </div>
 
               {/* 2-Column WhatsApp Web Layout */}
-              <div className="flex-1 flex overflow-hidden min-h-0">
-                {/* ── Left Column: Conversation Sidebar ── */}
-                <div className="w-80 md:w-96 border-r border-gray-200 flex flex-col bg-gray-50/60 min-h-0">
+              <div className="flex-1 flex overflow-hidden min-h-0 relative">
+                {/* ── Left Column: Conversation Sidebar (Collapsible) ── */}
+                <div
+                  className={`${
+                    chatListCollapsed ? "w-0 md:w-0 border-r-0 overflow-hidden hidden" : "w-80 md:w-96 border-r border-gray-200"
+                  } flex flex-col bg-gray-50/60 min-h-0 transition-all duration-300 ease-in-out`}
+                >
                   {/* Search and Filters */}
                   <div className="p-3 border-b border-gray-200 space-y-2 bg-white flex-shrink-0">
-                    <div className="relative">
-                      <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        placeholder="Search chats..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 bg-gray-100/70 border border-gray-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                      />
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search chats..."
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 bg-gray-100/70 border border-gray-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                        />
+                      </div>
+                      <button
+                        onClick={() => setChatListCollapsed(true)}
+                        className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition"
+                        title="Collapse conversation list (Full screen chat)"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
                     </div>
                     <div className="flex items-center justify-between pt-1">
                       <button
@@ -3142,6 +3223,16 @@ export default function App() {
                       return (
                         <div className="px-6 py-3 bg-white border-b border-gray-200 flex items-center justify-between shadow-xs">
                           <div className="flex items-center gap-3">
+                            {chatListCollapsed && (
+                              <button
+                                onClick={() => setChatListCollapsed(false)}
+                                className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition mr-1 flex items-center gap-1 text-xs font-semibold"
+                                title="Show conversation list"
+                              >
+                                <ChevronRight className="w-4 h-4" />
+                                <span className="hidden sm:inline">Chats</span>
+                              </button>
+                            )}
                             <div className="w-10 h-10 rounded-full bg-[#25D366] text-white flex items-center justify-center font-bold text-sm">
                               {activeConv?.customer_name
                                 ? activeConv.customer_name.charAt(0).toUpperCase()
@@ -3322,13 +3413,22 @@ export default function App() {
                     </form>
                   </div>
                 ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gray-50/50">
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gray-50/50 relative">
+                    {chatListCollapsed && (
+                      <button
+                        onClick={() => setChatListCollapsed(false)}
+                        className="absolute top-4 left-4 px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg transition flex items-center gap-1.5 text-xs font-semibold shadow-xs"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                        <span>Show Chats</span>
+                      </button>
+                    )}
                     <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-[#25D366] flex items-center justify-center mb-4 shadow-xs">
                       <MessageSquare className="w-8 h-8" />
                     </div>
                     <h3 className="text-base font-bold text-gray-900">Select a Conversation</h3>
                     <p className="text-xs text-gray-500 max-w-sm mt-1 leading-relaxed">
-                      Choose a customer from the left sidebar to view their full message history and reply directly via WhatsApp Cloud API.
+                      Choose a customer from the conversation list to view their full message history and reply directly via WhatsApp Cloud API.
                     </p>
                   </div>
                 )}
@@ -3573,16 +3673,31 @@ export default function App() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Deduplication Gate (Days)</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={newRule.dedup_days}
-                  onChange={(e) => setNewRule({ ...newRule, dedup_days: parseInt(e.target.value) || 7 })}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                />
-                <p className="text-[11px] text-gray-400 mt-1">Prevents messaging the same customer again within these days</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Deduplication Gate (Days)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newRule.dedup_days}
+                    onChange={(e) => setNewRule({ ...newRule, dedup_days: parseInt(e.target.value) || 7 })}
+                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">Prevents messaging the same customer again</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                    End Date / Expiry Deadline <span className="text-gray-400 font-normal lowercase">(optional)</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={newRule.expires_at || ""}
+                    onChange={(e) => setNewRule({ ...newRule, expires_at: e.target.value })}
+                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">Auto-deactivates rule once this date passes</p>
+                </div>
               </div>
 
               {/* Dynamic Meta Template Variable Mapper */}
@@ -3638,12 +3753,13 @@ export default function App() {
                               value={curMapping.type || "contact_field"}
                               onChange={(e) => {
                                 const t = e.target.value;
-                                const defaultVal = t === "contact_field" ? "name" : t === "coupon" ? "code" : "";
+                                const defaultVal = t === "contact_field" ? "name" : t === "cart_event" ? "items" : t === "coupon" ? "code" : "";
                                 updateMapping(t, defaultVal);
                               }}
                               className="px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-semibold bg-gray-50 focus:bg-white"
                             >
                               <option value="contact_field">👤 Contact Field</option>
+                              <option value="cart_event">🛒 Cart Event (Snacks / Amount)</option>
                               <option value="coupon">🏷️ Attached Coupon</option>
                               <option value="static">✍️ Custom Text</option>
                             </select>
@@ -3661,10 +3777,29 @@ export default function App() {
                                 <option value="total_orders">Total Orders Count</option>
                                 <option value="last_order_date">Last Order Date</option>
                               </select>
+                            ) : curMapping.type === "cart_event" ? (
+                              <select
+                                value={curMapping.value || "items"}
+                                onChange={(e) => updateMapping("cart_event", e.target.value)}
+                                className="flex-1 px-2.5 py-1.5 border border-amber-300 bg-amber-50/50 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                              >
+                                <option value="items">📦 Cart Items / Snacks (e.g. Special Vanela Gathiya)</option>
+                                <option value="cart_value">💰 Cart Total Amount (e.g. 450)</option>
+                              </select>
                             ) : curMapping.type === "coupon" ? (
-                              <div className="flex-1 px-2.5 py-1.5 bg-gray-100 border border-gray-200 rounded-md text-xs font-mono font-bold text-[#D35400] flex items-center justify-between">
-                                <span>Uses Coupon: {newRule.coupon_code || "(None attached)"}</span>
-                              </div>
+                              <select
+                                value={curMapping.value || "code"}
+                                onChange={(e) => updateMapping("coupon", e.target.value)}
+                                className="flex-1 px-2.5 py-1.5 border border-[#F5A623] bg-amber-50/60 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
+                              >
+                                <option value="code">🏷️ Coupon Code: {newRule.coupon_code || "OFFER"}</option>
+                                <option value="discount_value">
+                                  🎁 Discount Value: {discountCodes.find((d) => d.code === newRule.coupon_code)?.discount_value ? `${discountCodes.find((d) => d.code === newRule.coupon_code).discount_value}%` : "7% OFF"}
+                                </option>
+                                <option value="expires_at">
+                                  ⏳ Expiry Date: {newRule.expires_at || discountCodes.find((d) => d.code === newRule.coupon_code)?.expires_at?.split("T")[0] || "30/09/2026"}
+                                </option>
+                              </select>
                             ) : (
                               <input
                                 type="text"
@@ -3694,8 +3829,16 @@ export default function App() {
                               let sampleVal = `[Param ${idx}]`;
                               if (curMapping.type === "contact_field") {
                                 sampleVal = curMapping.value === "name" ? "Ravi" : curMapping.value === "city" ? "Ahmedabad" : curMapping.value;
+                              } else if (curMapping.type === "cart_event") {
+                                sampleVal = curMapping.value === "cart_value" ? "450" : "Special Vanela Gathiya & Bhavnagari Gathiya";
                               } else if (curMapping.type === "coupon") {
-                                sampleVal = newRule.coupon_code || "OFFER";
+                                if (curMapping.value === "discount_value") {
+                                  sampleVal = discountCodes.find((d) => d.code === newRule.coupon_code)?.discount_value ? `${discountCodes.find((d) => d.code === newRule.coupon_code).discount_value}%` : "7%";
+                                } else if (curMapping.value === "expires_at") {
+                                  sampleVal = newRule.expires_at || discountCodes.find((d) => d.code === newRule.coupon_code)?.expires_at?.split("T")[0] || "30/09/2026";
+                                } else {
+                                  sampleVal = newRule.coupon_code || "OFFER";
+                                }
                               } else {
                                 sampleVal = curMapping.value || `[Custom ${idx}]`;
                               }
@@ -4541,9 +4684,9 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-2.5">
                   <div>
-                    <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Cooldown / Dedup Window</label>
+                    <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Cooldown / Dedup</label>
                     <div className="flex items-center gap-1.5">
                       <input
                         type="number"
@@ -4553,10 +4696,25 @@ export default function App() {
                           ...selectedRuleForConfig,
                           dedup_days: parseInt(e.target.value) || 1
                         })}
-                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                        className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                       />
-                      <span className="text-xs text-gray-500 font-semibold">Days</span>
+                      <span className="text-[11px] text-gray-500 font-semibold">Days</span>
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">
+                      Expiry Deadline
+                    </label>
+                    <input
+                      type="date"
+                      value={selectedRuleForConfig.expires_at ? selectedRuleForConfig.expires_at.split("T")[0] : ""}
+                      onChange={(e) => setSelectedRuleForConfig({
+                        ...selectedRuleForConfig,
+                        expires_at: e.target.value
+                      })}
+                      className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                    />
                   </div>
 
                   <div>
@@ -4567,7 +4725,7 @@ export default function App() {
                         ...selectedRuleForConfig,
                         template_name: e.target.value
                       })}
-                      className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                      className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                     >
                       {templates.length > 0 ? (
                         [...templates]
@@ -4640,12 +4798,13 @@ export default function App() {
                                 value={curMapping.type || "contact_field"}
                                 onChange={(e) => {
                                   const t = e.target.value;
-                                  const defaultVal = t === "contact_field" ? "name" : t === "coupon" ? "code" : "";
+                                  const defaultVal = t === "contact_field" ? "name" : t === "cart_event" ? "items" : t === "coupon" ? "code" : "";
                                   updateConfigMapping(t, defaultVal);
                                 }}
                                 className="px-2 py-1 border border-gray-300 rounded-md text-xs font-semibold bg-gray-50 focus:bg-white"
                               >
                                 <option value="contact_field">👤 Contact Field</option>
+                                <option value="cart_event">🛒 Cart Event (Snacks / Amount)</option>
                                 <option value="coupon">🏷️ Attached Coupon</option>
                                 <option value="static">✍️ Custom Text</option>
                               </select>
@@ -4663,10 +4822,29 @@ export default function App() {
                                   <option value="total_orders">Total Orders Count</option>
                                   <option value="last_order_date">Last Order Date</option>
                                 </select>
+                              ) : curMapping.type === "cart_event" ? (
+                                <select
+                                  value={curMapping.value || "items"}
+                                  onChange={(e) => updateConfigMapping("cart_event", e.target.value)}
+                                  className="flex-1 px-2 py-1 border border-amber-300 bg-amber-50/50 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                >
+                                  <option value="items">📦 Cart Items / Snacks (e.g. Special Vanela Gathiya)</option>
+                                  <option value="cart_value">💰 Cart Total Amount (e.g. 450)</option>
+                                </select>
                               ) : curMapping.type === "coupon" ? (
-                                <div className="flex-1 px-2.5 py-1 bg-gray-100 border border-gray-200 rounded-md text-xs font-mono font-bold text-[#D35400] flex items-center justify-between">
-                                  <span>Uses Coupon: {selectedRuleForConfig.coupon_code || "(None attached)"}</span>
-                                </div>
+                                <select
+                                  value={curMapping.value || "code"}
+                                  onChange={(e) => updateConfigMapping("coupon", e.target.value)}
+                                  className="flex-1 px-2 py-1 border border-[#F5A623] bg-amber-50/60 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
+                                >
+                                  <option value="code">🏷️ Coupon Code: {selectedRuleForConfig.coupon_code || "OFFER"}</option>
+                                  <option value="discount_value">
+                                    🎁 Discount Value: {discountCodes.find((d) => d.code === selectedRuleForConfig.coupon_code)?.discount_value ? `${discountCodes.find((d) => d.code === selectedRuleForConfig.coupon_code).discount_value}%` : "7% OFF"}
+                                  </option>
+                                  <option value="expires_at">
+                                    ⏳ Expiry Date: {selectedRuleForConfig.expires_at ? selectedRuleForConfig.expires_at.split("T")[0] : discountCodes.find((d) => d.code === selectedRuleForConfig.coupon_code)?.expires_at?.split("T")[0] || "30/09/2026"}
+                                  </option>
+                                </select>
                               ) : (
                                 <input
                                   type="text"
@@ -4696,8 +4874,16 @@ export default function App() {
                                 let sampleVal = `[Param ${idx}]`;
                                 if (curMapping.type === "contact_field") {
                                   sampleVal = curMapping.value === "name" ? "Ravi" : curMapping.value === "city" ? "Ahmedabad" : curMapping.value;
+                                } else if (curMapping.type === "cart_event") {
+                                  sampleVal = curMapping.value === "cart_value" ? "450" : "Special Vanela Gathiya & Bhavnagari Gathiya";
                                 } else if (curMapping.type === "coupon") {
-                                  sampleVal = selectedRuleForConfig.coupon_code || "OFFER";
+                                  if (curMapping.value === "discount_value") {
+                                    sampleVal = discountCodes.find((d) => d.code === selectedRuleForConfig.coupon_code)?.discount_value ? `${discountCodes.find((d) => d.code === selectedRuleForConfig.coupon_code).discount_value}%` : "7%";
+                                  } else if (curMapping.value === "expires_at") {
+                                    sampleVal = selectedRuleForConfig.expires_at ? selectedRuleForConfig.expires_at.split("T")[0] : discountCodes.find((d) => d.code === selectedRuleForConfig.coupon_code)?.expires_at?.split("T")[0] || "30/09/2026";
+                                  } else {
+                                    sampleVal = selectedRuleForConfig.coupon_code || "OFFER";
+                                  }
                                 } else {
                                   sampleVal = curMapping.value || `[Custom ${idx}]`;
                                 }

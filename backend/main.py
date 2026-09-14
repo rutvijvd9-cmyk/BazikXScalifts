@@ -90,6 +90,7 @@ def on_startup():
         "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS total_triggered INTEGER DEFAULT 0",
         "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
         "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS variable_mappings JSON",
+        "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP",
         # users: 2FA / TOTP columns
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE",
@@ -1865,6 +1866,7 @@ def create_automation_rule(
         coupon_code=payload.coupon_code,
         dedup_days=payload.dedup_days,
         variable_mappings=payload.variable_mappings,
+        expires_at=payload.expires_at,
         is_active=payload.is_active
     )
     db.add(rule)
@@ -1900,6 +1902,8 @@ def update_automation_rule(
         rule.dedup_days = payload.dedup_days
     if payload.variable_mappings is not None:
         rule.variable_mappings = payload.variable_mappings
+    if payload.expires_at is not None:
+        rule.expires_at = payload.expires_at
 
     db.commit()
     db.refresh(rule)

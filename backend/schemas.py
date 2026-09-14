@@ -172,6 +172,7 @@ class AutomationRuleCreate(BaseModel):
     coupon_code: Optional[str] = None
     dedup_days: int = Field(default=7, ge=1)
     variable_mappings: Optional[dict] = None
+    expires_at: Optional[datetime] = None
     is_active: bool = True
 
 class AutomationRuleUpdate(BaseModel):
@@ -183,6 +184,7 @@ class AutomationRuleUpdate(BaseModel):
     coupon_code: Optional[str] = None
     dedup_days: Optional[int] = None
     variable_mappings: Optional[dict] = None
+    expires_at: Optional[datetime] = None
 
 
 class ChatSendMessageRequest(BaseModel):

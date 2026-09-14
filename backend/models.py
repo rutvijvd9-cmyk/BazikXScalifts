@@ -129,6 +129,7 @@ class AutomationRule(Base):
     total_triggered = Column(Integer, default=0)
     approval_status = Column(String(50), default="IDLE")  # IDLE, PENDING_APPROVAL, APPROVED
     pending_recipients_count = Column(Integer, default=0)
+    expires_at = Column(DateTime, nullable=True)  # Optional end-date/deadline to auto-deactivate
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

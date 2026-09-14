@@ -47,23 +47,80 @@ def process_abandoned_cart_job(cart_event_id: int):
         customer_name = contact.name if contact and contact.name else "Valued Customer"
 
         # Item summary
-        items_summary = ", ".join([item.get("item", "Namkeen Item") for item in cart.items]) if cart.items else "Selected Snacks"
+        items_summary = ", ".join([item.get("item", "Namkeen Item") for item in cart.items]) if cart.items else "Special Vanela Gathiya & Bhavnagari Gathiya"
+        cart_val_str = str(int(cart.cart_value)) if cart.cart_value == int(cart.cart_value) else f"{cart.cart_value:.2f}"
+
+        # Look up active cart recovery rule to use the user's mapped template & parameters
+        cart_rule = db.query(models.AutomationRule).filter(
+            models.AutomationRule.rule_type == "CART_RECOVERY",
+            models.AutomationRule.is_active == True
+        ).first()
+
+        target_template = cart_rule.template_name if cart_rule and cart_rule.template_name else "cart_recovery_v1"
+        target_lang = "en"
+        tmpl_rec = db.query(models.Template).filter(models.Template.template_name == target_template).first()
+        if tmpl_rec and tmpl_rec.language:
+            target_lang = tmpl_rec.language
+
+        # Extract placeholder indices from template body
+        body_text = tmpl_rec.body_text if tmpl_rec and tmpl_rec.body_text else ""
+        placeholder_matches = re.findall(r"\{\{(\d+)\}\}", body_text)
+        placeholder_indices = sorted(list(set(int(m) for m in placeholder_matches))) if placeholder_matches else [1, 2, 3, 4]
+
+        user_mappings = cart_rule.variable_mappings if cart_rule and isinstance(cart_rule.variable_mappings, dict) else {}
+
+        param_dict = {}
+        for idx in placeholder_indices:
+            idx_str = str(idx)
+            m_def = user_mappings.get(idx_str, {})
+            m_type = m_def.get("type") if isinstance(m_def, dict) else None
+            m_val = m_def.get("value") if isinstance(m_def, dict) else None
+
+            if m_type == "contact_field":
+                val_str = customer_name if m_val == "name" else (cart.customer_phone if m_val == "phone" else customer_name)
+            elif m_type == "cart_event":
+                val_str = cart_val_str if m_val == "cart_value" else items_summary
+            elif m_type == "coupon":
+                coupon_rec = db.query(models.DiscountCode).filter(
+                    models.DiscountCode.code == (cart_rule.coupon_code if cart_rule else "BAZIK7")
+                ).first() if (cart_rule and cart_rule.coupon_code) else None
+
+                if m_val == "discount_value":
+                    val_str = f"{int(coupon_rec.discount_value)}%" if coupon_rec and coupon_rec.discount_type == "PERCENT" else "7%"
+                elif m_val == "expires_at":
+                    val_str = coupon_rec.expires_at.strftime("%d/%m/%Y") if coupon_rec and coupon_rec.expires_at else "30/09/2026"
+                else:
+                    val_str = (cart_rule.coupon_code if cart_rule else "BAZIK7") or "BAZIK7"
+            elif m_type == "static":
+                val_str = str(m_val) if m_val else ""
+            else:
+                # Default smart fallback for cart recovery templates (e.g. cart_recovery_v1)
+                if idx == 1:
+                    val_str = customer_name
+                elif idx == 2:
+                    val_str = items_summary
+                elif idx == 3:
+                    val_str = cart_val_str
+                elif idx == 4:
+                    val_str = (cart_rule.coupon_code if cart_rule else "BAZIK7") or "BAZIK7"
+                else:
+                    val_str = "Manubhai Gathiyawala"
+
+            param_dict[f"param_{idx}"] = val_str
 
         # Send recovery template
         result = send_whatsapp_template(
             recipient_phone=cart.customer_phone,
-            template_name="abandoned_cart_recovery",
-            language="en",
-            parameters={
-                "name": customer_name,
-                "items": items_summary,
-                "cart_value": f"₹{cart.cart_value:.2f}"
-            }
+            template_name=target_template,
+            language=target_lang,
+            parameters=param_dict
         )
 
         if result.get("status") in ["success", "success_simulated"]:
             cart.message_sent = True
             cart.message_sent_at = datetime.utcnow()
+            if cart_rule:
+                cart_rule.total_triggered += 1
             db.commit()
             logger.info(f"✅ Abandoned cart recovery dispatched for {cart.customer_phone}")
         else:
@@ -322,6 +379,13 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
         if not rule or not rule.is_active:
             return {"status": "inactive", "messages_dispatched": 0, "requires_approval": False}
 
+        # ⏳ Check Expiration Deadline: If past expires_at, automatically turn rule OFF
+        if rule.expires_at and datetime.utcnow() > rule.expires_at:
+            rule.is_active = False
+            db.commit()
+            logger.info(f"⏳ [Rule Engine] Rule '{rule.rule_name}' has passed its deadline ({rule.expires_at}). Auto-deactivated.")
+            return {"status": "expired", "messages_dispatched": 0, "requires_approval": False, "message": "Automation rule has reached its deadline and is now inactive."}
+
         logger.info(f"⚙️ [Rule Engine] Running automation rule: '{rule.rule_name}' (force_approved={force_approved})")
         target_phones = {}
 
@@ -430,8 +494,35 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                         val_str = cust_last_order
                     else:
                         val_str = cust_name
+                elif m_type == "cart_event":
+                    # Look up latest cart event for this phone if available
+                    recent_cart = db.query(models.CartEvent).filter(
+                        models.CartEvent.customer_phone == phone
+                    ).order_by(models.CartEvent.id.desc()).first()
+                    if m_val == "cart_value":
+                        val_str = str(int(recent_cart.cart_value)) if recent_cart and recent_cart.cart_value == int(recent_cart.cart_value) else (f"{recent_cart.cart_value:.2f}" if recent_cart else "450")
+                    else:
+                        val_str = ", ".join([it.get("item", "Namkeen") for it in recent_cart.items]) if recent_cart and recent_cart.items else "Special Vanela Gathiya & Bhavnagari Gathiya"
                 elif m_type == "coupon":
-                    val_str = rule.coupon_code or "OFFER"
+                    # Look up attached coupon details from DB
+                    coupon_rec = db.query(models.DiscountCode).filter(
+                        models.DiscountCode.code == rule.coupon_code
+                    ).first() if rule.coupon_code else None
+
+                    if m_val == "discount_value":
+                        if coupon_rec:
+                            val_str = f"{int(coupon_rec.discount_value)}%" if coupon_rec.discount_type == "PERCENT" else f"₹{int(coupon_rec.discount_value)}"
+                        else:
+                            val_str = "7%"
+                    elif m_val == "expires_at":
+                        if coupon_rec and coupon_rec.expires_at:
+                            val_str = coupon_rec.expires_at.strftime("%d/%m/%Y")
+                        elif rule.expires_at:
+                            val_str = rule.expires_at.strftime("%d/%m/%Y")
+                        else:
+                            val_str = "30/09/2026"
+                    else:
+                        val_str = rule.coupon_code or "OFFER"
                 elif m_type == "static":
                     val_str = str(m_val) if m_val else ""
                 else:
