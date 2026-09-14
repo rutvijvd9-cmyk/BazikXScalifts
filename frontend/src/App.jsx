@@ -708,6 +708,25 @@ export default function App() {
     }
   };
 
+  const handleDeleteTemplate = async (templateId, templateName) => {
+    if (!window.confirm(`Are you sure you want to delete template "${templateName}"? This will remove it from your CRM catalog.`)) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await axios.delete(`/api/templates/${templateId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setActionSuccessMsg(`🗑️ ${res.data.message || "Template deleted successfully."}`);
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert("Failed to delete template: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleToggleRule = async (rule) => {
     try {
       await axios.patch(
@@ -2094,12 +2113,27 @@ export default function App() {
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#111827] text-white uppercase tracking-wider">
-                            {t.language}
-                          </span>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-green-50 text-emerald-700 border border-green-200">
-                            {t.status}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#111827] text-white uppercase tracking-wider">
+                              {t.language}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              t.status === "APPROVED"
+                                ? "bg-green-50 text-emerald-700 border-green-200"
+                                : t.status === "REJECTED"
+                                ? "bg-red-50 text-red-700 border-red-200"
+                                : "bg-amber-50 text-amber-700 border-amber-200"
+                            }`}>
+                              {t.status}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteTemplate(t.id, t.template_name)}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                            title={`Delete ${t.template_name}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                         <h4 className="font-bold text-sm text-gray-900 mt-2.5 font-mono">{t.template_name}</h4>
                         <p className="text-xs font-semibold text-[#D35400] mt-0.5">{t.header_text}</p>
@@ -2109,7 +2143,15 @@ export default function App() {
                       </div>
                       <div className="mt-3 pt-2.5 border-t border-gray-200 flex items-center justify-between text-[11px] text-gray-400">
                         <span>Category: {t.category}</span>
-                        <span className="font-medium text-gray-500">{t.footer_text}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-500">{t.footer_text}</span>
+                          <button
+                            onClick={() => handleDeleteTemplate(t.id, t.template_name)}
+                            className="text-xs text-red-500 hover:text-red-700 font-medium hover:underline flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3 h-3" /> Delete
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}

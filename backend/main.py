@@ -1533,11 +1533,22 @@ def sync_templates_from_meta(
                 db.add(new_tmpl)
             synced_count += 1
 
+        # Prune local templates that no longer exist in Meta's active catalog
+        meta_keys = {(item.get("name"), item.get("language", "en")) for item in data}
+        db_templates = db.query(models.Template).all()
+        pruned_count = 0
+        for dbt in db_templates:
+            if (dbt.template_name, dbt.language) not in meta_keys:
+                db.delete(dbt)
+                pruned_count += 1
+
         db.commit()
+        prune_msg = f" (pruned {pruned_count} deleted/unregistered templates)" if pruned_count > 0 else ""
         return {
             "status": "success",
-            "message": f"Successfully synced {synced_count} templates from Meta WhatsApp Business Manager.",
-            "synced_count": synced_count
+            "message": f"Successfully synced {synced_count} templates from Meta WhatsApp Business Manager{prune_msg}.",
+            "synced_count": synced_count,
+            "pruned_count": pruned_count
         }
     except HTTPException:
         raise
@@ -1619,6 +1630,46 @@ def create_template(
     db.commit()
     db.refresh(new_tmpl)
     return new_tmpl
+
+
+@app.delete("/api/templates/{template_id}")
+def delete_template(
+    template_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Deletes a WhatsApp template from the database, and attempts to delete it from Meta Graph API if registered.
+    """
+    tmpl = db.query(models.Template).filter(models.Template.id == template_id).first()
+    if not tmpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    tmpl_name = tmpl.template_name
+    waba_id = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID")
+    access_token = os.getenv("WHATSAPP_API_TOKEN")
+    meta_deleted = False
+
+    if waba_id and access_token:
+        try:
+            url = f"https://graph.facebook.com/v19.0/{waba_id}/message_templates?name={tmpl_name}"
+            headers = {"Authorization": f"Bearer {access_token}"}
+            del_resp = httpx.delete(url, headers=headers, timeout=10.0)
+            if del_resp.status_code == 200:
+                meta_deleted = True
+            else:
+                logger.info(f"Meta template delete response: {del_resp.status_code} - {del_resp.text}")
+        except Exception as e:
+            logger.warning(f"Could not delete template on Meta API: {e}")
+
+    db.delete(tmpl)
+    db.commit()
+
+    meta_note = " (also removed from Meta)" if meta_deleted else ""
+    return {
+        "status": "success",
+        "message": f"Template '{tmpl_name}' was successfully deleted{meta_note}."
+    }
 
 
 # ==========================================
