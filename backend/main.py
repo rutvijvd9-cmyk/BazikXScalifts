@@ -947,7 +947,7 @@ def get_campaign(
 def receive_cart_webhook(
     request: Request,
     payload: schemas.CartEventPayload,
-    delay_seconds: Optional[int] = 1800,
+    delay_seconds: Optional[int] = 0,
     db: Session = Depends(get_db)
 ):
     # Check if user is in opt-out list
@@ -967,14 +967,16 @@ def receive_cart_webhook(
     db.commit()
     db.refresh(cart_record)
 
-    # Schedule the recovery WhatsApp message
-    schedule_cart_recovery(cart_event_id=cart_record.id, delay_seconds=delay_seconds)
+    # Dispatch immediately (if delay_seconds <= 0) or schedule
+    eff_delay = delay_seconds if delay_seconds is not None else 0
+    schedule_cart_recovery(cart_event_id=cart_record.id, delay_seconds=eff_delay)
 
+    msg_detail = "WhatsApp message dispatched immediately" if eff_delay <= 0 else f"WhatsApp message scheduled in {eff_delay}s"
     return {
         "status": "received",
         "cart_event_id": cart_record.id,
-        "scheduled_in_seconds": delay_seconds,
-        "message": f"Cart abandonment event recorded. WhatsApp message scheduled in {delay_seconds}s"
+        "scheduled_in_seconds": eff_delay,
+        "message": f"Cart abandonment event recorded. {msg_detail}."
     }
 
 

@@ -134,11 +134,15 @@ def process_abandoned_cart_job(cart_event_id: int):
         db.close()
 
 
-def schedule_cart_recovery(cart_event_id: int, delay_seconds: int = 1800):
+def schedule_cart_recovery(cart_event_id: int, delay_seconds: int = 0):
     """
-    Schedules a one-off delayed job.
-    Default delay is 1800s (30 mins).
+    Dispatches immediately if delay_seconds <= 0, or schedules a delayed job.
     """
+    if delay_seconds <= 0:
+        logger.info(f"⚡ Processing cart recovery immediately for cart_event_id={cart_event_id}")
+        process_abandoned_cart_job(cart_event_id)
+        return
+
     run_date = datetime.now() + timedelta(seconds=delay_seconds)
     job_id = f"cart_recovery_{cart_event_id}"
     
