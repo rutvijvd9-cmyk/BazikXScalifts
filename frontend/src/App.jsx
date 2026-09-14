@@ -122,6 +122,7 @@ export default function App() {
   const [systemSettings, setSystemSettings] = useState({});
   const [systemUsers, setSystemUsers] = useState([]);
   const [templateFilterLang, setTemplateFilterLang] = useState("ALL");
+  const [templatePage, setTemplatePage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [actionSuccessMsg, setActionSuccessMsg] = useState("");
   const [testEmailLoading, setTestEmailLoading] = useState(false);
@@ -2070,7 +2071,10 @@ export default function App() {
                         return (
                           <button
                             key={lang}
-                            onClick={() => setTemplateFilterLang(lang)}
+                            onClick={() => {
+                              setTemplateFilterLang(lang);
+                              setTemplatePage(1);
+                            }}
                             className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase transition ${
                               templateFilterLang === lang
                                 ? "bg-[#111827] text-[#F5A623]"
@@ -2102,61 +2106,107 @@ export default function App() {
                     Sync Templates from Meta Now
                   </button>
                 </div>
-              ) : (
-                <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {templates
-                  .filter((t) => templateFilterLang === "ALL" || t.language === templateFilterLang)
-                  .map((t) => (
-                    <div
-                      key={t.id}
-                      className="border border-gray-200 rounded-xl p-4.5 bg-gray-50/50 flex flex-col justify-between hover:border-gray-300 transition"
-                    >
-                      <div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#111827] text-white uppercase tracking-wider">
-                              {t.language}
-                            </span>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                              t.status === "APPROVED"
-                                ? "bg-green-50 text-emerald-700 border-green-200"
-                                : t.status === "REJECTED"
-                                ? "bg-red-50 text-red-700 border-red-200"
-                                : "bg-amber-50 text-amber-700 border-amber-200"
-                            }`}>
-                              {t.status}
-                            </span>
+              ) : (() => {
+                const templatesPerPage = 10;
+                const filteredTemplates = templates.filter(
+                  (t) => templateFilterLang === "ALL" || t.language === templateFilterLang
+                );
+                const totalTemplatePages = Math.ceil(filteredTemplates.length / templatesPerPage) || 1;
+                const currentTemplatePage = Math.min(templatePage, totalTemplatePages);
+                const paginatedTemplates = filteredTemplates.slice(
+                  (currentTemplatePage - 1) * templatesPerPage,
+                  currentTemplatePage * templatesPerPage
+                );
+
+                return (
+                  <>
+                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                      {paginatedTemplates.map((t) => (
+                        <div
+                          key={t.id}
+                          className="border border-gray-200 rounded-xl p-4.5 bg-gray-50/50 flex flex-col justify-between hover:border-gray-300 transition"
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#111827] text-white uppercase tracking-wider">
+                                {t.language}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                t.status === "APPROVED"
+                                  ? "bg-green-50 text-emerald-700 border-green-200"
+                                  : t.status === "REJECTED"
+                                  ? "bg-red-50 text-red-700 border-red-200"
+                                  : "bg-amber-50 text-amber-700 border-amber-200"
+                              }`}>
+                                {t.status}
+                              </span>
+                            </div>
+                            <h4 className="font-bold text-sm text-gray-900 mt-2.5 font-mono">{t.template_name}</h4>
+                            <p className="text-xs font-semibold text-[#D35400] mt-0.5">{t.header_text}</p>
+                            <p className="text-xs text-gray-700 mt-3 bg-white p-3 rounded-lg border border-gray-200 leading-relaxed font-sans">
+                              {t.body_text}
+                            </p>
+                          </div>
+                          <div className="mt-3 pt-2.5 border-t border-gray-200 flex items-center justify-between text-[11px] text-gray-400">
+                            <span>Category: {t.category}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-gray-500">{t.footer_text}</span>
+                              <button
+                                onClick={() => handleDeleteTemplate(t.id, t.template_name)}
+                                className="text-xs text-red-500 hover:text-red-700 font-semibold hover:underline flex items-center gap-1 transition"
+                                title={`Delete ${t.template_name}`}
+                              >
+                                <Trash2 className="w-3 h-3" /> Delete
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Pagination Controls */}
+                    {totalTemplatePages > 1 && (
+                      <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between bg-white flex-wrap gap-3">
+                        <span className="text-xs text-gray-500">
+                          Showing {(currentTemplatePage - 1) * templatesPerPage + 1} to{" "}
+                          {Math.min(currentTemplatePage * templatesPerPage, filteredTemplates.length)} of {filteredTemplates.length} templates
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setTemplatePage((p) => Math.max(p - 1, 1))}
+                            disabled={currentTemplatePage === 1}
+                            className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                          >
+                            Previous
+                          </button>
+                          <div className="flex items-center gap-1">
+                            {Array.from({ length: totalTemplatePages }, (_, i) => i + 1).map((num) => (
+                              <button
+                                key={num}
+                                onClick={() => setTemplatePage(num)}
+                                className={`w-7 h-7 text-xs font-bold rounded-lg transition ${
+                                  currentTemplatePage === num
+                                    ? "bg-[#111827] text-[#F5A623]"
+                                    : "text-gray-600 hover:bg-gray-100 border border-transparent hover:border-gray-200"
+                                }`}
+                              >
+                                {num}
+                              </button>
+                            ))}
                           </div>
                           <button
-                            onClick={() => handleDeleteTemplate(t.id, t.template_name)}
-                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
-                            title={`Delete ${t.template_name}`}
+                            onClick={() => setTemplatePage((p) => Math.min(p + 1, totalTemplatePages))}
+                            disabled={currentTemplatePage === totalTemplatePages}
+                            className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                        <h4 className="font-bold text-sm text-gray-900 mt-2.5 font-mono">{t.template_name}</h4>
-                        <p className="text-xs font-semibold text-[#D35400] mt-0.5">{t.header_text}</p>
-                        <p className="text-xs text-gray-700 mt-3 bg-white p-3 rounded-lg border border-gray-200 leading-relaxed font-sans">
-                          {t.body_text}
-                        </p>
-                      </div>
-                      <div className="mt-3 pt-2.5 border-t border-gray-200 flex items-center justify-between text-[11px] text-gray-400">
-                        <span>Category: {t.category}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-500">{t.footer_text}</span>
-                          <button
-                            onClick={() => handleDeleteTemplate(t.id, t.template_name)}
-                            className="text-xs text-red-500 hover:text-red-700 font-medium hover:underline flex items-center gap-1"
-                          >
-                            <Trash2 className="w-3 h-3" /> Delete
+                            Next
                           </button>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
 

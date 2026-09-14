@@ -1123,7 +1123,15 @@ async def receive_inbound_whatsapp_message(
                     chat_msg = db.query(models.ChatMessage).filter(models.ChatMessage.meta_message_id == wamid).first()
                     if chat_msg:
                         chat_msg.status = new_status
-                        db.commit()
+
+                    msg_log = db.query(models.MessageLog).filter(models.MessageLog.meta_message_id == wamid).first()
+                    if msg_log:
+                        msg_log.status = new_status
+                        errors = st.get("errors", [])
+                        if errors:
+                            msg_log.error_message = str(errors)
+
+                    db.commit()
         return {"status": "status_update_acknowledged"}
 
     for msg in messages:
