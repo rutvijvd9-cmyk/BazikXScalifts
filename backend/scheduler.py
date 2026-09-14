@@ -57,7 +57,7 @@ def process_abandoned_cart_job(cart_event_id: int):
         ).first()
 
         target_template = cart_rule.template_name if cart_rule and cart_rule.template_name else "cart_recovery_v1"
-        target_lang = "en"
+        target_lang = "en_IN" if target_template == "cart_recovery_v1" else "en"
         tmpl_rec = db.query(models.Template).filter(models.Template.template_name == target_template).first()
         if tmpl_rec and tmpl_rec.language:
             target_lang = tmpl_rec.language
@@ -113,7 +113,8 @@ def process_abandoned_cart_job(cart_event_id: int):
             recipient_phone=cart.customer_phone,
             template_name=target_template,
             language=target_lang,
-            parameters=param_dict
+            parameters=param_dict,
+            coupon_code=(cart_rule.coupon_code if cart_rule else "BAZIK7") or "BAZIK7"
         )
 
         if result.get("status") in ["success", "success_simulated"]:
