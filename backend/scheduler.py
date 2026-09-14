@@ -547,7 +547,8 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                 recipient_phone=phone,
                 template_name=rule.template_name,
                 language=target_lang,
-                parameters=param_dict
+                parameters=param_dict,
+                coupon_code=rule.coupon_code or "BAZIK7"
             )
             if res.get("status") in ["success", "success_simulated"]:
                 sent_count += 1

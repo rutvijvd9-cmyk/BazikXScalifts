@@ -35,7 +35,9 @@ def send_whatsapp_template(
     recipient_phone: str,
     template_name: str,
     language: str = "en",
-    parameters: dict = None
+    parameters: dict = None,
+    coupon_code: str = None,
+    button_parameters: list = None
 ) -> dict:
     """
     Sends a WhatsApp message via Meta Cloud API or simulation mode.
@@ -103,6 +105,29 @@ def send_whatsapp_template(
                 "parameters": body_params
             })
 
+        # Handle button parameters (e.g. COPY_CODE buttons required by Meta for templates like bazik_reengagement_v1)
+        if button_parameters:
+            for btn in button_parameters:
+                components.append(btn)
+        elif coupon_code or template_name == "bazik_reengagement_v1":
+            code_val = coupon_code
+            if not code_val and parameters:
+                # In bazik_reengagement_v1, param_2 is usually the coupon code
+                code_val = parameters.get("param_2") or parameters.get("coupon_code")
+            if not code_val:
+                code_val = "BAZIK7"
+            components.append({
+                "type": "button",
+                "sub_type": "copy_code",
+                "index": 0,
+                "parameters": [
+                    {
+                        "type": "coupon_code",
+                        "coupon_code": str(code_val).strip()
+                    }
+                ]
+            })
+
         payload = {
             "messaging_product": "whatsapp",
             "to": recipient_phone.replace("+", "").strip(),
@@ -120,14 +145,19 @@ def send_whatsapp_template(
 
             if resp.status_code == 200:
                 msg_id = data.get("messages", [{}])[0].get("id", "")
-                log_entry = models.MessageLog(
-                    recipient_phone=recipient_phone,
-                    template_name=template_name,
-                    language=language,
-                    status="SENT",
-                    meta_message_id=msg_id
-                )
-                db.add(log_entry)
+                try:
+                    log_entry = models.MessageLog(
+                        recipient_phone=recipient_phone,
+                        template_name=template_name,
+                        language=language,
+                        status="SENT",
+                        meta_message_id=msg_id
+                    )
+                    db.add(log_entry)
+                    db.commit()
+                except Exception as log_err:
+                    db.rollback()
+                    logger.warning(f"Could not save MessageLog: {log_err}")
 
                 # Also insert into ChatMessage for real-time 2-way live chat visibility
                 try:
@@ -146,10 +176,11 @@ def send_whatsapp_template(
                         is_read=True
                     )
                     db.add(chat_entry)
+                    db.commit()
                 except Exception as c_err:
+                    db.rollback()
                     logger.warning(f"Could not mirror template send to ChatMessage: {c_err}")
 
-                db.commit()
                 return {"status": "success", "message_id": msg_id}
             else:
                 error_info = str(data.get("error", {}))
