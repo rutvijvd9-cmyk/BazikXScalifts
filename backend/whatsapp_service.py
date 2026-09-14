@@ -109,7 +109,7 @@ def send_whatsapp_template(
         if button_parameters:
             for btn in button_parameters:
                 components.append(btn)
-        elif coupon_code or template_name == "bazik_reengagement_v1":
+        elif template_name in ["bazik_reengagement_v1"]:
             code_val = coupon_code
             if not code_val and parameters:
                 # In bazik_reengagement_v1, param_2 is usually the coupon code
