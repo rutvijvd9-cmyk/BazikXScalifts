@@ -332,7 +332,7 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                 (models.Contact.last_order_date <= cutoff_date) | (models.Contact.last_order_date == None)
             ).all()
             for c in contacts:
-                target_phones[c.phone] = c.name or "Valued Customer"
+                target_phones[c.phone] = c
 
         elif rule.rule_type == "ORDER_COUNT_VIP":
             vip_contacts = db.query(models.Contact).filter(
@@ -340,19 +340,19 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                 models.Contact.total_orders >= rule.threshold_value
             ).all()
             for c in vip_contacts:
-                target_phones[c.phone] = c.name or "Valued Customer"
+                target_phones[c.phone] = c
 
         # Apply deduplication gate to calculate ACTUAL eligible contacts to receive messages
         dedup_cutoff = datetime.utcnow() - timedelta(days=rule.dedup_days)
         eligible_phones = {}
-        for phone, name in target_phones.items():
+        for phone, contact_obj in target_phones.items():
             recent_msg = db.query(models.MessageLog).filter(
                 models.MessageLog.recipient_phone == phone,
                 models.MessageLog.template_name == rule.template_name,
                 models.MessageLog.created_at >= dedup_cutoff
             ).first()
             if not recent_msg:
-                eligible_phones[phone] = name
+                eligible_phones[phone] = contact_obj
 
         total_eligible = len(eligible_phones)
 
@@ -385,22 +385,86 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                 "message": f"Rule held for approval: targets {total_eligible} contacts (>100 threshold). Admin email sent."
             }
 
+        # Determine template language dynamically from DB
+        import re
+        tmpl_rec = db.query(models.Template).filter(models.Template.template_name == rule.template_name).first()
+        target_lang = (tmpl_rec.language if tmpl_rec and tmpl_rec.language else "en")
+
+        # Parse placeholder indices from template body (e.g. {{1}}, {{2}}, {{3}}, {{4}})
+        placeholder_indices = []
+        if tmpl_rec and tmpl_rec.body_text:
+            raw_matches = re.findall(r"\{\{(\d+)\}\}", tmpl_rec.body_text)
+            if raw_matches:
+                placeholder_indices = sorted(list(set(int(m) for m in raw_matches)))
+        if not placeholder_indices:
+            placeholder_indices = [1, 2]
+
+        user_mappings = rule.variable_mappings if isinstance(rule.variable_mappings, dict) else {}
+
         # If <= 100 OR already approved by admin with 2FA
-        for phone, name in eligible_phones.items():
+        for phone, contact_obj in eligible_phones.items():
+            cust_name = contact_obj.name if contact_obj and contact_obj.name else "Valued Customer"
+            cust_phone = contact_obj.phone if contact_obj and contact_obj.phone else phone
+            cust_city = contact_obj.city if contact_obj and contact_obj.city else "Ahmedabad"
+            cust_orders = str(contact_obj.total_orders) if contact_obj and contact_obj.total_orders is not None else "1"
+            cust_last_order = contact_obj.last_order_date.strftime("%d %b %Y") if contact_obj and contact_obj.last_order_date else "Recently"
+
+            # Construct ordered parameters for Meta
+            param_dict = {}
+            for idx in placeholder_indices:
+                idx_str = str(idx)
+                mapping_def = user_mappings.get(idx_str, {})
+                m_type = mapping_def.get("type") if isinstance(mapping_def, dict) else None
+                m_val = mapping_def.get("value") if isinstance(mapping_def, dict) else None
+
+                if m_type == "contact_field":
+                    if m_val == "name":
+                        val_str = cust_name
+                    elif m_val == "phone":
+                        val_str = cust_phone
+                    elif m_val == "city":
+                        val_str = cust_city
+                    elif m_val == "total_orders":
+                        val_str = cust_orders
+                    elif m_val == "last_order_date":
+                        val_str = cust_last_order
+                    else:
+                        val_str = cust_name
+                elif m_type == "coupon":
+                    val_str = rule.coupon_code or "OFFER"
+                elif m_type == "static":
+                    val_str = str(m_val) if m_val else ""
+                else:
+                    # Default intelligent fallback if no explicit user mapping
+                    if idx == 1:
+                        val_str = cust_name
+                    elif idx == 2:
+                        val_str = rule.coupon_code or "OFFER"
+                    elif idx == 3:
+                        val_str = "10% OFF"
+                    elif idx == 4:
+                        val_str = "Limited Time"
+                    else:
+                        val_str = "Manubhai Gathiyawala"
+
+                param_dict[f"param_{idx}"] = val_str
+
             res = send_whatsapp_template(
                 recipient_phone=phone,
                 template_name=rule.template_name,
-                language="en",
-                parameters={"name": name, "discount_code": rule.coupon_code or "OFFER"}
+                language=target_lang,
+                parameters=param_dict
             )
             if res.get("status") in ["success", "success_simulated"]:
                 sent_count += 1
+            else:
+                logger.warning(f"⚠️ [Rule Engine] Dispatch to {phone} returned: {res}")
 
         rule.total_triggered += sent_count
         rule.approval_status = "IDLE"
         rule.pending_recipients_count = 0
         db.commit()
-        logger.info(f"🏁 Rule '{rule.rule_name}' finished: {sent_count} messages sent.")
+        logger.info(f"🏁 Rule '{rule.rule_name}' finished: {sent_count}/{total_eligible} messages sent.")
         return {
             "status": "success",
             "messages_dispatched": sent_count,

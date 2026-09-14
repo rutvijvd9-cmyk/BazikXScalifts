@@ -119,6 +119,27 @@ def send_whatsapp_template(
                     meta_message_id=msg_id
                 )
                 db.add(log_entry)
+
+                # Also insert into ChatMessage for real-time 2-way live chat visibility
+                try:
+                    tmpl = db.query(models.Template).filter(models.Template.template_name == template_name).first()
+                    body_content = tmpl.body_text if tmpl and tmpl.body_text else f"📢 Template: {template_name}"
+                    if parameters:
+                        for i, (k, val) in enumerate(parameters.items(), 1):
+                            body_content = body_content.replace(f"{{{{{i}}}}}", str(val))
+                    chat_entry = models.ChatMessage(
+                        customer_phone=recipient_phone,
+                        sender_type="AGENT",
+                        message_type="template",
+                        text=body_content,
+                        meta_message_id=msg_id,
+                        status="SENT",
+                        is_read=True
+                    )
+                    db.add(chat_entry)
+                except Exception as c_err:
+                    logger.warning(f"Could not mirror template send to ChatMessage: {c_err}")
+
                 db.commit()
                 return {"status": "success", "message_id": msg_id}
             else:

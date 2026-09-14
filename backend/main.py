@@ -89,6 +89,7 @@ def on_startup():
         "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS pending_recipients_count INTEGER DEFAULT 0",
         "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS total_triggered INTEGER DEFAULT 0",
         "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+        "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS variable_mappings JSON",
         # users: 2FA / TOTP columns
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE",
@@ -1208,6 +1209,38 @@ def list_conversations(
     Returns active conversation threads grouped by customer phone,
     with unread counts, contact details, and last message snippet.
     """
+    # Ensure broadcast recipients from MessageLog have chat records
+    recent_broadcast_phones = (
+        db.query(models.MessageLog.recipient_phone)
+        .filter(models.MessageLog.status.in_(["SENT", "SENT_SIMULATED", "DELIVERED", "READ"]))
+        .distinct()
+        .all()
+    )
+    for (r_phone,) in recent_broadcast_phones:
+        if r_phone:
+            has_chat = db.query(models.ChatMessage).filter(models.ChatMessage.customer_phone == r_phone).first()
+            if not has_chat:
+                last_log = (
+                    db.query(models.MessageLog)
+                    .filter(models.MessageLog.recipient_phone == r_phone)
+                    .order_by(models.MessageLog.created_at.desc())
+                    .first()
+                )
+                if last_log and last_log.meta_message_id:
+                    tmpl = db.query(models.Template).filter(models.Template.template_name == last_log.template_name).first()
+                    content = tmpl.body_text if tmpl and tmpl.body_text else f"📢 WhatsApp Template: {last_log.template_name}"
+                    db.add(models.ChatMessage(
+                        customer_phone=r_phone,
+                        sender_type="AGENT",
+                        message_type="template",
+                        text=content,
+                        meta_message_id=last_log.meta_message_id,
+                        status=last_log.status,
+                        is_read=True,
+                        created_at=last_log.created_at
+                    ))
+    db.commit()
+
     # Get distinct customer phones ordered by latest message
     subquery = (
         db.query(
@@ -1270,6 +1303,37 @@ def get_chat_history(
     clean_phone = phone.strip()
     if not clean_phone.startswith("+"):
         clean_phone = "+" + clean_phone
+
+    # Ensure any past marketing template dispatches from MessageLog are present in ChatMessage
+    historical_logs = (
+        db.query(models.MessageLog)
+        .filter(
+            models.MessageLog.recipient_phone == clean_phone,
+            models.MessageLog.status.in_(["SENT", "SENT_SIMULATED", "DELIVERED", "READ"])
+        )
+        .all()
+    )
+    for h_log in historical_logs:
+        if h_log.meta_message_id:
+            exists = (
+                db.query(models.ChatMessage)
+                .filter(models.ChatMessage.meta_message_id == h_log.meta_message_id)
+                .first()
+            )
+            if not exists:
+                tmpl = db.query(models.Template).filter(models.Template.template_name == h_log.template_name).first()
+                content = tmpl.body_text if tmpl and tmpl.body_text else f"📢 WhatsApp Template: {h_log.template_name}"
+                db.add(models.ChatMessage(
+                    customer_phone=clean_phone,
+                    sender_type="AGENT",
+                    message_type="template",
+                    text=content,
+                    meta_message_id=h_log.meta_message_id,
+                    status=h_log.status,
+                    is_read=True,
+                    created_at=h_log.created_at
+                ))
+    db.commit()
 
     # Mark as read
     db.query(models.ChatMessage).filter(
@@ -1800,6 +1864,7 @@ def create_automation_rule(
         template_name=payload.template_name,
         coupon_code=payload.coupon_code,
         dedup_days=payload.dedup_days,
+        variable_mappings=payload.variable_mappings,
         is_active=payload.is_active
     )
     db.add(rule)
@@ -1833,6 +1898,8 @@ def update_automation_rule(
         rule.coupon_code = payload.coupon_code
     if payload.dedup_days is not None:
         rule.dedup_days = payload.dedup_days
+    if payload.variable_mappings is not None:
+        rule.variable_mappings = payload.variable_mappings
 
     db.commit()
     db.refresh(rule)

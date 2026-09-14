@@ -171,6 +171,7 @@ class AutomationRuleCreate(BaseModel):
     template_name: str = Field(...)
     coupon_code: Optional[str] = None
     dedup_days: int = Field(default=7, ge=1)
+    variable_mappings: Optional[dict] = None
     is_active: bool = True
 
 class AutomationRuleUpdate(BaseModel):
@@ -181,6 +182,7 @@ class AutomationRuleUpdate(BaseModel):
     threshold_value: Optional[int] = None
     coupon_code: Optional[str] = None
     dedup_days: Optional[int] = None
+    variable_mappings: Optional[dict] = None
 
 
 class ChatSendMessageRequest(BaseModel):

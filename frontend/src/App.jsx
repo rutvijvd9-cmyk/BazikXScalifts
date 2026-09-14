@@ -233,7 +233,8 @@ export default function App() {
     threshold_value: 15,
     template_name: "cart_recovery_v1",
     coupon_code: "",
-    dedup_days: 7
+    dedup_days: 7,
+    variable_mappings: {}
   });
 
   const handleOpenRuleModal = () => {
@@ -244,7 +245,8 @@ export default function App() {
       threshold_value: 15,
       template_name: approvedTmpl ? approvedTmpl.template_name : "cart_recovery_v1",
       coupon_code: discountCodes[0]?.code || "",
-      dedup_days: 7
+      dedup_days: 7,
+      variable_mappings: {}
     });
     setIsRuleModalOpen(true);
   };
@@ -253,6 +255,8 @@ export default function App() {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [selectedRuleForConfig, setSelectedRuleForConfig] = useState(null);
   const [testPhone, setTestPhone] = useState("+919876543210");
+  const [testCartValue, setTestCartValue] = useState(450);
+  const [simulatingAction, setSimulatingAction] = useState(false);
   // Add User from Settings Modal State
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
   const [newUserForm, setNewUserForm] = useState({ username: "", email: "", password: "" });
@@ -811,7 +815,8 @@ export default function App() {
           template_name: selectedRuleForConfig.template_name,
           threshold_value: selectedRuleForConfig.threshold_value,
           coupon_code: selectedRuleForConfig.coupon_code,
-          dedup_days: selectedRuleForConfig.dedup_days
+          dedup_days: selectedRuleForConfig.dedup_days,
+          variable_mappings: selectedRuleForConfig.variable_mappings || {}
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -3125,7 +3130,7 @@ export default function App() {
 
                 {/* ── Right Column: Selected Chat Thread & Reply Box ── */}
                 {selectedChatPhone ? (
-                  <div className="flex-1 flex flex-col bg-[#EFEAE2]/30">
+                  <div className="flex-1 flex flex-col bg-[#EFEAE2]/30 min-w-0 overflow-hidden">
                     {/* Active Conversation Header */}
                     {(() => {
                       const activeConv = chatConversations.find(
@@ -3194,7 +3199,7 @@ export default function App() {
                     })()}
 
                     {/* Messages Scroll Area */}
-                    <div className="flex-1 p-6 overflow-y-auto space-y-3 bg-[#E5DDD5]/20">
+                    <div className="flex-1 p-6 overflow-y-auto space-y-3 bg-[#E5DDD5]/20 min-w-0">
                       {chatLoading && chatMessages.length === 0 ? (
                         <div className="flex items-center justify-center h-full text-xs text-gray-400 gap-2">
                           <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
@@ -3217,12 +3222,17 @@ export default function App() {
                               className={`flex ${isAgent ? "justify-end" : "justify-start"}`}
                             >
                               <div
-                                className={`max-w-md rounded-2xl px-4 py-2.5 shadow-xs text-sm relative ${
+                                className={`max-w-[85%] md:max-w-lg break-words rounded-2xl px-4 py-2.5 shadow-xs text-sm relative ${
                                   isAgent
                                     ? "bg-[#D9FDD3] text-gray-900 rounded-tr-xs border border-emerald-200/60"
                                     : "bg-white text-gray-900 rounded-tl-xs border border-gray-200/80"
                                 }`}
                               >
+                                {isAgent && msg.message_type === "template" && (
+                                  <div className="text-[10px] font-bold text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded inline-block mb-1">
+                                    📢 WhatsApp Template Broadcast
+                                  </div>
+                                )}
                                 {!isAgent && (
                                   <div className="text-[10px] font-bold text-emerald-700 mb-0.5">
                                     Customer
@@ -3262,7 +3272,7 @@ export default function App() {
                     </div>
 
                     {/* Quick Reply Suggestions */}
-                    <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center gap-2 overflow-x-auto flex-shrink-0">
+                    <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center gap-2 overflow-x-auto flex-shrink-0 min-w-0 max-w-full">
                       <span className="text-[10px] font-bold uppercase text-gray-500 flex items-center gap-1 flex-shrink-0 pl-1">
                         <Sparkles className="w-3 h-3 text-[#F5A623]" /> Quick replies:
                       </span>
@@ -3287,7 +3297,7 @@ export default function App() {
                     {/* Chat Input Bar */}
                     <form
                       onSubmit={handleSendChatMessage}
-                      className="p-3 bg-white border-t border-gray-200 flex items-center gap-2.5 flex-shrink-0"
+                      className="p-3 bg-white border-t border-gray-200 flex items-center gap-2.5 flex-shrink-0 min-w-0 w-full"
                     >
                       <input
                         type="text"
@@ -3295,7 +3305,7 @@ export default function App() {
                         value={chatReplyText}
                         onChange={(e) => setChatReplyText(e.target.value)}
                         disabled={chatSending}
-                        className="flex-1 px-4 py-2 bg-gray-100/80 border border-gray-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                        className="flex-1 min-w-0 px-4 py-2 bg-gray-100/80 border border-gray-200 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                       />
                       <button
                         type="submit"
@@ -3425,7 +3435,7 @@ export default function App() {
       {/* ── Create Rule Modal ── */}
       {isRuleModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-4 border-b border-gray-100">
               <h3 className="font-bold text-lg text-gray-900">Create New Automation Trigger Rule</h3>
               <button onClick={() => setIsRuleModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
@@ -3574,6 +3584,131 @@ export default function App() {
                 />
                 <p className="text-[11px] text-gray-400 mt-1">Prevents messaging the same customer again within these days</p>
               </div>
+
+              {/* Dynamic Meta Template Variable Mapper */}
+              {(() => {
+                const selectedTmpl = templates.find((t) => t.template_name === newRule.template_name);
+                const bodyText = selectedTmpl?.body_text || "";
+                const matches = Array.from(new Set(Array.from(bodyText.matchAll(/\{\{(\d+)\}\}/g), (m) => parseInt(m[1])))).sort((a, b) => a - b);
+
+                if (matches.length === 0) return null;
+
+                return (
+                  <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between border-b border-emerald-200/60 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">🧩</span>
+                        <h4 className="text-xs font-bold text-emerald-900 uppercase tracking-wider">
+                          Manual Variable Mapping ({matches.length} parameter{matches.length !== 1 ? "s" : ""})
+                        </h4>
+                      </div>
+                      <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
+                        Required by Meta
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-600">
+                      Match each template placeholder (like <code>{"{{1}}"}</code>, <code>{"{{2}}"}</code>) to a contact database field, discount coupon, or custom text.
+                    </p>
+
+                    <div className="space-y-2.5 pt-1">
+                      {matches.map((idx) => {
+                        const curMapping = newRule.variable_mappings?.[String(idx)] || {
+                          type: idx === 1 ? "contact_field" : idx === 2 ? "coupon" : "static",
+                          value: idx === 1 ? "name" : idx === 2 ? "code" : ""
+                        };
+
+                        const updateMapping = (newType, newVal) => {
+                          setNewRule({
+                            ...newRule,
+                            variable_mappings: {
+                              ...(newRule.variable_mappings || {}),
+                              [String(idx)]: { type: newType, value: newVal }
+                            }
+                          });
+                        };
+
+                        return (
+                          <div key={idx} className="bg-white border border-gray-200 rounded-lg p-2.5 flex items-center gap-2 text-xs shadow-2xs">
+                            <span className="font-mono font-bold text-emerald-700 bg-emerald-100/70 px-2 py-1 rounded min-w-[52px] text-center">
+                              {"{{" + idx + "}}"}
+                            </span>
+
+                            {/* Mapping Type Selector */}
+                            <select
+                              value={curMapping.type || "contact_field"}
+                              onChange={(e) => {
+                                const t = e.target.value;
+                                const defaultVal = t === "contact_field" ? "name" : t === "coupon" ? "code" : "";
+                                updateMapping(t, defaultVal);
+                              }}
+                              className="px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-semibold bg-gray-50 focus:bg-white"
+                            >
+                              <option value="contact_field">👤 Contact Field</option>
+                              <option value="coupon">🏷️ Attached Coupon</option>
+                              <option value="static">✍️ Custom Text</option>
+                            </select>
+
+                            {/* Value Selector / Input */}
+                            {curMapping.type === "contact_field" ? (
+                              <select
+                                value={curMapping.value || "name"}
+                                onChange={(e) => updateMapping("contact_field", e.target.value)}
+                                className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#25D366]"
+                              >
+                                <option value="name">Customer Name (e.g. Rutvij Dhameliya)</option>
+                                <option value="phone">Phone Number (e.g. +91 87800 01820)</option>
+                                <option value="city">City (e.g. Bhavnagar, Ahmedabad)</option>
+                                <option value="total_orders">Total Orders Count</option>
+                                <option value="last_order_date">Last Order Date</option>
+                              </select>
+                            ) : curMapping.type === "coupon" ? (
+                              <div className="flex-1 px-2.5 py-1.5 bg-gray-100 border border-gray-200 rounded-md text-xs font-mono font-bold text-[#D35400] flex items-center justify-between">
+                                <span>Uses Coupon: {newRule.coupon_code || "(None attached)"}</span>
+                              </div>
+                            ) : (
+                              <input
+                                type="text"
+                                placeholder={`e.g. ${idx === 3 ? "₹50 or 20% off" : idx === 4 ? "30 Sep 2026" : "Value"}`}
+                                value={curMapping.value || ""}
+                                onChange={(e) => updateMapping("static", e.target.value)}
+                                className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#25D366]"
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Live Preview of Body Text with Substituted Variables */}
+                    {bodyText && (
+                      <div className="mt-3 bg-white/80 p-3 rounded-lg border border-gray-200 text-xs">
+                        <div className="text-[10px] font-bold uppercase text-gray-500 mb-1">Message Preview:</div>
+                        <p className="whitespace-pre-wrap text-gray-800 font-sans leading-relaxed">
+                          {(() => {
+                            let preview = bodyText;
+                            matches.forEach((idx) => {
+                              const curMapping = newRule.variable_mappings?.[String(idx)] || {
+                                type: idx === 1 ? "contact_field" : idx === 2 ? "coupon" : "static",
+                                value: idx === 1 ? "name" : idx === 2 ? "code" : ""
+                              };
+                              let sampleVal = `[Param ${idx}]`;
+                              if (curMapping.type === "contact_field") {
+                                sampleVal = curMapping.value === "name" ? "Ravi" : curMapping.value === "city" ? "Ahmedabad" : curMapping.value;
+                              } else if (curMapping.type === "coupon") {
+                                sampleVal = newRule.coupon_code || "OFFER";
+                              } else {
+                                sampleVal = curMapping.value || `[Custom ${idx}]`;
+                              }
+                              preview = preview.replaceAll(`{{${idx}}}`, sampleVal);
+                            });
+                            return preview;
+                          })()}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
                 <button
@@ -4452,7 +4587,132 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex justify-end pt-1">
+                {/* Dynamic Meta Template Variable Mapper for Configure Modal */}
+                {(() => {
+                  const selectedTmpl = templates.find((t) => t.template_name === selectedRuleForConfig.template_name);
+                  const bodyText = selectedTmpl?.body_text || "";
+                  const matches = Array.from(new Set(Array.from(bodyText.matchAll(/\{\{(\d+)\}\}/g), (m) => parseInt(m[1])))).sort((a, b) => a - b);
+
+                  if (matches.length === 0) return null;
+
+                  return (
+                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 space-y-2.5 mt-3">
+                      <div className="flex items-center justify-between border-b border-emerald-200/60 pb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm">🧩</span>
+                          <h4 className="text-xs font-bold text-emerald-900 uppercase tracking-wider">
+                            Template Variable Mapping ({matches.length} parameter{matches.length !== 1 ? "s" : ""})
+                          </h4>
+                        </div>
+                        <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
+                          Required by Meta
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-600">
+                        Match each template variable (<code>{"{{1}}"}</code>, <code>{"{{2}}"}</code>, etc.) to a customer field, coupon, or static text.
+                      </p>
+
+                      <div className="space-y-2 pt-1">
+                        {matches.map((idx) => {
+                          const curMapping = selectedRuleForConfig.variable_mappings?.[String(idx)] || {
+                            type: idx === 1 ? "contact_field" : idx === 2 ? "coupon" : "static",
+                            value: idx === 1 ? "name" : idx === 2 ? "code" : ""
+                          };
+
+                          const updateConfigMapping = (newType, newVal) => {
+                            setSelectedRuleForConfig({
+                              ...selectedRuleForConfig,
+                              variable_mappings: {
+                                ...(selectedRuleForConfig.variable_mappings || {}),
+                                [String(idx)]: { type: newType, value: newVal }
+                              }
+                            });
+                          };
+
+                          return (
+                            <div key={idx} className="bg-white border border-gray-200 rounded-lg p-2 flex items-center gap-2 text-xs shadow-2xs">
+                              <span className="font-mono font-bold text-emerald-700 bg-emerald-100/70 px-2 py-1 rounded min-w-[50px] text-center">
+                                {"{{" + idx + "}}"}
+                              </span>
+
+                              {/* Mapping Type Selector */}
+                              <select
+                                value={curMapping.type || "contact_field"}
+                                onChange={(e) => {
+                                  const t = e.target.value;
+                                  const defaultVal = t === "contact_field" ? "name" : t === "coupon" ? "code" : "";
+                                  updateConfigMapping(t, defaultVal);
+                                }}
+                                className="px-2 py-1 border border-gray-300 rounded-md text-xs font-semibold bg-gray-50 focus:bg-white"
+                              >
+                                <option value="contact_field">👤 Contact Field</option>
+                                <option value="coupon">🏷️ Attached Coupon</option>
+                                <option value="static">✍️ Custom Text</option>
+                              </select>
+
+                              {/* Value Selector / Input */}
+                              {curMapping.type === "contact_field" ? (
+                                <select
+                                  value={curMapping.value || "name"}
+                                  onChange={(e) => updateConfigMapping("contact_field", e.target.value)}
+                                  className="flex-1 px-2 py-1 border border-gray-300 rounded-md text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#25D366]"
+                                >
+                                  <option value="name">Customer Name (e.g. Rutvij Dhameliya)</option>
+                                  <option value="phone">Phone Number (e.g. +91 87800 01820)</option>
+                                  <option value="city">City (e.g. Bhavnagar, Ahmedabad)</option>
+                                  <option value="total_orders">Total Orders Count</option>
+                                  <option value="last_order_date">Last Order Date</option>
+                                </select>
+                              ) : curMapping.type === "coupon" ? (
+                                <div className="flex-1 px-2.5 py-1 bg-gray-100 border border-gray-200 rounded-md text-xs font-mono font-bold text-[#D35400] flex items-center justify-between">
+                                  <span>Uses Coupon: {selectedRuleForConfig.coupon_code || "(None attached)"}</span>
+                                </div>
+                              ) : (
+                                <input
+                                  type="text"
+                                  placeholder={`e.g. ${idx === 3 ? "₹50 or 20% off" : idx === 4 ? "30 Sep 2026" : "Value"}`}
+                                  value={curMapping.value || ""}
+                                  onChange={(e) => updateConfigMapping("static", e.target.value)}
+                                  className="flex-1 px-2 py-1 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#25D366]"
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Live Preview */}
+                      {bodyText && (
+                        <div className="mt-2 bg-white/90 p-2.5 rounded-lg border border-gray-200 text-xs">
+                          <div className="text-[10px] font-bold uppercase text-gray-500 mb-0.5">Message Preview:</div>
+                          <p className="whitespace-pre-wrap text-gray-800 font-sans leading-relaxed text-[11px]">
+                            {(() => {
+                              let preview = bodyText;
+                              matches.forEach((idx) => {
+                                const curMapping = selectedRuleForConfig.variable_mappings?.[String(idx)] || {
+                                  type: idx === 1 ? "contact_field" : idx === 2 ? "coupon" : "static",
+                                  value: idx === 1 ? "name" : idx === 2 ? "code" : ""
+                                };
+                                let sampleVal = `[Param ${idx}]`;
+                                if (curMapping.type === "contact_field") {
+                                  sampleVal = curMapping.value === "name" ? "Ravi" : curMapping.value === "city" ? "Ahmedabad" : curMapping.value;
+                                } else if (curMapping.type === "coupon") {
+                                  sampleVal = selectedRuleForConfig.coupon_code || "OFFER";
+                                } else {
+                                  sampleVal = curMapping.value || `[Custom ${idx}]`;
+                                }
+                                preview = preview.replaceAll(`{{${idx}}}`, sampleVal);
+                              });
+                              return preview;
+                            })()}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                <div className="flex justify-end pt-2">
                   <button
                     type="submit"
                     className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2 rounded-lg font-bold text-xs shadow-xs transition"

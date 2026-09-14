@@ -124,6 +124,7 @@ class AutomationRule(Base):
     template_name = Column(String(100), nullable=False)
     coupon_code = Column(String(50), nullable=True)
     dedup_days = Column(Integer, default=7)
+    variable_mappings = Column(JSON, nullable=True)  # e.g. {"1": {"type": "contact_field", "value": "name"}, "2": ...}
     is_active = Column(Boolean, default=True)
     total_triggered = Column(Integer, default=0)
     approval_status = Column(String(50), default="IDLE")  # IDLE, PENDING_APPROVAL, APPROVED
