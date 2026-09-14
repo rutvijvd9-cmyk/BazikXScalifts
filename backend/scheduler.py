@@ -208,10 +208,11 @@ def run_thirty_day_reengagement_sweep():
         skipped_count = 0
 
         for phone, name in target_phones.items():
-            # Check if messaged within the last 7 days
+            # Check if messaged within the last 7 days (only count successfully sent)
             recent_msg = db.query(models.MessageLog).filter(
                 models.MessageLog.recipient_phone == phone,
                 models.MessageLog.template_name == "reengagement_30_days",
+                models.MessageLog.status.in_(["SENT", "SENT_SIMULATED", "DELIVERED", "READ"]),
                 models.MessageLog.created_at >= seven_days_ago
             ).first()
 
@@ -407,12 +408,14 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                 target_phones[c.phone] = c
 
         # Apply deduplication gate to calculate ACTUAL eligible contacts to receive messages
+        # Only deduplicate contacts who actually received a message (do not block failed attempts)
         dedup_cutoff = datetime.utcnow() - timedelta(days=rule.dedup_days)
         eligible_phones = {}
         for phone, contact_obj in target_phones.items():
             recent_msg = db.query(models.MessageLog).filter(
                 models.MessageLog.recipient_phone == phone,
                 models.MessageLog.template_name == rule.template_name,
+                models.MessageLog.status.in_(["SENT", "SENT_SIMULATED", "DELIVERED", "READ"]),
                 models.MessageLog.created_at >= dedup_cutoff
             ).first()
             if not recent_msg:

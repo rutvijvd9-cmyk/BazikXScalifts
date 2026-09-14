@@ -3535,7 +3535,7 @@ export default function App() {
       {/* ── Create Rule Modal ── */}
       {isRuleModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-4 border-b border-gray-100">
               <h3 className="font-bold text-lg text-gray-900">Create New Automation Trigger Rule</h3>
               <button onClick={() => setIsRuleModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
@@ -3743,8 +3743,8 @@ export default function App() {
                         };
 
                         return (
-                          <div key={idx} className="bg-white border border-gray-200 rounded-lg p-2.5 flex items-center gap-2 text-xs shadow-2xs">
-                            <span className="font-mono font-bold text-emerald-700 bg-emerald-100/70 px-2 py-1 rounded min-w-[52px] text-center">
+                          <div key={idx} className="bg-white border border-gray-200 rounded-lg p-2.5 flex items-center gap-2 text-xs shadow-2xs min-w-0">
+                            <span className="font-mono font-bold text-emerald-700 bg-emerald-100/70 px-2 py-1 rounded min-w-[44px] text-center shrink-0">
                               {"{{" + idx + "}}"}
                             </span>
 
@@ -3756,55 +3756,57 @@ export default function App() {
                                 const defaultVal = t === "contact_field" ? "name" : t === "cart_event" ? "items" : t === "coupon" ? "code" : "";
                                 updateMapping(t, defaultVal);
                               }}
-                              className="px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-semibold bg-gray-50 focus:bg-white"
+                              className="w-36 sm:w-44 shrink-0 px-2 py-1.5 border border-gray-300 rounded-md text-xs font-semibold bg-gray-50 focus:bg-white truncate"
                             >
                               <option value="contact_field">👤 Contact Field</option>
-                              <option value="cart_event">🛒 Cart Event (Snacks / Amount)</option>
+                              <option value="cart_event">🛒 Cart Event</option>
                               <option value="coupon">🏷️ Attached Coupon</option>
                               <option value="static">✍️ Custom Text</option>
                             </select>
 
                             {/* Value Selector / Input */}
-                            {curMapping.type === "contact_field" ? (
-                              <select
-                                value={curMapping.value || "name"}
-                                onChange={(e) => updateMapping("contact_field", e.target.value)}
-                                className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#25D366]"
-                              >
-                                <option value="name">Customer Name (e.g. Rutvij Dhameliya)</option>
-                                <option value="phone">Phone Number (e.g. +91 87800 01820)</option>
-                                <option value="city">City (e.g. Bhavnagar, Ahmedabad)</option>
-                                <option value="total_orders">Total Orders Count</option>
-                                <option value="last_order_date">Last Order Date</option>
-                              </select>
-                            ) : curMapping.type === "cart_event" ? (
-                              <select
-                                value={curMapping.value || "items"}
-                                onChange={(e) => updateMapping("cart_event", e.target.value)}
-                                className="flex-1 px-2.5 py-1.5 border border-amber-300 bg-amber-50/50 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                              >
-                                <option value="items">📦 Cart Items / Snacks (e.g. Special Vanela Gathiya)</option>
-                                <option value="cart_value">💰 Cart Total Amount (e.g. 450)</option>
-                              </select>
-                            ) : curMapping.type === "coupon" ? (
-                              <select
-                                value={curMapping.value || "code"}
-                                onChange={(e) => updateMapping("coupon", e.target.value)}
-                                className="flex-1 px-2.5 py-1.5 border border-[#F5A623] bg-amber-50/60 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
-                              >
-                                <option value="code">🏷️ Coupon Code</option>
-                                <option value="discount_value">🎁 Discount Value (%)</option>
-                                <option value="expires_at">⏳ Coupon Expiry Date</option>
-                              </select>
-                            ) : (
-                              <input
-                                type="text"
-                                placeholder={`e.g. ${idx === 3 ? "₹50 or 20% off" : idx === 4 ? "30 Sep 2026" : "Value"}`}
-                                value={curMapping.value || ""}
-                                onChange={(e) => updateMapping("static", e.target.value)}
-                                className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#25D366]"
-                              />
-                            )}
+                            <div className="flex-1 min-w-0">
+                              {curMapping.type === "contact_field" ? (
+                                <select
+                                  value={curMapping.value || "name"}
+                                  onChange={(e) => updateMapping("contact_field", e.target.value)}
+                                  className="w-full min-w-0 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#25D366] truncate"
+                                >
+                                  <option value="name">Customer Name</option>
+                                  <option value="phone">Phone Number</option>
+                                  <option value="city">City</option>
+                                  <option value="total_orders">Total Orders Count</option>
+                                  <option value="last_order_date">Last Order Date</option>
+                                </select>
+                              ) : curMapping.type === "cart_event" ? (
+                                <select
+                                  value={curMapping.value || "items"}
+                                  onChange={(e) => updateMapping("cart_event", e.target.value)}
+                                  className="w-full min-w-0 px-2.5 py-1.5 border border-amber-300 bg-amber-50/50 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-500 truncate"
+                                >
+                                  <option value="items">📦 Cart Items / Snacks</option>
+                                  <option value="cart_value">💰 Cart Total Amount</option>
+                                </select>
+                              ) : curMapping.type === "coupon" ? (
+                                <select
+                                  value={curMapping.value || "code"}
+                                  onChange={(e) => updateMapping("coupon", e.target.value)}
+                                  className="w-full min-w-0 px-2.5 py-1.5 border border-[#F5A623] bg-amber-50/60 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-[#F5A623] truncate"
+                                >
+                                  <option value="code">🏷️ Coupon Code</option>
+                                  <option value="discount_value">🎁 Discount Value (%)</option>
+                                  <option value="expires_at">⏳ Coupon Expiry Date</option>
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  placeholder={`e.g. ${idx === 3 ? "₹50 or 20% off" : idx === 4 ? "30 Sep 2026" : "Value"}`}
+                                  value={curMapping.value || ""}
+                                  onChange={(e) => updateMapping("static", e.target.value)}
+                                  className="w-full min-w-0 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#25D366]"
+                                />
+                              )}
+                            </div>
                           </div>
                         );
                       })}
@@ -4543,7 +4545,7 @@ export default function App() {
       {/* ── Configure & Test Simulator Modal ── */}
       {isConfigModalOpen && selectedRuleForConfig && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-4 border-b border-gray-100">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-amber-50 text-[#D35400] flex items-center justify-center">
@@ -4784,8 +4786,8 @@ export default function App() {
                           };
 
                           return (
-                            <div key={idx} className="bg-white border border-gray-200 rounded-lg p-2 flex items-center gap-2 text-xs shadow-2xs">
-                              <span className="font-mono font-bold text-emerald-700 bg-emerald-100/70 px-2 py-1 rounded min-w-[50px] text-center">
+                            <div key={idx} className="bg-white border border-gray-200 rounded-lg p-2.5 flex items-center gap-2 text-xs shadow-2xs min-w-0">
+                              <span className="font-mono font-bold text-emerald-700 bg-emerald-100/70 px-2 py-1 rounded min-w-[44px] text-center shrink-0">
                                 {"{{" + idx + "}}"}
                               </span>
 
@@ -4797,55 +4799,57 @@ export default function App() {
                                   const defaultVal = t === "contact_field" ? "name" : t === "cart_event" ? "items" : t === "coupon" ? "code" : "";
                                   updateConfigMapping(t, defaultVal);
                                 }}
-                                className="px-2 py-1 border border-gray-300 rounded-md text-xs font-semibold bg-gray-50 focus:bg-white"
+                                className="w-36 sm:w-44 shrink-0 px-2 py-1.5 border border-gray-300 rounded-md text-xs font-semibold bg-gray-50 focus:bg-white truncate"
                               >
                                 <option value="contact_field">👤 Contact Field</option>
-                                <option value="cart_event">🛒 Cart Event (Snacks / Amount)</option>
+                                <option value="cart_event">🛒 Cart Event</option>
                                 <option value="coupon">🏷️ Attached Coupon</option>
                                 <option value="static">✍️ Custom Text</option>
                               </select>
 
                               {/* Value Selector / Input */}
-                              {curMapping.type === "contact_field" ? (
-                                <select
-                                  value={curMapping.value || "name"}
-                                  onChange={(e) => updateConfigMapping("contact_field", e.target.value)}
-                                  className="flex-1 px-2 py-1 border border-gray-300 rounded-md text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#25D366]"
-                                >
-                                  <option value="name">Customer Name (e.g. Rutvij Dhameliya)</option>
-                                  <option value="phone">Phone Number (e.g. +91 87800 01820)</option>
-                                  <option value="city">City (e.g. Bhavnagar, Ahmedabad)</option>
-                                  <option value="total_orders">Total Orders Count</option>
-                                  <option value="last_order_date">Last Order Date</option>
-                                </select>
-                              ) : curMapping.type === "cart_event" ? (
-                                <select
-                                  value={curMapping.value || "items"}
-                                  onChange={(e) => updateConfigMapping("cart_event", e.target.value)}
-                                  className="flex-1 px-2 py-1 border border-amber-300 bg-amber-50/50 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                                >
-                                  <option value="items">📦 Cart Items / Snacks (e.g. Special Vanela Gathiya)</option>
-                                  <option value="cart_value">💰 Cart Total Amount (e.g. 450)</option>
-                                </select>
-                              ) : curMapping.type === "coupon" ? (
-                                <select
-                                  value={curMapping.value || "code"}
-                                  onChange={(e) => updateConfigMapping("coupon", e.target.value)}
-                                  className="flex-1 px-2 py-1 border border-[#F5A623] bg-amber-50/60 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-[#F5A623]"
-                                >
-                                  <option value="code">🏷️ Coupon Code</option>
-                                  <option value="discount_value">🎁 Discount Value (%)</option>
-                                  <option value="expires_at">⏳ Coupon Expiry Date</option>
-                                </select>
-                              ) : (
-                                <input
-                                  type="text"
-                                  placeholder={`e.g. ${idx === 3 ? "₹50 or 20% off" : idx === 4 ? "30 Sep 2026" : "Value"}`}
-                                  value={curMapping.value || ""}
-                                  onChange={(e) => updateConfigMapping("static", e.target.value)}
-                                  className="flex-1 px-2 py-1 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#25D366]"
-                                />
-                              )}
+                              <div className="flex-1 min-w-0">
+                                {curMapping.type === "contact_field" ? (
+                                  <select
+                                    value={curMapping.value || "name"}
+                                    onChange={(e) => updateConfigMapping("contact_field", e.target.value)}
+                                    className="w-full min-w-0 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#25D366] truncate"
+                                  >
+                                    <option value="name">Customer Name</option>
+                                    <option value="phone">Phone Number</option>
+                                    <option value="city">City</option>
+                                    <option value="total_orders">Total Orders Count</option>
+                                    <option value="last_order_date">Last Order Date</option>
+                                  </select>
+                                ) : curMapping.type === "cart_event" ? (
+                                  <select
+                                    value={curMapping.value || "items"}
+                                    onChange={(e) => updateConfigMapping("cart_event", e.target.value)}
+                                    className="w-full min-w-0 px-2.5 py-1.5 border border-amber-300 bg-amber-50/50 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-500 truncate"
+                                  >
+                                    <option value="items">📦 Cart Items / Snacks</option>
+                                    <option value="cart_value">💰 Cart Total Amount</option>
+                                  </select>
+                                ) : curMapping.type === "coupon" ? (
+                                  <select
+                                    value={curMapping.value || "code"}
+                                    onChange={(e) => updateConfigMapping("coupon", e.target.value)}
+                                    className="w-full min-w-0 px-2.5 py-1.5 border border-[#F5A623] bg-amber-50/60 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-[#F5A623] truncate"
+                                  >
+                                    <option value="code">🏷️ Coupon Code</option>
+                                    <option value="discount_value">🎁 Discount Value (%)</option>
+                                    <option value="expires_at">⏳ Coupon Expiry Date</option>
+                                  </select>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    placeholder={`e.g. ${idx === 3 ? "₹50 or 20% off" : idx === 4 ? "30 Sep 2026" : "Value"}`}
+                                    value={curMapping.value || ""}
+                                    onChange={(e) => updateConfigMapping("static", e.target.value)}
+                                    className="w-full min-w-0 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#25D366]"
+                                  />
+                                )}
+                              </div>
                             </div>
                           );
                         })}
