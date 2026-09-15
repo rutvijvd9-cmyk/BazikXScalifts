@@ -8,6 +8,7 @@
 *.csv
 scratch_*
 *.png.scratch
+frontend/android/
 
 # Python
 __pycache__/
