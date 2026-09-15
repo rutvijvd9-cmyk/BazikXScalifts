@@ -55,9 +55,23 @@ import {
 } from "lucide-react";
 import axios from "axios";
 
-// When deployed on Vercel, requests point to your Render backend via VITE_API_URL.
-// Locally or with Vite proxy, it defaults to "" (same-origin / relative).
-const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+// Detect if running on mobile device or native Capacitor
+const isNativePlatform = typeof window !== "undefined" && (
+  window.Capacitor?.isNativePlatform?.() ||
+  window.location?.protocol === "capacitor:" ||
+  (window.location?.protocol === "https:" && window.location?.hostname === "localhost" && !window.location?.port)
+);
+
+// Fallback logic: Saved Custom URL -> VITE_API_URL -> Android Emulator loopback (10.0.2.2:8000) -> relative ""
+export const getApiBaseUrl = () => {
+  const saved = localStorage.getItem("mg_custom_api_url");
+  if (saved) return saved;
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (isNativePlatform) return "http://10.0.2.2:8000";
+  return "";
+};
+
+const API_BASE_URL = getApiBaseUrl();
 axios.defaults.baseURL = API_BASE_URL;
 
 export default function App() {
@@ -111,6 +125,47 @@ export default function App() {
     localStorage.setItem("activeTab", tabId);
     window.location.hash = tabId;
   };
+
+  // Mobile Device Integrations (Capacitor StatusBar & SplashScreen)
+  useEffect(() => {
+    const initMobileDevice = async () => {
+      try {
+        const { StatusBar, Style } = await import("@capacitor/status-bar");
+        await StatusBar.setStyle({ style: Style.Dark }).catch(() => {});
+        await StatusBar.setBackgroundColor({ color: "#064e3b" }).catch(() => {});
+      } catch (e) {}
+
+      try {
+        const { SplashScreen } = await import("@capacitor/splash-screen");
+        await SplashScreen.hide().catch(() => {});
+      } catch (e) {}
+    };
+    initMobileDevice();
+  }, []);
+
+  // Android Hardware Back Button Handling
+  useEffect(() => {
+    let unlisten = null;
+    const registerBackButton = async () => {
+      try {
+        const { App: CapApp } = await import("@capacitor/app");
+        const listener = await CapApp.addListener("backButton", ({ canGoBack }) => {
+          if (activeTab !== "dashboard") {
+            setActiveTab("dashboard");
+          } else if (canGoBack) {
+            window.history.back();
+          } else {
+            CapApp.exitApp();
+          }
+        });
+        unlisten = () => listener.remove();
+      } catch (e) {}
+    };
+    registerBackButton();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [activeTab]);
   const [campaigns, setCampaigns] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [discountCodes, setDiscountCodes] = useState([]);
@@ -335,23 +390,6 @@ export default function App() {
       setTwoFactorCode("");
     } catch (err) {
       setLoginError(err.response?.data?.detail || "Invalid 2FA code. Please try again.");
-    } finally {
-      setTwoFactorLoading(false);
-    }
-  };
-
-  const handleSendRecoveryEmail = async () => {
-    setLoginError("");
-    setTwoFactorLoading(true);
-    try {
-      const res = await axios.post("/api/auth/2fa/send-recovery-email", {
-        temp_token: twoFactorTempToken
-      });
-      setTwoFactorEmailSent(true);
-      setTwoFactorEmailPreview(res.data.email_preview || "your email");
-      setTwoFactorMethod("email");
-    } catch (err) {
-      setLoginError(err.response?.data?.detail || "Failed to send emergency recovery code.");
     } finally {
       setTwoFactorLoading(false);
     }
@@ -1102,29 +1140,7 @@ export default function App() {
                 </button>
               </form>
 
-              {/* Fallback to Email Recovery Option */}
               <div className="pt-2 border-t border-gray-100 flex flex-col items-center gap-2 text-xs">
-                {twoFactorMethod === "totp" ? (
-                  <button
-                    type="button"
-                    disabled={twoFactorLoading}
-                    onClick={handleSendRecoveryEmail}
-                    className="text-gray-600 hover:text-gray-900 flex items-center gap-1.5 font-medium transition"
-                  >
-                    <Mail className="w-3.5 h-3.5 text-gray-400" />
-                    <span>Lost phone? <strong>Send recovery code to my email</strong></span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setTwoFactorMethod("totp")}
-                    className="text-gray-600 hover:text-gray-900 flex items-center gap-1.5 font-medium transition"
-                  >
-                    <Smartphone className="w-3.5 h-3.5 text-gray-400" />
-                    <span>Use <strong>Google Authenticator</strong> instead</span>
-                  </button>
-                )}
-
                 <button
                   type="button"
                   onClick={handleCancel2FA}

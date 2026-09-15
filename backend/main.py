@@ -54,12 +54,15 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Enable CORS for local Vite development & Vercel production deployment
+# Enable CORS for local Vite development, Vercel production deployment & Android Capacitor
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
 allowed_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "http://localhost:3000"
+    "http://localhost:3000",
+    "http://localhost",
+    "https://localhost",
+    "capacitor://localhost"
 ]
 if allowed_origins_env:
     allowed_origins.extend([origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()])
@@ -230,18 +233,6 @@ def login(request: Request, payload: schemas.UserLogin, db: Session = Depends(ge
         # Increment failed login counter for this IP
         attempts = FAILED_LOGIN_ATTEMPTS.get(client_ip, 0) + 1
         FAILED_LOGIN_ATTEMPTS[client_ip] = attempts
-        
-        # If 3 or more failed attempts, trigger security email alert!
-        if attempts >= 3:
-            try:
-                from email_service import send_security_intrusion_alert
-                send_security_intrusion_alert(
-                    event_type="Brute-Force Login / Unauthorized Access Attempt",
-                    ip_address=client_ip,
-                    details=f"{attempts} consecutive failed login attempts detected targeting username '{payload.username}'."
-                )
-            except Exception as mail_err:
-                logger.warning(f"Could not dispatch security alert: {mail_err}")
 
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -372,17 +363,6 @@ def verify_two_factor_code(
     if not verified:
         attempts = FAILED_LOGIN_ATTEMPTS.get(f"2fa_{client_ip}", 0) + 1
         FAILED_LOGIN_ATTEMPTS[f"2fa_{client_ip}"] = attempts
-        if attempts >= 3:
-            try:
-                from email_service import send_security_intrusion_alert
-                send_security_intrusion_alert(
-                    event_type="Invalid 2FA Code / Suspicious Verification Attempt",
-                    ip_address=client_ip,
-                    details=f"{attempts} consecutive failed 2FA verification attempts for username '{user.username}'."
-                )
-            except Exception as mail_err:
-                logger.warning(f"Could not dispatch 2fa security alert: {mail_err}")
-
         raise HTTPException(status_code=400, detail="Invalid 2FA code or expired recovery code")
 
     # Reset failed counter
@@ -395,50 +375,6 @@ def verify_two_factor_code(
         "token_type": "bearer",
         "username": user.username,
         "requires_2fa": False
-    }
-
-
-@app.post("/api/auth/2fa/send-recovery-email")
-@limiter.limit("5/minute")
-def send_two_factor_recovery_email(
-    request: Request,
-    payload: dict,
-    db: Session = Depends(get_db)
-):
-    """
-    Dispatches a 6-digit emergency OTP to the user's email address via Gmail SMTP.
-    """
-    temp_token = payload.get("temp_token")
-    if not temp_token:
-        raise HTTPException(status_code=400, detail="Missing temp_token")
-
-    username = auth.verify_temp_2fa_token(temp_token)
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if not user or not user.is_active:
-        raise HTTPException(status_code=400, detail="User account not found or deactivated")
-
-    if not user.email:
-        raise HTTPException(status_code=400, detail="No email address associated with this user account.")
-
-    # Generate random 6-digit numeric OTP
-    import secrets
-    recovery_code = f"{secrets.randbelow(900000) + 100000}"
-    user.email_recovery_code = recovery_code
-    user.email_recovery_code_expires = datetime.utcnow() + timedelta(minutes=10)
-    db.commit()
-
-    from email_service import send_2fa_recovery_email
-    res = send_2fa_recovery_email(
-        recipient_email=user.email,
-        username=user.username,
-        recovery_code=recovery_code
-    )
-
-    masked_email = user.email[:2] + "***@" + user.email.split("@")[-1] if "@" in user.email else "your email"
-    return {
-        "status": "success",
-        "message": f"Emergency 6-digit recovery code sent to {masked_email}",
-        "email_preview": masked_email
     }
 
 
@@ -2051,19 +1987,5 @@ def get_system_settings(
         "active_phone_id": os.getenv("WHATSAPP_PHONE_NUMBER_ID", "Not Configured (Simulation Mode)"),
         "webhook_endpoint": os.getenv("WHATSAPP_WEBHOOK_URL", "https://manubhaigathiya-whatsapp.onrender.com/api/webhooks/whatsapp"),
         "dnd_keywords": ["STOP", "UNSUBSCRIBE", "બંધ કરો", "સંદેશા બંધ કરો", "રોકો", "बंद करो"]
-    }
-
-
-@app.post("/api/admin/test-email")
-def send_test_admin_email(
-    payload: dict = {},
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    """
-    SMTP test email decommissioned (Render free tier blocks raw SMTP ports 587/465).
-    """
-    return {
-        "status": "disabled",
-        "message": "SMTP email system has been decommissioned."
     }
 

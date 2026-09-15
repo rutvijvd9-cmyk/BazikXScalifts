@@ -362,18 +362,6 @@ def run_all_active_automation_rules():
         db.close()
 
 
-def run_periodic_digest_job():
-    try:
-        from email_service import send_ten_minute_digest_email
-        db = SessionLocal()
-        try:
-            send_ten_minute_digest_email(db)
-        finally:
-            db.close()
-    except Exception as e:
-        logger.error(f"Error executing 10-minute digest email: {e}")
-
-
 def start_scheduler():
     if not scheduler.running:
         # 1. Automatic Daily Sweep at 10:00 AM IST for ALL active automation rules (15-day, 30-day, VIP, etc.)
@@ -383,16 +371,8 @@ def start_scheduler():
             id="daily_all_automations_sweep",
             replace_existing=True
         )
-        # 2. Executive 10-Minute Activity Digest & Heartbeat via Gmail SMTP
-        scheduler.add_job(
-            func=run_periodic_digest_job,
-            trigger="interval",
-            minutes=10,
-            id="ten_minute_digest",
-            replace_existing=True
-        )
         scheduler.start()
-        logger.info("🚀 APScheduler started successfully with automatic daily triggers and 10-min digest.")
+        logger.info("🚀 APScheduler started successfully with automatic daily sweeps.")
 
 def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
     """
@@ -461,27 +441,14 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
             rule.pending_recipients_count = total_eligible
             db.commit()
 
-            # Dispatch security email alert to all admin alert email addresses
-            try:
-                from email_service import send_automation_approval_email
-                send_automation_approval_email(
-                    rule_name=rule.rule_name,
-                    rule_id=rule.id,
-                    recipient_count=total_eligible,
-                    template_name=rule.template_name,
-                    condition=rule.trigger_condition
-                )
-            except Exception as mail_err:
-                logger.warning(f"Could not send approval email: {mail_err}")
-
-            logger.info(f"⏸️ Rule '{rule.rule_name}' held: {total_eligible} eligible recipients (> 100 threshold). Admin email dispatched.")
+            logger.info(f"⏸️ Rule '{rule.rule_name}' held: {total_eligible} eligible recipients (> 100 threshold). Requires dashboard approval.")
             return {
                 "status": "pending_approval",
                 "messages_dispatched": 0,
                 "requires_approval": True,
                 "eligible_count": total_eligible,
                 "rule": rule.rule_name,
-                "message": f"Rule held for approval: targets {total_eligible} contacts (>100 threshold). Admin email sent."
+                "message": f"Rule held for approval: targets {total_eligible} contacts (>100 threshold). Please review in dashboard."
             }
 
         # Determine template language dynamically from DB
