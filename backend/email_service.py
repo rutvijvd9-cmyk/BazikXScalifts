@@ -11,10 +11,11 @@ logging.basicConfig(level=logging.INFO)
 
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "sendermailpro@gmail.com")
+SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
 ADMIN_ALERT_EMAIL = os.getenv("ADMIN_ALERT_EMAIL", "")
 ENABLE_SMTP = os.getenv("ENABLE_SMTP", "false").lower() in ("true", "1", "yes")
+DASHBOARD_URL = os.getenv("DASHBOARD_URL", "https://bazikscalifts.vercel.app").rstrip("/")
 
 def get_recipient_list(override_to: Optional[str] = None) -> List[str]:
     """
@@ -323,7 +324,7 @@ def send_automation_approval_email(
         </div>
 
         <div style="text-align: center; margin: 24px 0;">
-          <a href="https://bazikscalifts.vercel.app/#automations" style="display: inline-block; background: #25D366; color: #000000; font-weight: bold; font-size: 14px; text-decoration: none; padding: 12px 24px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          <a href="{DASHBOARD_URL}/#automations" style="display: inline-block; background: #25D366; color: #000000; font-weight: bold; font-size: 14px; text-decoration: none; padding: 12px 24px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
             Review & Approve in Dashboard →
           </a>
         </div>

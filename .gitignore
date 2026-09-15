@@ -4,6 +4,11 @@
 .env.local
 .env.*.local
 
+# Test data, customer lists, and local scratch files
+*.csv
+scratch_*
+*.png.scratch
+
 # Python
 __pycache__/
 *.py[cod]

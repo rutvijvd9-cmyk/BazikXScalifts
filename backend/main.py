@@ -2049,7 +2049,7 @@ def get_system_settings(
         "daily_limit": int(os.getenv("DAILY_MESSAGE_SEND_LIMIT", "500")),
         "cart_delay_minutes": 30,
         "active_phone_id": os.getenv("WHATSAPP_PHONE_NUMBER_ID", "Not Configured (Simulation Mode)"),
-        "webhook_endpoint": "https://api.manubhaigathiyawala.com/api/webhooks/whatsapp",
+        "webhook_endpoint": os.getenv("WHATSAPP_WEBHOOK_URL", "https://manubhaigathiya-whatsapp.onrender.com/api/webhooks/whatsapp"),
         "dnd_keywords": ["STOP", "UNSUBSCRIBE", "બંધ કરો", "સંદેશા બંધ કરો", "રોકો", "बंद करो"]
     }
 
