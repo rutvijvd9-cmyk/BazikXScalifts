@@ -28,7 +28,7 @@ From the `frontend` directory, run:
 npm run android:open
 ```
 *Or open **Android Studio**, click **Open**, and select the folder:*  
-`/Users/rutvijdhameliya/Desktop/Whatsapp Manubhai Gathiyawala/frontend/android`
+`./frontend/android` (or `<project-root>/frontend/android`)
 
 ### Step 2: Sync Gradle and Run
 1. Android Studio will automatically sync the Gradle files and download the required Android SDK components.

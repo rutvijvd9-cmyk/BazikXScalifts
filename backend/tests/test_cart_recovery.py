@@ -3,7 +3,7 @@ import uuid
 from fastapi import status
 import models
 
-def test_cart_event_webhook(client, db):
+def test_cart_event_webhook(client, auth_headers, db):
     unique_token = f"cart_test_{uuid.uuid4().hex[:8]}"
     payload = {
         "cart_token": unique_token,
@@ -11,7 +11,7 @@ def test_cart_event_webhook(client, db):
         "cart_value": 450.0,
         "items": [{"item": "Nylon Papdi Gathiya", "qty": 1}]
     }
-    res = client.post("/api/webhooks/cart-event?delay_seconds=1800", json=payload)
+    res = client.post("/api/webhooks/cart-event?delay_seconds=1800", json=payload, headers=auth_headers)
     assert res.status_code == status.HTTP_202_ACCEPTED
     data = res.json()
     assert data["status"] == "received"
@@ -21,7 +21,7 @@ def test_cart_event_webhook(client, db):
     assert cart is not None
     assert cart.status == "PENDING"
 
-def test_order_completion_cancels_recovery(client, db):
+def test_order_completion_cancels_recovery(client, auth_headers, db):
     unique_token = f"cart_test_{uuid.uuid4().hex[:8]}"
     # Create fresh cart
     client.post("/api/webhooks/cart-event?delay_seconds=1800", json={
@@ -29,11 +29,12 @@ def test_order_completion_cancels_recovery(client, db):
         "customer_phone": "+919876543210",
         "cart_value": 300.0,
         "items": []
-    })
+    }, headers=auth_headers)
 
     # Simulate customer purchasing
     res = client.post(
-        f"/api/webhooks/order-completed?cart_token={unique_token}&customer_phone=%2B919876543210"
+        f"/api/webhooks/order-completed?cart_token={unique_token}&customer_phone=%2B919876543210",
+        headers=auth_headers
     )
     assert res.status_code == status.HTTP_200_OK
     assert res.json()["status"] == "success"

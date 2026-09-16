@@ -62,19 +62,26 @@ const isNativePlatform = typeof window !== "undefined" && (
   (window.location?.protocol === "https:" && window.location?.hostname === "localhost" && !window.location?.port)
 );
 
-// Fallback logic: Saved Custom URL -> VITE_API_URL -> Android Emulator loopback (10.0.2.2:8000) -> relative ""
+export const RENDER_PROD_URL = import.meta.env.VITE_API_URL || "https://manubhaigathiya-whatsapp.onrender.com";
+
+// Fallback logic: Saved Custom URL -> VITE_API_URL -> Live Render Cloud -> relative ""
 export const getApiBaseUrl = () => {
   const saved = localStorage.getItem("mg_custom_api_url");
   if (saved) return saved;
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  if (isNativePlatform) return "http://10.0.2.2:8000";
+  if (isNativePlatform) return RENDER_PROD_URL;
   return "";
 };
 
-const API_BASE_URL = getApiBaseUrl();
-axios.defaults.baseURL = API_BASE_URL;
+const INITIAL_API_BASE_URL = getApiBaseUrl();
+axios.defaults.baseURL = INITIAL_API_BASE_URL;
 
 export default function App() {
+  const [serverUrl, setServerUrl] = useState(INITIAL_API_BASE_URL);
+  const [showServerModal, setShowServerModal] = useState(false);
+  const [serverInput, setServerInput] = useState(INITIAL_API_BASE_URL);
+  const [serverTestStatus, setServerTestStatus] = useState(null);
+
   const [token, setToken] = useState(localStorage.getItem("token") || "");
   const [username, setUsername] = useState(localStorage.getItem("username") || "");
   const [authMode, setAuthMode] = useState("login"); // "login" or "register"
@@ -315,7 +322,7 @@ export default function App() {
   // Configure & Test Simulator Modal State
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [selectedRuleForConfig, setSelectedRuleForConfig] = useState(null);
-  const [testPhone, setTestPhone] = useState("+919876543210");
+  const [testPhone, setTestPhone] = useState("");
   const [testCartValue, setTestCartValue] = useState(450);
   const [simulatingAction, setSimulatingAction] = useState(false);
   // Add User from Settings Modal State
@@ -345,6 +352,34 @@ export default function App() {
     }
   };
 
+  const testServerConnection = async (urlToTest) => {
+    setServerTestStatus({ loading: true, ok: false, msg: "Testing connection..." });
+    const cleanUrl = (urlToTest || "").trim().replace(/\/$/, "");
+    try {
+      const res = await axios.get(`${cleanUrl}/api/health`, { timeout: 6000 });
+      if (res.data?.status === "ok") {
+        setServerTestStatus({ loading: false, ok: true, msg: "✅ Connected successfully! Backend is online." });
+      } else {
+        setServerTestStatus({ loading: false, ok: true, msg: "✅ Connected to server response." });
+      }
+    } catch (err) {
+      setServerTestStatus({
+        loading: false,
+        ok: false,
+        msg: `❌ Cannot connect: ${err.message}. Ensure backend is running and URL is accessible.`
+      });
+    }
+  };
+
+  const handleSaveServerUrl = (newUrl) => {
+    const cleanUrl = (newUrl || "").trim().replace(/\/$/, "");
+    localStorage.setItem("mg_custom_api_url", cleanUrl);
+    axios.defaults.baseURL = cleanUrl;
+    setServerUrl(cleanUrl);
+    setShowServerModal(false);
+    setLoginError("");
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError("");
@@ -366,7 +401,15 @@ export default function App() {
       localStorage.setItem("token", jwt);
       localStorage.setItem("username", res.data.username);
     } catch (err) {
-      setLoginError(err.response?.data?.detail || "Invalid login credentials");
+      if (!err.response) {
+        setLoginError(
+          `❌ Cannot connect to backend server at "${axios.defaults.baseURL || "relative URL"}". Please tap "Server Settings" below to check your server address, and ensure the backend is running.`
+        );
+      } else if (err.response.status === 401) {
+        setLoginError("❌ Incorrect username or password. Please verify your credentials.");
+      } else {
+        setLoginError(err.response?.data?.detail || "Login failed. Please try again.");
+      }
     }
   };
 
@@ -389,7 +432,11 @@ export default function App() {
       setTwoFactorTempToken("");
       setTwoFactorCode("");
     } catch (err) {
-      setLoginError(err.response?.data?.detail || "Invalid 2FA code. Please try again.");
+      if (!err.response) {
+        setLoginError(`❌ Cannot reach backend server at "${axios.defaults.baseURL}".`);
+      } else {
+        setLoginError(err.response?.data?.detail || "Invalid 2FA code. Please try again.");
+      }
     } finally {
       setTwoFactorLoading(false);
     }
@@ -428,7 +475,11 @@ export default function App() {
       setAuthMode("login");
       fetchRegistrationStatus();
     } catch (err) {
-      setLoginError(err.response?.data?.detail || "Registration failed. Try again.");
+      if (!err.response) {
+        setLoginError(`❌ Cannot reach backend server at "${axios.defaults.baseURL}".`);
+      } else {
+        setLoginError(err.response?.data?.detail || "Registration failed. Try again.");
+      }
     }
   };
 
@@ -1083,6 +1134,19 @@ export default function App() {
             </div>
             <h2 className="text-2xl font-black text-gray-900">WhatsApp CRM</h2>
             <p className="text-xs text-gray-500 mt-0.5">Manubhai Gathiyawala • Portal Access</p>
+            <button
+              type="button"
+              onClick={() => {
+                setServerInput(serverUrl);
+                setServerTestStatus(null);
+                setShowServerModal(true);
+              }}
+              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-emerald-50 hover:bg-emerald-100 text-emerald-800 transition-colors border border-emerald-200 cursor-pointer shadow-xs"
+            >
+              <Activity className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+              <span>Server: <span className="font-mono font-semibold">{serverUrl || "Local Relative"}</span></span>
+              <Settings className="w-3 h-3 text-emerald-500 ml-0.5" />
+            </button>
           </div>
 
           {loginError && (
@@ -1208,6 +1272,107 @@ export default function App() {
             <span className="text-xs text-gray-400">Protected by End-to-End Bcrypt & JWT Security</span>
           </div>
         </div>
+
+        {/* ── Server URL Settings Modal ── */}
+        {showServerModal && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl border border-gray-200 text-left">
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                    <Activity className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-sm">Configure Backend Server</h3>
+                    <p className="text-[11px] text-gray-500">Set API URL for Android or Remote Access</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowServerModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-lg font-bold p-1 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-3 mb-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Server API URL</label>
+                  <input
+                    type="text"
+                    value={serverInput}
+                    onChange={(e) => setServerInput(e.target.value)}
+                    placeholder="https://your-api-domain.com or http://localhost:8000"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-gray-300 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-500 mb-1.5">Quick Presets:</p>
+                  <div className="space-y-1.5">
+                    {RENDER_PROD_URL && (
+                      <button
+                        type="button"
+                        onClick={() => setServerInput(RENDER_PROD_URL)}
+                        className="w-full px-2.5 py-1.5 text-[11px] font-mono rounded bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 text-left transition cursor-pointer font-semibold flex items-center justify-between"
+                      >
+                        <span>☁️ Production Cloud API</span>
+                        <span className="text-[10px] bg-emerald-200/60 px-1.5 py-0.5 rounded text-emerald-900">Default</span>
+                      </button>
+                    )}
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setServerInput(`http://${window.location?.hostname || "localhost"}:8000`)}
+                        className="px-2.5 py-1.5 text-[11px] font-mono rounded bg-gray-50 hover:bg-gray-100 border border-gray-200 text-left transition cursor-pointer"
+                      >
+                        📡 Local Machine<br /><span className="text-[10px] text-gray-500">{window.location?.hostname || "localhost"}:8000</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setServerInput("http://10.0.2.2:8000")}
+                        className="px-2.5 py-1.5 text-[11px] font-mono rounded bg-gray-50 hover:bg-gray-100 border border-gray-200 text-left transition cursor-pointer"
+                      >
+                        📱 Android Emulator<br /><span className="text-[10px] text-gray-500">10.0.2.2:8000</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {serverTestStatus && (
+                  <div
+                    className={`p-2.5 rounded-lg text-xs font-medium ${
+                      serverTestStatus.ok
+                        ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                        : "bg-red-50 text-red-700 border border-red-200"
+                    }`}
+                  >
+                    {serverTestStatus.msg}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 justify-end pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => testServerConnection(serverInput)}
+                  disabled={serverTestStatus?.loading}
+                  className="px-3 py-2 text-xs font-semibold rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition cursor-pointer"
+                >
+                  {serverTestStatus?.loading ? "Testing..." : "Test Connection"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveServerUrl(serverInput)}
+                  className="px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition cursor-pointer"
+                >
+                  Save & Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

@@ -28,7 +28,7 @@ from scheduler import start_scheduler, schedule_cart_recovery, execute_campaign_
 from whatsapp_service import send_whatsapp_template, create_meta_template
 from apscheduler.triggers.date import DateTrigger
 
-load_dotenv()
+import config
 
 # Ensure tables exist
 Base.metadata.create_all(bind=engine)
@@ -48,14 +48,14 @@ except Exception as col_err:
 # Rate Limiter setup
 limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 app = FastAPI(
-    title=os.getenv("APP_NAME", "WhatsApp CRM — Manubhai Gathiyawala"),
+    title=config.APP_NAME,
     version="1.0.0"
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Enable CORS for local Vite development, Vercel production deployment & Android Capacitor
-allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
+allowed_origins_env = config.ALLOWED_ORIGINS_RAW
 allowed_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -70,13 +70,11 @@ if allowed_origins_env:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r"(https://.*\.vercel\.app|http://192\.168\..*|http://10\..*|capacitor://.*|https?://localhost.*)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "dev_secret")
 
 
 @app.on_event("startup")
@@ -119,9 +117,9 @@ def on_startup():
 
     # ── Admin user sync ───────────────────────────────────────────────────────
     db = next(get_db())
-    initial_user = os.getenv("INITIAL_ADMIN_USERNAME", "admin").strip()
-    initial_pass = os.getenv("INITIAL_ADMIN_PASSWORD")
-    initial_email = os.getenv("INITIAL_ADMIN_EMAIL", "admin@manubhaigathiyawala.com").strip()
+    initial_user = config.INITIAL_ADMIN_USERNAME
+    initial_pass = config.INITIAL_ADMIN_PASSWORD
+    initial_email = config.INITIAL_ADMIN_EMAIL
 
     if initial_pass:
         admin = db.query(models.User).filter(models.User.username == initial_user).first()
@@ -147,34 +145,35 @@ def on_startup():
             print(f"🔒 [Security] Initial admin '{initial_user}' created successfully.")
 
     # ── Service Account user sync (For external PHP store integration) ────────
-    svc_username = os.getenv("ECOM_SERVICE_USERNAME", "ecom_service").strip()
-    svc_password = os.getenv("ECOM_SERVICE_PASSWORD", "ManubhaiEcom@2026Auth!").strip()
-    svc_email = os.getenv("ECOM_SERVICE_EMAIL", "ecommerce@manubhaigathiyawala.com").strip()
+    svc_username = config.ECOM_SERVICE_USERNAME
+    svc_password = config.ECOM_SERVICE_PASSWORD
+    svc_email = config.ECOM_SERVICE_EMAIL
 
-    svc_user = db.query(models.User).filter(models.User.username == svc_username).first()
-    if not svc_user:
-        svc_user = models.User(
-            username=svc_username,
-            email=svc_email,
-            hashed_password=auth.get_password_hash(svc_password),
-            is_active=True,
-            is_2fa_enabled=False
-        )
-        db.add(svc_user)
-        db.commit()
-        print(f"🔒 [Security] Service account '{svc_username}' created successfully.")
-    else:
-        svc_user.hashed_password = auth.get_password_hash(svc_password)
-        svc_user.is_active = True
-        svc_user.is_2fa_enabled = False
-        db.commit()
+    if svc_password:
+        svc_user = db.query(models.User).filter(models.User.username == svc_username).first()
+        if not svc_user:
+            svc_user = models.User(
+                username=svc_username,
+                email=svc_email,
+                hashed_password=auth.get_password_hash(svc_password),
+                is_active=True,
+                is_2fa_enabled=False
+            )
+            db.add(svc_user)
+            db.commit()
+            print(f"🔒 [Security] Service account '{svc_username}' created successfully.")
+        else:
+            svc_user.hashed_password = auth.get_password_hash(svc_password)
+            svc_user.is_active = True
+            svc_user.is_2fa_enabled = False
+            db.commit()
 
     db.close()
 
 
 @app.get("/")
 def root():
-    return {"message": "WhatsApp CRM is running ✅", "client": "Manubhai Gathiyawala"}
+    return {"message": "WhatsApp CRM is running ✅", "client": config.BRAND_NAME}
 
 
 @app.get("/health")
@@ -195,12 +194,12 @@ def register_user(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    MAX_USERS = 5
+    max_users = config.MAX_USERS_LIMIT
     current_user_count = db.query(models.User).count()
-    if current_user_count >= MAX_USERS:
+    if current_user_count >= max_users:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"User registration limit reached ({MAX_USERS}/{MAX_USERS} users created). No more user accounts can be registered."
+            detail=f"User registration limit reached ({max_users}/{max_users} users created). No more user accounts can be registered."
         )
 
     existing = db.query(models.User).filter(
@@ -484,12 +483,12 @@ def get_current_user_profile(current_user: models.User = Depends(auth.get_curren
 
 @app.get("/api/auth/registration-status")
 def get_registration_status(db: Session = Depends(get_db)):
-    MAX_USERS = 5
+    max_users = config.MAX_USERS_LIMIT
     count = db.query(models.User).count()
     return {
         "current_users": count,
-        "max_users": MAX_USERS,
-        "can_register": count < MAX_USERS
+        "max_users": max_users,
+        "can_register": count < max_users
     }
 
 
@@ -499,7 +498,7 @@ def list_system_users(
     db: Session = Depends(get_db)
 ):
     """
-    Returns all registered team users (up to 5 maximum).
+    Returns all registered team users (up to MAX_USERS_LIMIT).
     """
     return db.query(models.User).order_by(models.User.id.asc()).all()
 
@@ -511,14 +510,14 @@ def create_system_user(
     db: Session = Depends(get_db)
 ):
     """
-    Creates a new team member account (authenticated admin only, 5 user limit).
+    Creates a new team member account (authenticated admin only, configurable user limit).
     """
-    MAX_USERS = 5
+    max_users = config.MAX_USERS_LIMIT
     current_user_count = db.query(models.User).count()
-    if current_user_count >= MAX_USERS:
+    if current_user_count >= max_users:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"User limit reached ({MAX_USERS}/{MAX_USERS} users created). Cannot register more accounts."
+            detail=f"User limit reached ({max_users}/{max_users} users created). Cannot register more accounts."
         )
 
     existing = db.query(models.User).filter(
@@ -914,19 +913,19 @@ def get_webhook_authenticated_user(
     """
     auth_header = request.headers.get("Authorization", "").strip()
     api_key_header = (request.headers.get("X-API-Key", "") or request.headers.get("X-Webhook-Secret", "")).strip()
-    secret_key = os.getenv("WEBHOOK_SECRET", "manubhai_webhook_secret_key_987654")
+    secret_key = config.WEBHOOK_SECRET
 
     # 1. API Key Header
-    if api_key_header and api_key_header == secret_key:
-        svc = db.query(models.User).filter(models.User.username == "ecom_service").first()
-        return svc or models.User(username="ecom_service", is_active=True)
+    if secret_key and api_key_header and api_key_header == secret_key:
+        svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
+        return svc or models.User(username=config.ECOM_SERVICE_USERNAME, is_active=True)
 
     # 2. Bearer Token in Authorization header
     if auth_header.startswith("Bearer "):
         token = auth_header.split(" ", 1)[1].strip()
-        if token and token == secret_key:
-            svc = db.query(models.User).filter(models.User.username == "ecom_service").first()
-            return svc or models.User(username="ecom_service", is_active=True)
+        if secret_key and token and token == secret_key:
+            svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
+            return svc or models.User(username=config.ECOM_SERVICE_USERNAME, is_active=True)
         try:
             return auth.get_current_user(token=token, db=db)
         except HTTPException as he:
@@ -1063,7 +1062,7 @@ def receive_order_completed_webhook(
 # 📲 META WHATSAPP INBOUND WEBHOOK (DND / STOP)
 # ==========================================
 
-WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "manubhai_meta_verify_token_123")
+WHATSAPP_VERIFY_TOKEN = config.WHATSAPP_VERIFY_TOKEN
 
 # Multilingual opt-out trigger keywords
 OPT_OUT_KEYWORDS = {
@@ -1085,6 +1084,10 @@ def verify_whatsapp_webhook(
     mode = params.get("hub.mode")
     token = params.get("hub.verify_token")
     challenge = params.get("hub.challenge")
+
+    if not WHATSAPP_VERIFY_TOKEN:
+        logger.error("WHATSAPP_VERIFY_TOKEN is not configured in environment variables.")
+        raise HTTPException(status_code=500, detail="Webhook verify token not configured on server")
 
     if mode == "subscribe" and token == WHATSAPP_VERIFY_TOKEN:
         return int(challenge) if challenge and challenge.isdigit() else challenge
@@ -1140,6 +1143,7 @@ async def receive_inbound_whatsapp_message(
                     db.commit()
         return {"status": "status_update_acknowledged"}
 
+    any_opt_out = False
     for msg in messages:
         sender_phone = "+" + msg.get("from", "").strip("+")
         msg_type = msg.get("type", "text")
@@ -1160,6 +1164,7 @@ async def receive_inbound_whatsapp_message(
         is_opt_out = any(keyword in raw_body.lower() for keyword in OPT_OUT_KEYWORDS)
 
         if is_opt_out:
+            any_opt_out = True
             existing_opt = db.query(models.OptOut).filter(models.OptOut.phone == sender_phone).first()
             if not existing_opt:
                 opt_record = models.OptOut(phone=sender_phone, reason=f"INBOUND_REPLY: {raw_body}")
@@ -1198,7 +1203,7 @@ async def receive_inbound_whatsapp_message(
 
         db.commit()
 
-    return {"status": "message_processed"}
+    return {"status": "opted_out" if any_opt_out else "message_processed"}
 
 
 # ==========================================
@@ -1514,11 +1519,11 @@ def send_direct_test_message(
             matches = re.findall(r"\{\{(\d+)\}\}", tmpl.body_text)
             if matches:
                 sample_vals = [
-                    "Valued Customer",
-                    "Special Vanela Gathiya",
-                    "450",
-                    "SAVE10",
-                    "Ahmedabad"
+                    current_user.username or "Customer",
+                    config.BRAND_NAME,
+                    "100",
+                    config.DEFAULT_COUPON_CODE,
+                    config.STORE_LOCATION or config.BRAND_NAME
                 ]
                 params = {f"param_{m}": sample_vals[int(m)-1] if int(m)-1 < len(sample_vals) else f"Val{m}" for m in matches}
         if not params:
@@ -1543,19 +1548,19 @@ def sync_templates_from_meta(
     Connects to live Meta Graph API using your WABA_ID & ACCESS_TOKEN,
     fetches all approved message templates, and syncs them into your database.
     """
-    waba_id = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID")
-    access_token = os.getenv("WHATSAPP_API_TOKEN")
+    waba_id = config.WHATSAPP_BUSINESS_ACCOUNT_ID
+    access_token = config.WHATSAPP_API_TOKEN
 
     if not waba_id or not access_token:
         raise HTTPException(
             status_code=400,
-            detail="Meta WABA ID or Access Token is missing from backend/.env"
+            detail="Meta WABA ID or Access Token is missing from environment configuration"
         )
 
     try:
-        url = f"https://graph.facebook.com/v19.0/{waba_id}/message_templates?limit=100"
+        url = f"{config.META_GRAPH_BASE_URL}/{config.META_GRAPH_VERSION}/{waba_id}/message_templates?limit=100"
         headers = {"Authorization": f"Bearer {access_token}"}
-        resp = httpx.get(url, headers=headers, timeout=10.0)
+        resp = httpx.get(url, headers=headers, timeout=config.HTTP_TIMEOUT_SECONDS)
 
         if resp.status_code != 200:
             raise HTTPException(
@@ -1642,8 +1647,8 @@ def list_templates(
 ):
     # If database is currently empty but credentials exist, attempt initial auto-sync
     if db.query(models.Template).count() == 0:
-        waba_id = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID")
-        access_token = os.getenv("WHATSAPP_API_TOKEN")
+        waba_id = config.WHATSAPP_BUSINESS_ACCOUNT_ID
+        access_token = config.WHATSAPP_API_TOKEN
         if waba_id and access_token:
             try:
                 sync_templates_from_meta(current_user=current_user, db=db)
@@ -1723,15 +1728,15 @@ def delete_template(
         raise HTTPException(status_code=404, detail="Template not found")
 
     tmpl_name = tmpl.template_name
-    waba_id = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID")
-    access_token = os.getenv("WHATSAPP_API_TOKEN")
+    waba_id = config.WHATSAPP_BUSINESS_ACCOUNT_ID
+    access_token = config.WHATSAPP_API_TOKEN
     meta_deleted = False
 
     if waba_id and access_token:
         try:
-            url = f"https://graph.facebook.com/v19.0/{waba_id}/message_templates?name={tmpl_name}"
+            url = f"{config.META_GRAPH_BASE_URL}/{config.META_GRAPH_VERSION}/{waba_id}/message_templates?name={tmpl_name}"
             headers = {"Authorization": f"Bearer {access_token}"}
-            del_resp = httpx.delete(url, headers=headers, timeout=10.0)
+            del_resp = httpx.delete(url, headers=headers, timeout=config.HTTP_TIMEOUT_SECONDS)
             if del_resp.status_code == 200:
                 meta_deleted = True
             else:
@@ -1982,10 +1987,10 @@ def get_system_settings(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     return {
-        "daily_limit": int(os.getenv("DAILY_MESSAGE_SEND_LIMIT", "500")),
+        "daily_limit": config.DAILY_MESSAGE_SEND_LIMIT,
         "cart_delay_minutes": 30,
-        "active_phone_id": os.getenv("WHATSAPP_PHONE_NUMBER_ID", "Not Configured (Simulation Mode)"),
-        "webhook_endpoint": os.getenv("WHATSAPP_WEBHOOK_URL", "https://manubhaigathiya-whatsapp.onrender.com/api/webhooks/whatsapp"),
-        "dnd_keywords": ["STOP", "UNSUBSCRIBE", "બંધ કરો", "સંદેશા બંધ કરો", "રોકો", "बंद करो"]
+        "active_phone_id": config.WHATSAPP_PHONE_NUMBER_ID or "Not Configured (Simulation Mode)",
+        "webhook_endpoint": config.WHATSAPP_WEBHOOK_URL or "/api/webhooks/whatsapp",
+        "dnd_keywords": list(OPT_OUT_KEYWORDS)
     }
 

@@ -15,11 +15,10 @@ from whatsapp_service import send_whatsapp_template
 logger = logging.getLogger("scheduler")
 scheduler = BackgroundScheduler()
 
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "manubhai_webhook_secret_key_987654")
-MANUBHAI_STORE_INACTIVE_FEED_URL = os.getenv(
-    "MANUBHAI_STORE_INACTIVE_FEED_URL",
-    "http://localhost:8000/api/mock-store-feed/inactive-customers"
-)
+import config
+
+WEBHOOK_SECRET = config.WEBHOOK_SECRET
+MANUBHAI_STORE_INACTIVE_FEED_URL = config.MANUBHAI_STORE_INACTIVE_FEED_URL
 
 
 def process_abandoned_cart_job(cart_event_id: int):
@@ -82,19 +81,21 @@ def process_abandoned_cart_job(cart_event_id: int):
             elif m_type == "cart_event":
                 val_str = cart_val_str if m_val == "cart_value" else items_summary
             elif m_type == "coupon":
+                effective_code = (cart_rule.coupon_code if cart_rule and cart_rule.coupon_code else config.DEFAULT_COUPON_CODE)
                 coupon_rec = db.query(models.DiscountCode).filter(
-                    models.DiscountCode.code == (cart_rule.coupon_code if cart_rule else "BAZIK7")
-                ).first() if (cart_rule and cart_rule.coupon_code) else None
+                    models.DiscountCode.code == effective_code
+                ).first()
 
                 if m_val == "discount_value":
-                    val_str = f"{int(coupon_rec.discount_value)}%" if coupon_rec and coupon_rec.discount_type == "PERCENT" else "7%"
+                    val_str = f"{int(coupon_rec.discount_value)}%" if coupon_rec and coupon_rec.discount_type == "PERCENT" else f"{config.DEFAULT_DISCOUNT_PERCENT}%"
                 elif m_val == "expires_at":
-                    val_str = coupon_rec.expires_at.strftime("%d/%m/%Y") if coupon_rec and coupon_rec.expires_at else "30/09/2026"
+                    val_str = coupon_rec.expires_at.strftime("%d/%m/%Y") if coupon_rec and coupon_rec.expires_at else (datetime.utcnow() + timedelta(days=config.DEFAULT_EXPIRY_DAYS)).strftime("%d/%m/%Y")
                 else:
-                    val_str = (cart_rule.coupon_code if cart_rule else "BAZIK7") or "BAZIK7"
+                    val_str = effective_code
             elif m_type == "static":
                 val_str = str(m_val) if m_val else ""
             else:
+                effective_code = (cart_rule.coupon_code if cart_rule and cart_rule.coupon_code else config.DEFAULT_COUPON_CODE)
                 # Default smart fallback for cart recovery templates (e.g. cart_recovery_v1)
                 if idx == 1:
                     val_str = customer_name
@@ -103,19 +104,20 @@ def process_abandoned_cart_job(cart_event_id: int):
                 elif idx == 3:
                     val_str = cart_val_str
                 elif idx == 4:
-                    val_str = (cart_rule.coupon_code if cart_rule else "BAZIK7") or "BAZIK7"
+                    val_str = effective_code
                 else:
-                    val_str = "Manubhai Gathiyawala"
+                    val_str = config.BRAND_NAME
 
             param_dict[f"param_{idx}"] = val_str
 
         # Send recovery template
+        recovery_coupon = (cart_rule.coupon_code if cart_rule and cart_rule.coupon_code else config.DEFAULT_COUPON_CODE)
         result = send_whatsapp_template(
             recipient_phone=cart.customer_phone,
             template_name=target_template,
             language=target_lang,
             parameters=param_dict,
-            coupon_code=(cart_rule.coupon_code if cart_rule else "BAZIK7") or "BAZIK7"
+            coupon_code=recovery_coupon
         )
 
         if result.get("status") in ["success", "success_simulated"]:
@@ -184,18 +186,22 @@ def schedule_cart_recovery(cart_event_id: int, delay_seconds: int = 0):
 
 def fetch_inactive_customers_from_store(days: int = 30) -> list:
     """
-    Calls Manubhai's PHP store API using secure HMAC signing to pull customers
-    who have not ordered in > 30 days.
+    Calls the external store API using secure HMAC signing to pull customers
+    who have not ordered in > 30 days. Returns empty list if URL is not configured.
     """
+    if not MANUBHAI_STORE_INACTIVE_FEED_URL:
+        return []
+
     try:
         query_param = f"days={days}"
-        sig = "sha256=" + hmac.new(WEBHOOK_SECRET.encode(), query_param.encode(), hashlib.sha256).hexdigest()
+        secret_bytes = (WEBHOOK_SECRET or "").encode()
+        sig = "sha256=" + hmac.new(secret_bytes, query_param.encode(), hashlib.sha256).hexdigest()
         headers = {
             "X-Hub-Signature-256": sig,
             "Accept": "application/json"
         }
         url = f"{MANUBHAI_STORE_INACTIVE_FEED_URL}?{query_param}"
-        with httpx.Client(timeout=5.0) as client:
+        with httpx.Client(timeout=config.HTTP_TIMEOUT_SECONDS) as client:
             res = client.get(url, headers=headers)
             if res.status_code == 200:
                 data = res.json()
@@ -310,7 +316,14 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
             customer_name = contact.name if contact and contact.name else "Valued Customer"
 
             # Build parameter dictionary matching the template's required count
-            fallback_values = [customer_name, campaign.title, "+91 98765 43210", "10% OFF", "Ahmedabad", "Manubhai Gathiyawala"]
+            fallback_values = [
+                customer_name,
+                campaign.title,
+                config.STORE_SUPPORT_PHONE or phone,
+                f"{config.DEFAULT_DISCOUNT_PERCENT}% OFF",
+                config.STORE_LOCATION or config.BRAND_NAME,
+                config.BRAND_NAME
+            ]
             params = {}
             for i in range(1, placeholder_count + 1):
                 params[f"param_{i}"] = fallback_values[(i - 1) % len(fallback_values)]
@@ -515,16 +528,16 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                         if coupon_rec:
                             val_str = f"{int(coupon_rec.discount_value)}%" if coupon_rec.discount_type == "PERCENT" else f"₹{int(coupon_rec.discount_value)}"
                         else:
-                            val_str = "7%"
+                            val_str = f"{config.DEFAULT_DISCOUNT_PERCENT}%"
                     elif m_val == "expires_at":
                         if coupon_rec and coupon_rec.expires_at:
                             val_str = coupon_rec.expires_at.strftime("%d/%m/%Y")
                         elif rule.expires_at:
                             val_str = rule.expires_at.strftime("%d/%m/%Y")
                         else:
-                            val_str = "30/09/2026"
+                            val_str = (datetime.utcnow() + timedelta(days=config.DEFAULT_EXPIRY_DAYS)).strftime("%d/%m/%Y")
                     else:
-                        val_str = rule.coupon_code or "OFFER"
+                        val_str = rule.coupon_code or config.DEFAULT_COUPON_CODE
                 elif m_type == "static":
                     val_str = str(m_val).strip() if m_val else "-"
                 else:
@@ -532,13 +545,13 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                     if idx == 1:
                         val_str = cust_name
                     elif idx == 2:
-                        val_str = rule.coupon_code or "OFFER"
+                        val_str = rule.coupon_code or config.DEFAULT_COUPON_CODE
                     elif idx == 3:
-                        val_str = "10% OFF"
+                        val_str = f"{config.DEFAULT_DISCOUNT_PERCENT}% OFF"
                     elif idx == 4:
                         val_str = "Limited Time"
                     else:
-                        val_str = "Manubhai Gathiyawala"
+                        val_str = config.BRAND_NAME
 
                 param_dict[f"param_{idx}"] = val_str
 
@@ -547,7 +560,7 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                 template_name=rule.template_name,
                 language=target_lang,
                 parameters=param_dict,
-                coupon_code=rule.coupon_code or "BAZIK7"
+                coupon_code=rule.coupon_code or config.DEFAULT_COUPON_CODE
             )
             if res.get("status") in ["success", "success_simulated"]:
                 sent_count += 1

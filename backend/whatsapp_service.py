@@ -10,10 +10,16 @@ load_dotenv()
 logger = logging.getLogger("whatsapp_service")
 logging.basicConfig(level=logging.INFO)
 
-WHATSAPP_API_TOKEN = os.getenv("WHATSAPP_API_TOKEN", "")
-WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
-DAILY_MESSAGE_SEND_LIMIT = int(os.getenv("DAILY_MESSAGE_SEND_LIMIT", "500"))
-META_API_URL = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages" if WHATSAPP_PHONE_NUMBER_ID else ""
+import config
+
+WHATSAPP_API_TOKEN = config.WHATSAPP_API_TOKEN
+WHATSAPP_PHONE_NUMBER_ID = config.WHATSAPP_PHONE_NUMBER_ID
+DAILY_MESSAGE_SEND_LIMIT = config.DAILY_MESSAGE_SEND_LIMIT
+META_API_URL = (
+    f"{config.META_GRAPH_BASE_URL}/{config.META_GRAPH_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    if WHATSAPP_PHONE_NUMBER_ID
+    else ""
+)
 
 
 def check_daily_limit(db) -> tuple[bool, int]:
@@ -115,7 +121,7 @@ def send_whatsapp_template(
                 # In bazik_reengagement_v1, param_2 is usually the coupon code
                 code_val = parameters.get("param_2") or parameters.get("coupon_code")
             if not code_val:
-                code_val = "BAZIK7"
+                code_val = config.DEFAULT_COUPON_CODE
             components.append({
                 "type": "button",
                 "sub_type": "copy_code",
@@ -139,7 +145,7 @@ def send_whatsapp_template(
             }
         }
 
-        with httpx.Client(timeout=10.0) as client:
+        with httpx.Client(timeout=config.HTTP_TIMEOUT_SECONDS) as client:
             resp = client.post(META_API_URL, headers=headers, json=payload)
             data = resp.json()
 
@@ -215,8 +221,8 @@ def create_meta_template(
     Submits a new WhatsApp message template to Meta Graph API.
     If Meta API credentials are not set, records in local simulation mode.
     """
-    waba_id = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "")
-    token = os.getenv("WHATSAPP_API_TOKEN", "")
+    waba_id = config.WHATSAPP_BUSINESS_ACCOUNT_ID
+    token = config.WHATSAPP_API_TOKEN
 
     if not waba_id or not token:
         logger.info(f"📱 [SIMULATION MODE] Template '{template_name}' simulated in Meta API.")
@@ -226,7 +232,7 @@ def create_meta_template(
             "info": "Meta credentials empty. Created locally."
         }
 
-    url = f"https://graph.facebook.com/v20.0/{waba_id}/message_templates"
+    url = f"{config.META_GRAPH_BASE_URL}/{config.META_GRAPH_VERSION}/{waba_id}/message_templates"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
@@ -260,7 +266,7 @@ def create_meta_template(
     }
 
     try:
-        with httpx.Client(timeout=15.0) as client:
+        with httpx.Client(timeout=config.HTTP_TIMEOUT_SECONDS) as client:
             resp = client.post(url, headers=headers, json=payload)
             data = resp.json()
             if resp.status_code in [200, 201]:
@@ -313,7 +319,7 @@ def send_whatsapp_free_text(recipient_phone: str, message_text: str) -> dict:
     }
 
     try:
-        with httpx.Client(timeout=10.0) as client:
+        with httpx.Client(timeout=config.HTTP_TIMEOUT_SECONDS) as client:
             resp = client.post(META_API_URL, headers=headers, json=payload)
             data = resp.json()
             if resp.status_code == 200:

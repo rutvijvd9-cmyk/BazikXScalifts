@@ -8,7 +8,8 @@ def test_create_and_trigger_campaign(client, auth_headers, db):
         "title": "Navratri Special Gathiya Fest",
         "template_name": "festive_promo_offer",
         "language": "gu",
-        "target_filter": "ALL"
+        "target_filter": "ALL",
+        "password": "SecretPassword123!"
     }
     res = client.post("/api/campaigns", json=payload, headers=auth_headers)
     assert res.status_code == status.HTTP_201_CREATED

@@ -10,11 +10,11 @@ from sqlalchemy.orm import Session
 from database import get_db
 import models
 
-load_dotenv()
+import config
 
-SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_key_manubhai_whatsapp_crm_2026_secure")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+SECRET_KEY = config.SECRET_KEY
+ALGORITHM = config.ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = config.ACCESS_TOKEN_EXPIRE_MINUTES
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")

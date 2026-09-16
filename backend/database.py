@@ -3,9 +3,9 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-load_dotenv()
+import config
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/whatsapp_crm")
+DATABASE_URL = config.DATABASE_URL
 
 # Fix SQLAlchemy requirement: SQLAlchemy requires 'postgresql://' instead of legacy 'postgres://'
 if DATABASE_URL.startswith("postgres://"):
