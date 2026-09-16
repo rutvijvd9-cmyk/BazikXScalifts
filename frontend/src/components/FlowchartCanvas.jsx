@@ -419,73 +419,80 @@ export default function FlowchartCanvas({
               const isTag = node.type === "tag";
               const isExit = node.type === "exit" || node.type === "goal";
 
-              // Distinct theme colors per node type
-              const theme = isTrigger
-                ? { bg: "bg-blue-50", border: "border-blue-200", iconBg: "bg-blue-600 text-white", tag: "TRIGGER", tagColor: "text-blue-700 bg-blue-100" }
-                : isDelay
-                ? { bg: "bg-amber-50/50", border: "border-amber-200", iconBg: "bg-amber-500 text-white", tag: "DELAY", tagColor: "text-amber-800 bg-amber-100" }
-                : isWhatsApp
-                ? { bg: "bg-emerald-50/40", border: "border-emerald-200", iconBg: "bg-[#25D366] text-white", tag: "WHATSAPP", tagColor: "text-emerald-800 bg-emerald-100" }
-                : isCondition
-                ? { bg: "bg-purple-50/40", border: "border-purple-200", iconBg: "bg-purple-600 text-white", tag: "DECISION", tagColor: "text-purple-800 bg-purple-100" }
-                : isTag
-                ? { bg: "bg-indigo-50/40", border: "border-indigo-200", iconBg: "bg-indigo-600 text-white", tag: "TAG CRM", tagColor: "text-indigo-800 bg-indigo-100" }
-                : node.data?.outcome === "GOAL_MET"
-                ? { bg: "bg-emerald-50/60", border: "border-emerald-300", iconBg: "bg-emerald-600 text-white", tag: "GOAL MET", tagColor: "text-emerald-900 bg-emerald-200" }
-                : { bg: "bg-gray-50", border: "border-gray-200", iconBg: "bg-gray-600 text-white", tag: "EXIT", tagColor: "text-gray-700 bg-gray-200" };
-
-              // Subtitle summary
-              let subtitle = "";
-              if (isTrigger) subtitle = node.data?.trigger_type || "Abandoned Cart";
-              else if (isDelay) {
-                const mins = Number(node.data?.delay_minutes) || 30;
-                subtitle = mins >= 1440 ? `${mins / 1440} Days wait` : mins >= 60 ? `${mins / 60} Hours wait` : `${mins} Mins wait`;
-              } else if (isWhatsApp) {
-                subtitle = `Template: ${node.data?.template_name || "cart_recovery_v1"}`;
-              } else if (isCondition) {
-                subtitle = node.data?.condition_type === "MESSAGE_READ" ? "Check blue ticks" : "Check order placed";
-              } else if (isTag) {
-                subtitle = `Tag: ${node.data?.tag_name || "Recovered Patron"}`;
-              } else if (isExit) {
-                subtitle = node.data?.outcome === "GOAL_MET" ? "Revenue Recovered 🎉" : "End journey";
+              // Special exact styling for Condition Cards matching user's design
+              if (isCondition) {
+                return (
+                  <div
+                    key={node.id}
+                    onClick={() => setSelectedNodeId(node.id)}
+                    className={`group relative w-64 rounded-2xl transition-all cursor-pointer shadow-md hover:shadow-lg hover:-translate-y-0.5 bg-gradient-to-r from-[#5B42D6] via-[#654BE2] to-[#7952E8] text-white p-3.5 border ${
+                      isSelected
+                        ? "border-white ring-4 ring-purple-300"
+                        : "border-purple-400/40 hover:border-purple-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center font-bold text-white text-base shadow-xs shrink-0">
+                        ?
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-white text-sm truncate leading-snug">
+                          {node.label}
+                        </h4>
+                        {node.data?.description && (
+                          <p className="text-[10px] text-purple-200 truncate mt-0.5 font-medium">
+                            {node.data.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
               }
+
+              // Distinct theme colors per node type (Action & Trigger Cards)
+              const theme = isTrigger
+                ? { bg: "bg-white", border: "border-gray-200", iconBg: "bg-blue-600 text-white", tag: "TRIGGER", tagColor: "text-blue-700 bg-blue-50" }
+                : isDelay
+                ? { bg: "bg-white", border: "border-gray-200", iconBg: "bg-gray-100 text-gray-700", tag: "DELAY", tagColor: "text-amber-800 bg-amber-50" }
+                : isWhatsApp
+                ? { bg: "bg-white", border: "border-gray-200", iconBg: "bg-[#25D366] text-white", tag: "WHATSAPP", tagColor: "text-emerald-800 bg-emerald-50" }
+                : isTag
+                ? { bg: "bg-white", border: "border-gray-200", iconBg: "bg-indigo-600 text-white", tag: "TAG CRM", tagColor: "text-indigo-800 bg-indigo-50" }
+                : node.data?.outcome === "GOAL_MET" || node.label?.toLowerCase().includes("goal")
+                ? { bg: "bg-white", border: "border-gray-200", iconBg: "bg-[#10B981] text-white", tag: "GOAL", tagColor: "text-emerald-800 bg-emerald-50" }
+                : { bg: "bg-white", border: "border-gray-200", iconBg: "bg-gray-600 text-white", tag: "EXIT", tagColor: "text-gray-700 bg-gray-100" };
 
               return (
                 <div
                   key={node.id}
                   onClick={() => setSelectedNodeId(node.id)}
-                  className={`group relative w-64 bg-white rounded-2xl border-2 transition-all cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-0.5 ${
+                  className={`group relative w-64 bg-white rounded-2xl border transition-all cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-0.5 ${
                     isSelected
                       ? "border-[#25D366] ring-4 ring-emerald-100 shadow-md"
                       : "border-gray-200/90 hover:border-gray-300"
                   }`}
                 >
-                  <div className="p-3.5 flex items-start gap-3">
-                    {/* Leading Rounded Icon */}
+                  <div className="p-3.5 flex items-center gap-3">
+                    {/* Leading Rounded Icon Box */}
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${theme.iconBg}`}>
                       {isTrigger && <Zap className="w-4 h-4 fill-white" />}
                       {isDelay && <Clock className="w-4 h-4" />}
                       {isWhatsApp && <Send className="w-4 h-4" />}
-                      {isCondition && <GitBranch className="w-4 h-4" />}
                       {isTag && <Tag className="w-4 h-4" />}
-                      {isExit && <CheckCircle2 className="w-4 h-4" />}
+                      {(isExit || theme.tag === "GOAL") && <CheckCircle2 className="w-4 h-4" />}
                     </div>
 
                     {/* Node Text Info */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-1 mb-1">
-                        <span className={`text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded ${theme.tagColor}`}>
-                          {theme.tag}
-                        </span>
-                        <Sliders className="w-3 h-3 text-gray-300 group-hover:text-gray-500 transition shrink-0" />
-                      </div>
-
                       <h4 className="font-bold text-gray-900 text-xs truncate leading-snug">
                         {node.label}
                       </h4>
-                      <p className="text-[10px] text-gray-400 font-medium truncate mt-0.5">
-                        {subtitle}
-                      </p>
+                      {node.data?.template_name && (
+                        <p className="text-[10px] text-gray-400 font-medium truncate mt-0.5">
+                          {node.data.template_name}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -554,71 +561,99 @@ export default function FlowchartCanvas({
                           </div>
                         )}
 
-                        {/* If this node is a Condition, render its Open Tree Fork */}
-                        {isNodeCondition && (
-                          <div className="w-full flex flex-col items-center mt-1">
-                            {/* Stem down from Condition Card */}
-                            <div className="w-0.5 h-6 bg-purple-400" />
+                        {/* If this node is a Condition, render its Exact SVG Curved Tree Fork */}
+                        {isNodeCondition && (() => {
+                          const isReadCondition = node.data?.condition_type === "MESSAGE_READ";
+                          const yesLabel = isReadCondition ? "YES (Read)" : "YES";
+                          const noLabel = isReadCondition ? "NO (Unread)" : "NO";
 
-                            {/* Wide Horizontal Fork Bar */}
-                            <div className="w-full max-w-2xl px-6 relative flex items-center justify-between">
-                              <div className="absolute top-0 left-12 right-12 h-0.5 bg-purple-300" />
-                            </div>
-
-                            {/* Two Open Side-by-Side Tree Branches (No outer container boxes) */}
-                            <div className="flex items-start justify-center gap-12 sm:gap-20 pt-1 w-full">
-                              {/* ── LEFT BRANCH: YES (Condition Met) ── */}
-                              <div className="flex flex-col items-center">
-                                {/* Downward connector with floating YES badge */}
-                                <div className="w-0.5 h-4 bg-emerald-400" />
-                                <div className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold border border-emerald-300 shadow-xs mb-1">
-                                  YES
-                                </div>
-                                <div className="w-0.5 h-4 bg-emerald-400" />
-                                <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-emerald-500 mb-2" />
-
-                                {/* Subtree under YES */}
-                                {(() => {
-                                  const yesTargetId = getEdgeTarget(node.id, "yes");
-                                  if (yesTargetId) {
-                                    return renderFlowChain(yesTargetId);
-                                  }
-                                  return (
-                                    <div className="flex flex-col items-center">
-                                      {renderAddButton(node.id, "yes")}
-                                      <span className="text-[10px] font-semibold text-gray-400 mt-1">Add step on YES</span>
-                                    </div>
-                                  );
-                                })()}
+                          return (
+                            <div className="w-full flex flex-col items-center">
+                              {/* 
+                                Smooth SVG Bezier Branching Curve:
+                                Curves outward from top-center (x=50%, y=0) 
+                                smoothly to Left column (x=25%, y=100%) and Right column (x=75%, y=100%)
+                              */}
+                              <div className="w-full min-w-[600px] h-12 relative pointer-events-none">
+                                <svg
+                                  className="w-full h-full overflow-visible"
+                                  viewBox="0 0 600 48"
+                                  preserveAspectRatio="none"
+                                >
+                                  {/* Left Branch Curve to YES */}
+                                  <path
+                                    d="M 300,0 C 300,24 150,24 150,48"
+                                    fill="none"
+                                    stroke="#94A3B8"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                  />
+                                  {/* Right Branch Curve to NO */}
+                                  <path
+                                    d="M 300,0 C 300,24 450,24 450,48"
+                                    fill="none"
+                                    stroke="#94A3B8"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                  />
+                                </svg>
                               </div>
 
-                              {/* ── RIGHT BRANCH: NO (Condition Not Met) ── */}
-                              <div className="flex flex-col items-center">
-                                {/* Downward connector with floating NO badge */}
-                                <div className="w-0.5 h-4 bg-amber-400" />
-                                <div className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-extrabold border border-amber-300 shadow-xs mb-1">
-                                  NO
-                                </div>
-                                <div className="w-0.5 h-4 bg-amber-400" />
-                                <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-amber-500 mb-2" />
+                              {/* Two Side-by-Side Tree Branches (Left = YES, Right = NO) */}
+                              <div className="w-full min-w-[600px] grid grid-cols-2">
+                                {/* ── LEFT BRANCH: YES ── */}
+                                <div className="flex flex-col items-center w-full px-2">
+                                  {/* Floating YES Pill Badge */}
+                                  <div className="px-3 py-0.5 rounded-full bg-[#E6F4EA] text-[#137333] text-[11px] font-bold border border-[#CEEAD6] shadow-xs select-none">
+                                    {yesLabel}
+                                  </div>
+                                  {/* Straight connector down to child node with arrow */}
+                                  <div className="w-0.5 h-4 bg-gray-400" />
+                                  <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-500 mb-2" />
 
-                                {/* Subtree under NO */}
-                                {(() => {
-                                  const noTargetId = getEdgeTarget(node.id, "no");
-                                  if (noTargetId) {
-                                    return renderFlowChain(noTargetId);
-                                  }
-                                  return (
-                                    <div className="flex flex-col items-center">
-                                      {renderAddButton(node.id, "no")}
-                                      <span className="text-[10px] font-semibold text-gray-400 mt-1">Add step on NO</span>
-                                    </div>
-                                  );
-                                })()}
+                                  {/* Subtree under YES */}
+                                  {(() => {
+                                    const yesTargetId = getEdgeTarget(node.id, "yes");
+                                    if (yesTargetId) {
+                                      return renderFlowChain(yesTargetId);
+                                    }
+                                    return (
+                                      <div className="flex flex-col items-center">
+                                        {renderAddButton(node.id, "yes")}
+                                        <span className="text-[10px] font-semibold text-gray-400 mt-1">Add step on YES</span>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+
+                                {/* ── RIGHT BRANCH: NO ── */}
+                                <div className="flex flex-col items-center w-full px-2">
+                                  {/* Floating NO Pill Badge */}
+                                  <div className="px-3 py-0.5 rounded-full bg-[#FEF7E0] text-[#B06000] text-[11px] font-bold border border-[#FEEFC3] shadow-xs select-none">
+                                    {noLabel}
+                                  </div>
+                                  {/* Straight connector down to child node with arrow */}
+                                  <div className="w-0.5 h-4 bg-gray-400" />
+                                  <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-500 mb-2" />
+
+                                  {/* Subtree under NO */}
+                                  {(() => {
+                                    const noTargetId = getEdgeTarget(node.id, "no");
+                                    if (noTargetId) {
+                                      return renderFlowChain(noTargetId);
+                                    }
+                                    return (
+                                      <div className="flex flex-col items-center">
+                                        {renderAddButton(node.id, "no")}
+                                        <span className="text-[10px] font-semibold text-gray-400 mt-1">Add step on NO</span>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </React.Fragment>
                     );
                   })}
