@@ -1,6 +1,10 @@
 import os
 
-os.environ["DATABASE_URL"] = "sqlite:////tmp/whatsapp_crm_test.db"
+import tempfile
+import pathlib
+
+test_db_path = pathlib.Path(tempfile.gettempdir()) / "whatsapp_crm_test.db"
+os.environ["DATABASE_URL"] = f"sqlite:///{test_db_path.as_posix()}"
 os.environ["SCHEDULER_ENABLED"] = "false"
 os.environ["WHATSAPP_VERIFY_TOKEN"] = "test-meta-verify-token"
 os.environ["META_APP_SECRET"] = "test-meta-app-secret"

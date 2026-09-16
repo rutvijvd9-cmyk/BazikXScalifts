@@ -105,6 +105,8 @@ def on_startup():
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE",
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS order_count INTEGER DEFAULT 0",
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_order_date TIMESTAMP",
+        # templates: configure-once variable mappings
+        "ALTER TABLE templates ADD COLUMN IF NOT EXISTS variable_mappings JSON",
     ]
     try:
         with engine.connect() as _conn:
