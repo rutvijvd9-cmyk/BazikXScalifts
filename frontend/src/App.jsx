@@ -51,30 +51,14 @@ import {
   Check,
   CheckCheck,
   Sparkles,
-  PhoneCall
+  PhoneCall,
+  GitBranch
 } from "lucide-react";
-import axios from "axios";
-
-// Detect if running on mobile device or native Capacitor
-const isNativePlatform = typeof window !== "undefined" && (
-  window.Capacitor?.isNativePlatform?.() ||
-  window.location?.protocol === "capacitor:" ||
-  (window.location?.protocol === "https:" && window.location?.hostname === "localhost" && !window.location?.port)
-);
-
-export const RENDER_PROD_URL = import.meta.env.VITE_API_URL || "https://manubhaigathiya-whatsapp.onrender.com";
-
-// Fallback logic: Saved Custom URL -> VITE_API_URL -> Live Render Cloud -> relative ""
-export const getApiBaseUrl = () => {
-  const saved = localStorage.getItem("mg_custom_api_url");
-  if (saved) return saved;
-  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  if (isNativePlatform) return RENDER_PROD_URL;
-  return "";
-};
+import axios, { getApiBaseUrl, renderProductionUrl as RENDER_PROD_URL, setApiBaseUrl } from "./api";
+import FlowchartCanvas from "./components/FlowchartCanvas";
 
 const INITIAL_API_BASE_URL = getApiBaseUrl();
-axios.defaults.baseURL = INITIAL_API_BASE_URL;
+setApiBaseUrl(INITIAL_API_BASE_URL);
 
 export default function App() {
   const [serverUrl, setServerUrl] = useState(INITIAL_API_BASE_URL);
@@ -181,6 +165,9 @@ export default function App() {
   const [optOuts, setOptOuts] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [automationRules, setAutomationRules] = useState([]);
+  const [workflowFlows, setWorkflowFlows] = useState([]);
+  const [activeWorkflowTab, setActiveWorkflowTab] = useState("flows"); // "flows" or "classic"
+  const [editingWorkflow, setEditingWorkflow] = useState(null);
   const [systemSettings, setSystemSettings] = useState({});
   const [systemUsers, setSystemUsers] = useState([]);
   const [templateFilterLang, setTemplateFilterLang] = useState("ALL");
@@ -496,7 +483,7 @@ export default function App() {
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes, discRes, meRes, convRes] = await Promise.all([
+      const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes, discRes, meRes, convRes, wfRes] = await Promise.all([
         axios.get("/api/campaigns", { headers }).catch(() => ({ data: [] })),
         axios.get("/api/contacts", { headers }).catch((e) => { if (e.response?.status === 401) throw e; return { data: [] }; }),
         axios.get("/api/cart-events", { headers }).catch(() => ({ data: [] })),
@@ -508,7 +495,8 @@ export default function App() {
         axios.get("/api/users", { headers }).catch(() => ({ data: [] })),
         axios.get("/api/discount-codes", { headers }).catch(() => ({ data: [] })),
         axios.get("/api/auth/me", { headers }).catch(() => ({ data: null })),
-        axios.get("/api/chat/conversations", { headers }).catch(() => ({ data: [] }))
+        axios.get("/api/chat/conversations", { headers }).catch(() => ({ data: [] })),
+        axios.get("/api/workflows", { headers }).catch(() => ({ data: [] }))
       ]);
       setCampaigns(campRes.data || []);
       setContacts(contRes.data || []);
@@ -517,6 +505,7 @@ export default function App() {
       setOptOuts(optRes.data || []);
       setTemplates(tmplRes.data || []);
       setAutomationRules(rulesRes.data || []);
+      setWorkflowFlows(wfRes.data || []);
       setSystemSettings(setRes.data || {});
       setSystemUsers(usersRes.data || []);
       setDiscountCodes(discRes.data || []);
@@ -838,6 +827,106 @@ export default function App() {
     } catch (err) {
       alert("Failed to update rule status");
     }
+  };
+
+  // ── Multi-Step Visual Workflow Handlers ──────────────────────────────
+  const handleSaveWorkflow = async (updatedFlow) => {
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      let res;
+      if (updatedFlow.id) {
+        res = await axios.put(`/api/workflows/${updatedFlow.id}`, updatedFlow, { headers });
+      } else {
+        res = await axios.post("/api/workflows", updatedFlow, { headers });
+      }
+      setActionSuccessMsg(`Workflow "${res.data.name}" saved successfully!`);
+      setEditingWorkflow(null);
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      console.error("Failed to save workflow:", err);
+      alert("Failed to save workflow: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const handleToggleWorkflow = async (flow) => {
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const res = await axios.post(`/api/workflows/${flow.id}/toggle`, {}, { headers });
+      setWorkflowFlows((prev) =>
+        prev.map((f) => (f.id === flow.id ? res.data : f))
+      );
+      setActionSuccessMsg(`Workflow "${res.data.name}" is now ${res.data.is_active ? "Active" : "Paused"}`);
+      setTimeout(() => setActionSuccessMsg(""), 4000);
+    } catch (err) {
+      console.error("Failed to toggle workflow:", err);
+    }
+  };
+
+  const handleDeleteWorkflow = async (flowId) => {
+    if (!window.confirm("Are you sure you want to delete this visual journey flow?")) return;
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      await axios.delete(`/api/workflows/${flowId}`, { headers });
+      setWorkflowFlows((prev) => prev.filter((f) => f.id !== flowId));
+      setActionSuccessMsg("Workflow deleted successfully.");
+      setTimeout(() => setActionSuccessMsg(""), 4000);
+    } catch (err) {
+      console.error("Failed to delete workflow:", err);
+    }
+  };
+
+  const handleSimulateWorkflow = async (flowId, payload) => {
+    const headers = { Authorization: `Bearer ${token}` };
+    const res = await axios.post(`/api/workflows/${flowId}/simulate`, payload, { headers });
+    return res.data;
+  };
+
+  const handleCreateNewWorkflow = () => {
+    const newWf = {
+      name: "New Custom Customer Journey",
+      description: "Multi-step automated flowchart journey with delays and conditions",
+      trigger_type: "ABANDONED_CART",
+      trigger_config: { delay_minutes: 30 },
+      is_active: true,
+      nodes: [
+        {
+          id: "node_1",
+          type: "trigger",
+          label: "Cart Abandoned Trigger",
+          position: { x: 280, y: 40 },
+          data: { trigger_type: "ABANDONED_CART" }
+        },
+        {
+          id: "node_2",
+          type: "delay",
+          label: "Wait 30 Mins",
+          position: { x: 280, y: 160 },
+          data: { delay_minutes: 30 }
+        },
+        {
+          id: "node_3",
+          type: "whatsapp_message",
+          label: "Stage 1: Friendly Reminder",
+          position: { x: 280, y: 280 },
+          data: { template_name: "abandoned_cart_recovery", coupon_code: "BAZIK7", language: "en" }
+        },
+        {
+          id: "node_4",
+          type: "exit",
+          label: "Goal Reached",
+          position: { x: 280, y: 400 },
+          data: { outcome: "GOAL_MET" }
+        }
+      ],
+      edges: [
+        { id: "e1_2", source: "node_1", target: "node_2" },
+        { id: "e2_3", source: "node_2", target: "node_3" },
+        { id: "e3_4", source: "node_3", target: "node_4" }
+      ],
+      stats: { entered: 0, completed: 0, goals_converted: 0, revenue_recovered: 0 }
+    };
+    setEditingWorkflow(newWf);
   };
 
   const handleTriggerRule = async (rule) => {
@@ -1717,9 +1806,326 @@ export default function App() {
           {/* TAB 2: AUTOMATION RULES & TRIGGERS */}
           {/* ========================================================= */}
           {activeTab === "automations" && (
+            editingWorkflow ? (
+              <FlowchartCanvas
+                workflow={editingWorkflow}
+                onSave={handleSaveWorkflow}
+                onClose={() => setEditingWorkflow(null)}
+                onSimulate={handleSimulateWorkflow}
+                availableTemplates={templates}
+                availableCoupons={discountCodes}
+              />
+            ) : (
             <div className="space-y-6">
-              {/* ── 📊 CLEAN EXECUTIVE AUTOMATION OVERVIEW (ADMIN PORTAL THEME) ── */}
-              <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
+              {/* ── Sub-Navigation Switcher ── */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-gray-200 rounded-2xl p-2 shadow-xs">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setActiveWorkflowTab("flows")}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+                      activeWorkflowTab === "flows"
+                        ? "bg-[#25D366] text-white shadow-xs"
+                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    }`}
+                  >
+                    <GitBranch className="w-4 h-4" />
+                    <span>Visual Journey Flows (Multi-Step)</span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                        activeWorkflowTab === "flows"
+                          ? "bg-white/20 text-white"
+                          : "bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      {workflowFlows.length}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveWorkflowTab("classic")}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+                      activeWorkflowTab === "classic"
+                        ? "bg-[#111827] text-white shadow-xs"
+                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    }`}
+                  >
+                    <Zap className="w-4 h-4 text-[#F5A623]" />
+                    <span>Single-Step Quick Rules</span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                        activeWorkflowTab === "classic"
+                          ? "bg-white/20 text-white"
+                          : "bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      {automationRules.length}
+                    </span>
+                  </button>
+                </div>
+
+                {activeWorkflowTab === "flows" ? (
+                  <button
+                    onClick={handleCreateNewWorkflow}
+                    className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Create Journey Flow
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setIsRuleModalOpen(true)}
+                    className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#E67E22] text-black px-4 py-2 rounded-xl font-bold text-xs shadow-xs transition"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Create Custom Rule
+                  </button>
+                )}
+              </div>
+
+              {/* ── VIEW 1: VISUAL MULTI-STEP FLOWCHART JOURNEYS ── */}
+              {activeWorkflowTab === "flows" && (
+                <div className="space-y-6">
+                  {/* Flows Key Metrics Strip */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                        <GitBranch className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                          Active Journeys
+                        </p>
+                        <p className="text-xl font-black text-gray-900 leading-tight">
+                          {workflowFlows.filter((f) => f.is_active).length}{" "}
+                          <span className="text-xs font-normal text-gray-400">
+                            / {workflowFlows.length}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                        <Users className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                          Total Enrolled
+                        </p>
+                        <p className="text-xl font-black text-gray-900 leading-tight font-mono">
+                          {workflowFlows.reduce(
+                            (sum, f) => sum + (f.stats?.entered || 0),
+                            0
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
+                        <CheckCircle2 className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                          Goals Converted
+                        </p>
+                        <p className="text-xl font-black text-purple-700 leading-tight font-mono">
+                          {workflowFlows.reduce(
+                            (sum, f) => sum + (f.stats?.goals_converted || 0),
+                            0
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex items-center gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-amber-50 text-[#D35400] flex items-center justify-center font-bold">
+                        <IndianRupee className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                          Recovered Value
+                        </p>
+                        <p className="text-xl font-black text-[#D35400] leading-tight font-mono">
+                          ₹
+                          {workflowFlows
+                            .reduce(
+                              (sum, f) => sum + (f.stats?.revenue_recovered || 0),
+                              0
+                            )
+                            .toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Grid of Multi-Step Flow Cards */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    {workflowFlows.map((flow) => {
+                      const nodes = flow.nodes || [];
+                      const stepCount = nodes.length;
+
+                      return (
+                        <div
+                          key={flow.id}
+                          className="bg-white rounded-2xl border border-gray-200 shadow-xs hover:shadow-md transition p-6 flex flex-col justify-between space-y-5 relative overflow-hidden"
+                        >
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2">
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                  ⚡ {flow.trigger_type}
+                                </span>
+                                <span className="text-xs text-gray-400 font-mono">
+                                  {stepCount} Steps
+                                </span>
+                              </div>
+
+                              <button
+                                onClick={() => handleToggleWorkflow(flow)}
+                                className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition flex-shrink-0 ${
+                                  flow.is_active
+                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                    : "bg-gray-100 text-gray-400 border border-gray-200"
+                                }`}
+                              >
+                                {flow.is_active ? (
+                                  <ToggleRight className="w-4 h-4 text-emerald-600" />
+                                ) : (
+                                  <ToggleLeft className="w-4 h-4 text-gray-400" />
+                                )}
+                                {flow.is_active ? "Live & Active" : "Paused"}
+                              </button>
+                            </div>
+
+                            <div>
+                              <h3 className="text-base font-bold text-gray-900">
+                                {flow.name}
+                              </h3>
+                              <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                                {flow.description || "Multi-stage automated customer journey"}
+                              </p>
+                            </div>
+
+                            {/* Visual Mini-Pipeline Preview */}
+                            <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 space-y-1.5">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                                Journey Pathway Sequence:
+                              </span>
+                              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                {nodes.slice(0, 5).map((n, i) => (
+                                  <React.Fragment key={n.id || i}>
+                                    <span
+                                      className={`px-2 py-0.5 rounded-md font-semibold border text-[10px] ${
+                                        n.type === "trigger"
+                                          ? "bg-blue-50 text-blue-700 border-blue-200"
+                                          : n.type === "delay"
+                                          ? "bg-amber-50 text-amber-700 border-amber-200"
+                                          : n.type === "whatsapp_message"
+                                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                          : n.type === "condition"
+                                          ? "bg-purple-50 text-purple-700 border-purple-200"
+                                          : "bg-gray-100 text-gray-700 border-gray-200"
+                                      }`}
+                                    >
+                                      {n.label}
+                                    </span>
+                                    {i < Math.min(nodes.length - 1, 4) && (
+                                      <ChevronRight className="w-3 h-3 text-gray-400 shrink-0" />
+                                    )}
+                                  </React.Fragment>
+                                ))}
+                                {nodes.length > 5 && (
+                                  <span className="text-[10px] text-gray-400 font-semibold">
+                                    +{nodes.length - 5} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Metrics Summary Strip */}
+                            <div className="grid grid-cols-4 gap-2 pt-1 border-t border-gray-100 text-xs">
+                              <div>
+                                <span className="text-[10px] text-gray-400 block font-medium">Enrolled</span>
+                                <span className="font-bold text-gray-900 font-mono">{flow.stats?.entered || 0}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-gray-400 block font-medium">Completed</span>
+                                <span className="font-bold text-gray-900 font-mono">{flow.stats?.completed || 0}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-gray-400 block font-medium">Goals Met</span>
+                                <span className="font-bold text-emerald-700 font-mono">{flow.stats?.goals_converted || 0}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-gray-400 block font-medium">Recovered</span>
+                                <span className="font-bold text-[#D35400] font-mono">
+                                  ₹{(flow.stats?.revenue_recovered || 0).toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Card Footer Actions */}
+                          <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
+                            <button
+                              onClick={() => handleDeleteWorkflow(flow.id)}
+                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                              title="Delete Flow"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setEditingWorkflow(flow)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition shadow-xs"
+                              >
+                                <Play className="w-3.5 h-3.5 fill-blue-600" />
+                                Simulate
+                              </button>
+                              <button
+                                onClick={() => setEditingWorkflow(flow)}
+                                className="flex items-center gap-1.5 px-4 py-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white rounded-xl text-xs font-bold transition shadow-xs"
+                              >
+                                <Sliders className="w-3.5 h-3.5" />
+                                Open Flowchart Builder
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {workflowFlows.length === 0 && (
+                    <div className="bg-white rounded-2xl border border-dashed border-gray-300 p-12 text-center">
+                      <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-[#25D366] flex items-center justify-center mx-auto mb-4">
+                        <GitBranch className="w-7 h-7" />
+                      </div>
+                      <h4 className="text-base font-bold text-gray-900">
+                        No Multi-Step Journey Flows Yet
+                      </h4>
+                      <p className="text-xs text-gray-500 max-w-md mx-auto mt-1 mb-5 leading-relaxed">
+                        Create your first visual flowchart automation to guide customers from cart abandonment or festival campaigns through multi-stage follow-ups.
+                      </p>
+                      <button
+                        onClick={handleCreateNewWorkflow}
+                        className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-xs inline-flex items-center gap-2 transition"
+                      >
+                        <Plus className="w-4 h-4" />
+                        + Create First Journey Flow
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── VIEW 2: SINGLE-STEP QUICK RULES (CLASSIC) ── */}
+              {activeWorkflowTab === "classic" && (
+                <div className="space-y-6">
+                  {/* ── 📊 CLEAN EXECUTIVE AUTOMATION OVERVIEW (ADMIN PORTAL THEME) ── */}
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
                 <div className="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
                   
                   {/* LEFT: Clean Circular Progress & Key Metrics */}
@@ -2097,6 +2503,9 @@ export default function App() {
               )}
             </div>
           )}
+        </div>
+      )
+    )}
 
           {/* ========================================================= */}
           {/* TAB 3: SETTINGS VIEW */}
@@ -5356,4 +5765,3 @@ export default function App() {
     </div>
   );
 }
-

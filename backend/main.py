@@ -16,6 +16,7 @@ from fastapi import FastAPI, Depends, HTTPException, Header, Request, status, Up
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
+from sqlalchemy.exc import IntegrityError
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -41,6 +42,7 @@ try:
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64);"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code VARCHAR(10);"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code_expires TIMESTAMP;"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'agent';"))
         conn.commit()
 except Exception as col_err:
     logger.warning(f"Note on 2FA column sync: {col_err}")
@@ -96,6 +98,7 @@ def on_startup():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_email VARCHAR(200)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'agent'",
         # contacts: extended profile columns
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS city VARCHAR(100)",
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS tags VARCHAR(500)",
@@ -131,6 +134,7 @@ def on_startup():
             admin.email = initial_email
             admin.hashed_password = auth.get_password_hash(initial_pass)
             admin.is_active = True
+            admin.role = "admin"
             db.commit()
             print(f"🔒 [Security] Initial admin '{initial_user}' credentials synchronized.")
         else:
@@ -138,7 +142,8 @@ def on_startup():
                 username=initial_user,
                 email=initial_email,
                 hashed_password=auth.get_password_hash(initial_pass),
-                is_active=True
+                is_active=True,
+                role="admin"
             )
             db.add(default_admin)
             db.commit()
@@ -157,7 +162,8 @@ def on_startup():
                 email=svc_email,
                 hashed_password=auth.get_password_hash(svc_password),
                 is_active=True,
-                is_2fa_enabled=False
+                is_2fa_enabled=False,
+                role="service"
             )
             db.add(svc_user)
             db.commit()
@@ -166,9 +172,170 @@ def on_startup():
             svc_user.hashed_password = auth.get_password_hash(svc_password)
             svc_user.is_active = True
             svc_user.is_2fa_enabled = False
+            svc_user.role = "service"
             db.commit()
 
+    # ── Pre-seed Visual Journey Flowcharts ──────────────────────────────────
+    try:
+        seed_default_workflow_flows(db)
+    except Exception as _wf_err:
+        print(f"⚠️  [Workflows] Seeder note: {_wf_err}")
+
     db.close()
+
+
+def seed_default_workflow_flows(db: Session):
+    existing = db.query(models.WorkflowFlow).count()
+    if existing > 0:
+        return
+
+    cart_flow = models.WorkflowFlow(
+        name="Abandoned Cart 2-Stage Recovery Journey",
+        description="Recovers abandoned shopping carts with an initial reminder, evaluates if customer purchased within 24h, and sends a 10% off discount nudge if not.",
+        trigger_type="ABANDONED_CART",
+        trigger_config={"delay_minutes": 30, "min_cart_value": 0},
+        is_active=True,
+        nodes=[
+            {
+                "id": "node-1",
+                "type": "trigger",
+                "label": "Cart Abandoned Trigger",
+                "position": {"x": 280, "y": 40},
+                "data": {"trigger_type": "ABANDONED_CART", "description": "Detects customer left checkout with items in cart"}
+            },
+            {
+                "id": "node-2",
+                "type": "delay",
+                "label": "Wait 30 Mins",
+                "position": {"x": 280, "y": 160},
+                "data": {"delay_minutes": 30, "description": "Allows organic checkout completion before messaging"}
+            },
+            {
+                "id": "node-3",
+                "type": "whatsapp_message",
+                "label": "Stage 1: Friendly Reminder",
+                "position": {"x": 280, "y": 280},
+                "data": {"template_name": "abandoned_cart_recovery", "coupon_code": "BAZIK7", "language": "en"}
+            },
+            {
+                "id": "node-4",
+                "type": "delay",
+                "label": "Wait 24 Hours",
+                "position": {"x": 280, "y": 410},
+                "data": {"delay_minutes": 1440, "description": "Gives customer full day to use reminder coupon"}
+            },
+            {
+                "id": "node-5",
+                "type": "condition",
+                "label": "Did Customer Purchase?",
+                "position": {"x": 280, "y": 530},
+                "data": {"condition_type": "ORDER_PLACED", "description": "Checks database if cart completed or order placed"}
+            },
+            {
+                "id": "node-6",
+                "type": "whatsapp_message",
+                "label": "Stage 2: 10% Off Urgent Bump",
+                "position": {"x": 460, "y": 660},
+                "data": {"template_name": "abandoned_cart_recovery", "coupon_code": "MANU10", "language": "en"}
+            },
+            {
+                "id": "node-7",
+                "type": "exit",
+                "label": "Goal: Cart Recovered! 🎉",
+                "position": {"x": 100, "y": 660},
+                "data": {"outcome": "GOAL_MET", "description": "Customer completed order. Journey success."}
+            },
+            {
+                "id": "node-8",
+                "type": "exit",
+                "label": "Journey Concluded",
+                "position": {"x": 460, "y": 790},
+                "data": {"outcome": "DROPOUT", "description": "Completed maximum follow-up stages."}
+            }
+        ],
+        edges=[
+            {"id": "e1-2", "source": "node-1", "target": "node-2"},
+            {"id": "e2-3", "source": "node-2", "target": "node-3"},
+            {"id": "e3-4", "source": "node-3", "target": "node-4"},
+            {"id": "e4-5", "source": "node-4", "target": "node-5"},
+            {"id": "e5-7", "source": "node-5", "target": "node-7", "sourceHandle": "yes"},
+            {"id": "e5-6", "source": "node-5", "target": "node-6", "sourceHandle": "no"},
+            {"id": "e6-8", "source": "node-6", "target": "node-8"}
+        ],
+        stats={"entered": 24, "completed": 21, "goals_converted": 14, "revenue_recovered": 18900}
+    )
+    db.add(cart_flow)
+
+    festive_flow = models.WorkflowFlow(
+        name="Diwali Festival Flash Sale Flow",
+        description="Broadcasts festive hampers and special sweets packages, checks for customer order conversions, and sends a final countdown reminder.",
+        trigger_type="FESTIVAL_PROMO",
+        trigger_config={"festival_name": "Diwali 2026", "audience": "ALL_CUSTOMERS"},
+        is_active=True,
+        nodes=[
+            {
+                "id": "fn-1",
+                "type": "trigger",
+                "label": "Festival Promo Trigger",
+                "position": {"x": 280, "y": 40},
+                "data": {"trigger_type": "FESTIVAL_PROMO", "description": "Festive season kick-off broadcast"}
+            },
+            {
+                "id": "fn-2",
+                "type": "whatsapp_message",
+                "label": "Send Festive Gathiya & Sweets",
+                "position": {"x": 280, "y": 160},
+                "data": {"template_name": "festive_promo_offer", "coupon_code": "DIWALI20", "language": "gu"}
+            },
+            {
+                "id": "fn-3",
+                "type": "delay",
+                "label": "Wait 48 Hours",
+                "position": {"x": 280, "y": 290},
+                "data": {"delay_minutes": 2880, "description": "Allow time for customers to review festive sweets menu"}
+            },
+            {
+                "id": "fn-4",
+                "type": "condition",
+                "label": "Did Customer Order?",
+                "position": {"x": 280, "y": 410},
+                "data": {"condition_type": "ORDER_PLACED", "description": "Checks if festival order was placed"}
+            },
+            {
+                "id": "fn-5",
+                "type": "exit",
+                "label": "Order Placed (VIP Tagged)",
+                "position": {"x": 100, "y": 540},
+                "data": {"outcome": "GOAL_MET", "description": "Customer ordered festive combo"}
+            },
+            {
+                "id": "fn-6",
+                "type": "whatsapp_message",
+                "label": "Final 24h Offer Countdown",
+                "position": {"x": 460, "y": 540},
+                "data": {"template_name": "festive_promo_offer", "coupon_code": "DIWALI20", "language": "gu"}
+            },
+            {
+                "id": "fn-7",
+                "type": "exit",
+                "label": "Festival Promo Concluded",
+                "position": {"x": 460, "y": 670},
+                "data": {"outcome": "DROPOUT", "description": "Offer window closed"}
+            }
+        ],
+        edges=[
+            {"id": "fe1-2", "source": "fn-1", "target": "fn-2"},
+            {"id": "fe2-3", "source": "fn-2", "target": "fn-3"},
+            {"id": "fe3-4", "source": "fn-3", "target": "fn-4"},
+            {"id": "fe4-5", "source": "fn-4", "target": "fn-5", "sourceHandle": "yes"},
+            {"id": "fe4-6", "source": "fn-4", "target": "fn-6", "sourceHandle": "no"},
+            {"id": "fe6-7", "source": "fn-6", "target": "fn-7"}
+        ],
+        stats={"entered": 56, "completed": 52, "goals_converted": 36, "revenue_recovered": 54000}
+    )
+    db.add(festive_flow)
+    db.commit()
+    print("🌱 [Workflows] Seeded 2 pre-built visual journey workflows.")
 
 
 @app.get("/")
@@ -191,7 +358,7 @@ def health_check():
 def register_user(
     request: Request,
     payload: schemas.UserCreate,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     max_users = config.MAX_USERS_LIMIT
@@ -212,7 +379,8 @@ def register_user(
         username=payload.username.strip(),
         email=payload.email.strip().lower(),
         hashed_password=auth.get_password_hash(payload.password),
-        is_active=True
+        is_active=True,
+        role="agent"
     )
     db.add(user)
     db.commit()
@@ -494,7 +662,7 @@ def get_registration_status(db: Session = Depends(get_db)):
 
 @app.get("/api/users", response_model=List[schemas.UserResponse])
 def list_system_users(
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     """
@@ -506,7 +674,7 @@ def list_system_users(
 @app.post("/api/users", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def create_system_user(
     payload: schemas.UserCreate,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     """
@@ -530,7 +698,8 @@ def create_system_user(
         username=payload.username.strip(),
         email=payload.email.strip().lower(),
         hashed_password=auth.get_password_hash(payload.password),
-        is_active=True
+        is_active=True,
+        role=payload.role
     )
     db.add(user)
     db.commit()
@@ -798,7 +967,12 @@ async def import_contacts_csv(
 # --- Opt-Out / DND API ---
 @app.post("/api/opt-out")
 @limiter.limit("30/minute")
-def register_opt_out(request: Request, payload: schemas.OptOutRequest, db: Session = Depends(get_db)):
+def register_opt_out(
+    request: Request,
+    payload: schemas.OptOutRequest,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db),
+):
     existing = db.query(models.OptOut).filter(models.OptOut.phone == payload.phone).first()
     if not existing:
         opt_out = models.OptOut(phone=payload.phone, reason=payload.reason)
@@ -823,7 +997,7 @@ def get_message_logs(
 def create_and_trigger_campaign(
     request: Request,
     payload: schemas.CampaignCreate,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     # 🔐 CRITICAL SECURITY GUARD: Verify Password + 2FA before mass broadcasting
@@ -879,7 +1053,7 @@ def create_and_trigger_campaign(
 def list_campaigns(
     skip: int = 0,
     limit: int = 50,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     return db.query(models.Campaign).order_by(models.Campaign.created_at.desc()).offset(skip).limit(limit).all()
@@ -888,7 +1062,7 @@ def list_campaigns(
 @app.get("/api/campaigns/{campaign_id}", response_model=schemas.CampaignResponse)
 def get_campaign(
     campaign_id: int,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     campaign = db.query(models.Campaign).filter(models.Campaign.id == campaign_id).first()
@@ -901,33 +1075,34 @@ def get_campaign(
 # 🛡️ WEBHOOK ENDPOINTS (Strictly Authenticated & Rate limited)
 # ==========================================
 
-def get_webhook_authenticated_user(
+async def get_webhook_authenticated_user(
     request: Request,
     db: Session = Depends(get_db)
 ) -> models.User:
     """
-    Guards external webhook endpoints against unauthorized invocation.
-    Accepts:
-    1. System JWT Bearer token obtained by logging in as 'ecom_service' (or any active user)
-    2. Secure WEBHOOK_SECRET / API Key in X-API-Key, X-Webhook-Secret, or Authorization: Bearer <secret>
+    Validates e-commerce HMAC signatures for external requests. Dashboard
+    simulations may use an admin or service JWT, but arbitrary user JWTs and
+    raw shared-secret headers are never accepted.
     """
     auth_header = request.headers.get("Authorization", "").strip()
-    api_key_header = (request.headers.get("X-API-Key", "") or request.headers.get("X-Webhook-Secret", "")).strip()
-    secret_key = config.WEBHOOK_SECRET
-
-    # 1. API Key Header
-    if secret_key and api_key_header and api_key_header == secret_key:
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    if config.WEBHOOK_SECRET and signature:
+        raw_body = await request.body()
+        expected = "sha256=" + hmac.new(
+            config.WEBHOOK_SECRET.encode(), raw_body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
         svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
         return svc or models.User(username=config.ECOM_SERVICE_USERNAME, is_active=True)
 
-    # 2. Bearer Token in Authorization header
     if auth_header.startswith("Bearer "):
         token = auth_header.split(" ", 1)[1].strip()
-        if secret_key and token and token == secret_key:
-            svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
-            return svc or models.User(username=config.ECOM_SERVICE_USERNAME, is_active=True)
         try:
-            return auth.get_current_user(token=token, db=db)
+            user = auth.get_current_user(token=token, db=db)
+            if user.role in {"admin", "service"}:
+                return user
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Webhook access requires a service account")
         except HTTPException as he:
             raise he
         except Exception:
@@ -935,20 +1110,33 @@ def get_webhook_authenticated_user(
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Unauthorized: Access to this webhook requires an authorized Bearer token or API key from Manubhai CRM.",
+        detail="Unauthorized: webhook requires a valid HMAC signature or service-account token.",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
 
 @app.post("/api/webhooks/cart-event", status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit("60/minute")
-def receive_cart_webhook(
+async def receive_cart_webhook(
     request: Request,
     payload: schemas.CartEventPayload,
     delay_seconds: Optional[int] = 0,
     current_user: models.User = Depends(get_webhook_authenticated_user),
     db: Session = Depends(get_db)
 ):
+    idempotency_key = request.headers.get("X-Idempotency-Key") or f"cart:{payload.cart_token}"
+    existing_event = db.query(models.WebhookEvent).filter(
+        models.WebhookEvent.idempotency_key == idempotency_key
+    ).first()
+    if existing_event:
+        return {"status": "duplicate", "message": "Webhook event was already processed."}
+
+    db.add(models.WebhookEvent(event_type="cart", idempotency_key=idempotency_key))
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        return {"status": "duplicate", "message": "Webhook event was already processed."}
     # Check if user is in opt-out list
     is_opted_out = db.query(models.OptOut).filter(models.OptOut.phone == payload.customer_phone).first()
     if is_opted_out:
@@ -966,14 +1154,40 @@ def receive_cart_webhook(
     db.commit()
     db.refresh(cart_record)
 
-    # Dispatch immediately (if delay_seconds <= 0) or schedule
-    eff_delay = delay_seconds if delay_seconds is not None else 0
-    schedule_cart_recovery(cart_event_id=cart_record.id, delay_seconds=eff_delay)
+    # Check if there is an active multi-step visual workflow for abandoned carts
+    active_cart_flow = db.query(models.WorkflowFlow).filter(
+        models.WorkflowFlow.trigger_type == "ABANDONED_CART",
+        models.WorkflowFlow.is_active == True
+    ).first()
 
-    msg_detail = "WhatsApp message dispatched immediately" if eff_delay <= 0 else f"WhatsApp message scheduled in {eff_delay}s"
+    workflow_session_id = None
+    if active_cart_flow:
+        items_summary = ", ".join([item.get("item", "Namkeen Item") for item in (payload.items or [])]) if payload.items else "Special Vanela Gathiya & Bhavnagari Gathiya"
+        state_data = {
+            "cart_token": payload.cart_token,
+            "cart_value": payload.cart_value,
+            "customer_name": "Valued Customer",
+            "items_summary": items_summary
+        }
+        from scheduler import start_workflow_session
+        wf_sess = start_workflow_session(flow_id=active_cart_flow.id, customer_phone=payload.customer_phone, state_data=state_data, db=db)
+        if wf_sess:
+            workflow_session_id = wf_sess.id
+
+    # Fallback / Dual safety: if no active visual flow exists, schedule classic single-step rule
+    eff_delay = delay_seconds if delay_seconds is not None else 0
+    if not active_cart_flow:
+        schedule_cart_recovery(cart_event_id=cart_record.id, delay_seconds=eff_delay)
+
+    msg_detail = (
+        f"Multi-step journey enrolled (Session #{workflow_session_id})"
+        if workflow_session_id
+        else ("WhatsApp message dispatched immediately" if eff_delay <= 0 else f"WhatsApp message scheduled in {eff_delay}s")
+    )
     return {
         "status": "received",
         "cart_event_id": cart_record.id,
+        "workflow_session_id": workflow_session_id,
         "scheduled_in_seconds": eff_delay,
         "authenticated_as": current_user.username,
         "message": f"Cart abandonment event recorded. {msg_detail}."
@@ -982,13 +1196,25 @@ def receive_cart_webhook(
 
 @app.post("/api/webhooks/order-completed")
 @limiter.limit("60/minute")
-def receive_order_completed_webhook(
+async def receive_order_completed_webhook(
     request: Request,
     cart_token: str,
     customer_phone: str,
     current_user: models.User = Depends(get_webhook_authenticated_user),
     db: Session = Depends(get_db)
 ):
+    idempotency_key = request.headers.get("X-Idempotency-Key") or f"order:{cart_token}"
+    existing_event = db.query(models.WebhookEvent).filter(
+        models.WebhookEvent.idempotency_key == idempotency_key
+    ).first()
+    if existing_event:
+        return {"status": "duplicate", "message": "Webhook event was already processed."}
+    db.add(models.WebhookEvent(event_type="order", idempotency_key=idempotency_key))
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        return {"status": "duplicate", "message": "Webhook event was already processed."}
     clean_phone = customer_phone.strip()
     if not clean_phone.startswith("+"):
         clean_phone = "+" + clean_phone
@@ -1104,6 +1330,17 @@ async def receive_inbound_whatsapp_message(
     1. If the customer types 'STOP', 'બંધ કરો', or 'रोકો', they are automatically added to the opt_outs DND table.
     2. All incoming messages are saved into ChatMessage for real-time 2-Way Chat.
     """
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    if not config.META_APP_SECRET:
+        raise HTTPException(status_code=503, detail="Meta webhook signature validation is not configured")
+
+    raw_body = await request.body()
+    expected_signature = "sha256=" + hmac.new(
+        config.META_APP_SECRET.encode(), raw_body, hashlib.sha256
+    ).hexdigest()
+    if not signature or not hmac.compare_digest(expected_signature, signature):
+        raise HTTPException(status_code=401, detail="Invalid Meta webhook signature")
+
     try:
         data = await request.json()
     except Exception:
@@ -1433,7 +1670,7 @@ def list_opt_outs(
 @app.delete("/api/opt-outs/{phone}")
 def remove_opt_out(
     phone: str,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     record = db.query(models.OptOut).filter(models.OptOut.phone == phone).first()
@@ -1493,7 +1730,7 @@ class DirectTestMessageRequest(BaseModel):
 @app.post("/api/messages/send-test")
 def send_direct_test_message(
     payload: DirectTestMessageRequest,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     """
@@ -1541,7 +1778,7 @@ def send_direct_test_message(
 # --- Templates List & Meta Live Sync API ---
 @app.post("/api/templates/sync-from-meta")
 def sync_templates_from_meta(
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     """
@@ -1645,16 +1882,6 @@ def list_templates(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    # If database is currently empty but credentials exist, attempt initial auto-sync
-    if db.query(models.Template).count() == 0:
-        waba_id = config.WHATSAPP_BUSINESS_ACCOUNT_ID
-        access_token = config.WHATSAPP_API_TOKEN
-        if waba_id and access_token:
-            try:
-                sync_templates_from_meta(current_user=current_user, db=db)
-            except Exception as e:
-                logger.warning(f"Auto-sync on empty templates failed: {e}")
-
     query = db.query(models.Template)
     if language and language != "ALL":
         query = query.filter(models.Template.language == language)
@@ -1664,7 +1891,7 @@ def list_templates(
 @app.post("/api/templates", status_code=status.HTTP_201_CREATED)
 def create_template(
     payload: schemas.TemplateCreate,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     """
@@ -1717,7 +1944,7 @@ def create_template(
 @app.delete("/api/templates/{template_id}")
 def delete_template(
     template_id: int,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     """
@@ -1769,7 +1996,7 @@ def list_discount_codes(
 @app.post("/api/discount-codes", response_model=schemas.DiscountCodeResponse, status_code=status.HTTP_201_CREATED)
 def create_discount_code(
     payload: schemas.DiscountCodeCreate,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     clean_code = payload.code.strip().upper()
@@ -1794,7 +2021,7 @@ def create_discount_code(
 @app.delete("/api/discount-codes/{code_id}")
 def delete_discount_code(
     code_id: int,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     disc = db.query(models.DiscountCode).filter(models.DiscountCode.id == code_id).first()
@@ -1863,7 +2090,7 @@ def list_automation_rules(
 @app.post("/api/automation-rules", status_code=status.HTTP_201_CREATED)
 def create_automation_rule(
     payload: schemas.AutomationRuleCreate,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     rule = models.AutomationRule(
@@ -1888,7 +2115,7 @@ def create_automation_rule(
 def update_automation_rule(
     rule_id: int,
     payload: schemas.AutomationRuleUpdate,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     rule = db.query(models.AutomationRule).filter(models.AutomationRule.id == rule_id).first()
@@ -1922,7 +2149,7 @@ def update_automation_rule(
 @app.delete("/api/automation-rules/{rule_id}")
 def delete_automation_rule(
     rule_id: int,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     rule = db.query(models.AutomationRule).filter(models.AutomationRule.id == rule_id).first()
@@ -1937,7 +2164,7 @@ def delete_automation_rule(
 @app.post("/api/automation-rules/{rule_id}/trigger")
 def trigger_specific_automation_rule(
     rule_id: int,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     rule = db.query(models.AutomationRule).filter(models.AutomationRule.id == rule_id).first()
@@ -1953,7 +2180,7 @@ def trigger_specific_automation_rule(
 def approve_and_dispatch_automation_rule(
     rule_id: int,
     payload: schemas.RuleApproveRequest,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     """
@@ -1994,3 +2221,189 @@ def get_system_settings(
         "dnd_keywords": list(OPT_OUT_KEYWORDS)
     }
 
+
+# =====================================================================
+# 🔀 VISUAL FLOWCHART WORKFLOW REST APIS
+# =====================================================================
+
+@app.get("/api/workflows", response_model=list[schemas.WorkflowFlowResponse])
+def list_workflow_flows(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Lists all visual journey workflows with execution metrics."""
+    return db.query(models.WorkflowFlow).order_by(models.WorkflowFlow.id.asc()).all()
+
+
+@app.post("/api/workflows", response_model=schemas.WorkflowFlowResponse, status_code=status.HTTP_201_CREATED)
+def create_workflow_flow(
+    payload: schemas.WorkflowFlowCreate,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    """Creates a new multi-step visual journey workflow."""
+    flow = models.WorkflowFlow(
+        name=payload.name,
+        description=payload.description,
+        trigger_type=payload.trigger_type,
+        trigger_config=payload.trigger_config or {},
+        nodes=payload.nodes or [],
+        edges=payload.edges or [],
+        is_active=payload.is_active,
+        stats={"entered": 0, "completed": 0, "goals_converted": 0, "revenue_recovered": 0}
+    )
+    db.add(flow)
+    db.commit()
+    db.refresh(flow)
+    return flow
+
+
+@app.get("/api/workflows/{flow_id}", response_model=schemas.WorkflowFlowResponse)
+def get_workflow_flow(
+    flow_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieves a single workflow with its complete node and edge graph."""
+    flow = db.query(models.WorkflowFlow).filter(models.WorkflowFlow.id == flow_id).first()
+    if not flow:
+        raise HTTPException(status_code=404, detail="Workflow flow not found")
+    return flow
+
+
+@app.put("/api/workflows/{flow_id}", response_model=schemas.WorkflowFlowResponse)
+def update_workflow_flow(
+    flow_id: int,
+    payload: schemas.WorkflowFlowUpdate,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    """Updates a workflow's details, node positions, connections, and properties."""
+    flow = db.query(models.WorkflowFlow).filter(models.WorkflowFlow.id == flow_id).first()
+    if not flow:
+        raise HTTPException(status_code=404, detail="Workflow flow not found")
+
+    if payload.name is not None:
+        flow.name = payload.name
+    if payload.description is not None:
+        flow.description = payload.description
+    if payload.trigger_type is not None:
+        flow.trigger_type = payload.trigger_type
+    if payload.trigger_config is not None:
+        flow.trigger_config = payload.trigger_config
+    if payload.nodes is not None:
+        flow.nodes = payload.nodes
+    if payload.edges is not None:
+        flow.edges = payload.edges
+    if payload.is_active is not None:
+        flow.is_active = payload.is_active
+
+    flow.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(flow)
+    return flow
+
+
+@app.delete("/api/workflows/{flow_id}")
+def delete_workflow_flow(
+    flow_id: int,
+    current_user: models.User = Depends(auth.require_roles("admin")),
+    db: Session = Depends(get_db)
+):
+    """Deletes a workflow and all associated execution sessions."""
+    flow = db.query(models.WorkflowFlow).filter(models.WorkflowFlow.id == flow_id).first()
+    if not flow:
+        raise HTTPException(status_code=404, detail="Workflow flow not found")
+
+    # Clean up associated sessions
+    db.query(models.WorkflowSession).filter(models.WorkflowSession.flow_id == flow_id).delete()
+    db.delete(flow)
+    db.commit()
+    return {"status": "success", "message": f"Workflow flow #{flow_id} deleted successfully"}
+
+
+@app.post("/api/workflows/{flow_id}/toggle", response_model=schemas.WorkflowFlowResponse)
+def toggle_workflow_status(
+    flow_id: int,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    """Toggles active/paused state for a workflow journey."""
+    flow = db.query(models.WorkflowFlow).filter(models.WorkflowFlow.id == flow_id).first()
+    if not flow:
+        raise HTTPException(status_code=404, detail="Workflow flow not found")
+
+    flow.is_active = not flow.is_active
+    db.commit()
+    db.refresh(flow)
+    return flow
+
+
+@app.get("/api/workflows/{flow_id}/sessions", response_model=list[schemas.WorkflowSessionResponse])
+def get_workflow_sessions(
+    flow_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Returns the most recent customer sessions traversing this workflow."""
+    return (
+        db.query(models.WorkflowSession)
+        .filter(models.WorkflowSession.flow_id == flow_id)
+        .order_by(models.WorkflowSession.id.desc())
+        .limit(50)
+        .all()
+    )
+
+
+@app.post("/api/workflows/{flow_id}/simulate")
+def simulate_workflow_flow(
+    flow_id: int,
+    payload: schemas.WorkflowSimulateRequest,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    """
+    Test-runs a workflow flow immediately for a designated phone number.
+    Executes initial trigger and actions, recording steps in session history.
+    """
+    flow = db.query(models.WorkflowFlow).filter(models.WorkflowFlow.id == flow_id).first()
+    if not flow:
+        raise HTTPException(status_code=404, detail="Workflow flow not found")
+
+    from scheduler import start_workflow_session, process_workflow_session_step
+
+    sim_token = f"sim_{int(datetime.utcnow().timestamp())}"
+    state_data = {
+        "cart_token": sim_token,
+        "cart_value": payload.test_cart_value or 450.0,
+        "customer_name": "Test Patron",
+        "items_summary": "Special Vanela Gathiya & Bhavnagari Gathiya",
+        "simulation": True,
+        "simulated_by": current_user.username
+    }
+
+    # Start session
+    session = start_workflow_session(
+        flow_id=flow.id,
+        customer_phone=payload.customer_phone,
+        state_data=state_data,
+        db=db
+    )
+
+    if not session:
+        raise HTTPException(status_code=500, detail="Failed to initialize workflow session")
+
+    # If in mock mode, execute one additional step if waiting on delay or message
+    if payload.mock_mode and session.status == "WAITING_DELAY":
+        session.status = "ACTIVE"
+        db.commit()
+        process_workflow_session_step(session.id, db=db, mock_send=True)
+
+    db.refresh(session)
+    return {
+        "status": "success",
+        "message": f"Simulation initiated for {payload.customer_phone} in '{flow.name}'",
+        "session_id": session.id,
+        "current_status": session.status,
+        "history": session.history or []
+    }

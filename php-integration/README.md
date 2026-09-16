@@ -7,6 +7,9 @@ This directory provides the exact, zero-dependency integration client for **manu
 ## 📁 File Included
 - **`ManubhaiWhatsAppCRM.php`**: Standalone helper class using standard PHP cURL and `hash_hmac`. Zero external Composer libraries needed. Works on PHP 7.0, 7.4, 8.0, 8.1, 8.2+.
 
+Before using it, configure `CRM_BASE_URL` and `CRM_WEBHOOK_SECRET` in the PHP
+environment. Copy the names from `.env.example`; never place these values in PHP source code.
+
 ---
 
 ## 🚀 Quick Setup (Only 2 Hooks Needed)

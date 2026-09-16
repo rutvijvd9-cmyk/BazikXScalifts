@@ -11,11 +11,21 @@
 
 class ManubhaiWhatsAppCRM {
 
-    // Your CRM Backend URL (change to your production domain when deployed)
-    private static $crmBaseUrl = "http://localhost:8000";
+    private static function crmBaseUrl() {
+        $value = getenv('CRM_BASE_URL');
+        if (!$value) {
+            throw new RuntimeException('CRM_BASE_URL must be configured in the PHP environment.');
+        }
+        return rtrim($value, '/');
+    }
 
-    // Shared Secret Key (matches WEBHOOK_SECRET in your backend .env)
-    private static $webhookSecret = "manubhai_webhook_secret_key_987654";
+    private static function webhookSecret() {
+        $value = getenv('CRM_WEBHOOK_SECRET');
+        if (!$value) {
+            throw new RuntimeException('CRM_WEBHOOK_SECRET must be configured in the PHP environment.');
+        }
+        return $value;
+    }
 
     /**
      * Call this when a user adds items to cart or updates their cart.
@@ -37,8 +47,8 @@ class ManubhaiWhatsAppCRM {
             "items"          => $items
         ];
 
-        $endpoint = self::$crmBaseUrl . "/api/webhooks/cart-event?delay_seconds=" . intval($delaySeconds);
-        return self::sendPostRequest($endpoint, $payload);
+        $endpoint = self::crmBaseUrl() . "/api/webhooks/cart-event?delay_seconds=" . intval($delaySeconds);
+        return self::sendPostRequest($endpoint, $payload, "cart:" . $cartToken);
     }
 
     /**
@@ -52,22 +62,22 @@ class ManubhaiWhatsAppCRM {
     public static function sendOrderCompleted($cartToken, $customerPhone) {
         $formattedPhone = self::formatPhone($customerPhone);
 
-        $endpoint = self::$crmBaseUrl . "/api/webhooks/order-completed"
+        $endpoint = self::crmBaseUrl() . "/api/webhooks/order-completed"
             . "?cart_token=" . urlencode($cartToken)
             . "&customer_phone=" . urlencode($formattedPhone);
 
-        return self::sendPostRequest($endpoint, []);
+        return self::sendPostRequest($endpoint, [], "order:" . $cartToken);
     }
 
     /**
      * Internal helper to send secure signed POST request with 2-second timeout
      * so it never slows down the user's browsing experience.
      */
-    private static function sendPostRequest($url, $payloadArray) {
+    private static function sendPostRequest($url, $payloadArray, $idempotencyKey) {
         $jsonPayload = json_encode($payloadArray);
 
         // Generate HMAC-SHA256 signature for security
-        $signature = "sha256=" . hash_hmac('sha256', $jsonPayload, self::$webhookSecret);
+        $signature = "sha256=" . hash_hmac('sha256', $jsonPayload, self::webhookSecret());
 
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -75,7 +85,8 @@ class ManubhaiWhatsAppCRM {
         curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             "Content-Type: application/json",
-            "X-Hub-Signature-256: " . $signature
+            "X-Hub-Signature-256: " . $signature,
+            "X-Idempotency-Key: " . $idempotencyKey
         ]);
         // Set short timeouts so customer store is never blocked if network lags
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);

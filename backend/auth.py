@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Callable, Optional
 from dotenv import load_dotenv
 import jwt
 from passlib.context import CryptContext
@@ -90,3 +90,15 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user account")
     return user
+
+
+def require_roles(*allowed_roles: str) -> Callable:
+    def role_guard(current_user: models.User = Depends(get_current_user)) -> models.User:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your account does not have permission to perform this action.",
+            )
+        return current_user
+
+    return role_guard

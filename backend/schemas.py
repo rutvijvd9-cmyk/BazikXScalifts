@@ -122,6 +122,7 @@ class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: str = Field(..., max_length=120)
     password: str = Field(..., min_length=6)
+    role: str = Field(default="agent", pattern="^(admin|manager|agent)$")
 
 
 class UserLogin(BaseModel):
@@ -143,6 +144,7 @@ class UserResponse(BaseModel):
     email: str
     is_active: bool
     is_2fa_enabled: Optional[bool] = False
+    role: str = "agent"
 
     class Config:
         from_attributes = True
@@ -217,3 +219,61 @@ class ChatConversationSummary(BaseModel):
     last_message_time: Optional[datetime] = None
     last_sender: Optional[str] = None
 
+
+class WorkflowFlowCreate(BaseModel):
+    name: str = Field(..., max_length=150)
+    description: Optional[str] = None
+    trigger_type: str = Field(default="ABANDONED_CART")
+    trigger_config: Optional[dict] = None
+    nodes: list = Field(default_factory=list)
+    edges: list = Field(default_factory=list)
+    is_active: bool = True
+
+
+class WorkflowFlowUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    trigger_type: Optional[str] = None
+    trigger_config: Optional[dict] = None
+    nodes: Optional[list] = None
+    edges: Optional[list] = None
+    is_active: Optional[bool] = None
+
+
+class WorkflowFlowResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    trigger_type: str
+    trigger_config: Optional[dict] = None
+    nodes: list = Field(default_factory=list)
+    edges: list = Field(default_factory=list)
+    is_active: bool
+    stats: Optional[dict] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WorkflowSessionResponse(BaseModel):
+    id: int
+    flow_id: int
+    customer_phone: str
+    current_node_id: Optional[str] = None
+    state_data: Optional[dict] = None
+    status: str
+    next_evaluation_at: datetime
+    history: list = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WorkflowSimulateRequest(BaseModel):
+    customer_phone: str = Field(..., description="Test recipient phone number")
+    test_cart_value: Optional[float] = 450.0
+    mock_mode: bool = Field(default=False, description="If true, simulate without sending actual WhatsApp API calls")

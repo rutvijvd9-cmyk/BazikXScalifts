@@ -7,7 +7,12 @@
  */
 
 // 1. Shared Secret (matches WEBHOOK_SECRET in your backend .env)
-define('CRM_WEBHOOK_SECRET', 'manubhai_webhook_secret_key_987654');
+$crmWebhookSecret = getenv('CRM_WEBHOOK_SECRET');
+if (!$crmWebhookSecret) {
+    http_response_code(500);
+    echo json_encode(["status" => "error", "message" => "CRM_WEBHOOK_SECRET is not configured"]);
+    exit;
+}
 
 // 2. Verify Authorization Header
 $headers = getallheaders();
@@ -15,7 +20,7 @@ $receivedSig = isset($headers['X-Hub-Signature-256']) ? $headers['X-Hub-Signatur
 $days = isset($_GET['days']) ? intval($_GET['days']) : 30;
 
 // Verify signature
-$expectedSig = "sha256=" . hash_hmac('sha256', "days=" . $days, CRM_WEBHOOK_SECRET);
+$expectedSig = "sha256=" . hash_hmac('sha256', "days=" . $days, $crmWebhookSecret);
 if (!hash_equals($expectedSig, $receivedSig)) {
     http_response_code(401);
     echo json_encode(["status" => "error", "message" => "Unauthorized: signature mismatch"]);

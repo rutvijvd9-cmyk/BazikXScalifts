@@ -6,14 +6,16 @@ import logging
 from datetime import datetime, timedelta
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.cron import CronTrigger
-from database import SessionLocal
+from apscheduler.triggers.interval import IntervalTrigger
+from database import DATABASE_URL, SessionLocal
 import models
 from whatsapp_service import send_whatsapp_template
 
 logger = logging.getLogger("scheduler")
-scheduler = BackgroundScheduler()
+scheduler = BackgroundScheduler(jobstores={"default": SQLAlchemyJobStore(url=DATABASE_URL)})
 
 import config
 
@@ -376,6 +378,9 @@ def run_all_active_automation_rules():
 
 
 def start_scheduler():
+    if not config.SCHEDULER_ENABLED:
+        logger.info("Scheduler is disabled for this application instance.")
+        return
     if not scheduler.running:
         # 1. Automatic Daily Sweep at 10:00 AM IST for ALL active automation rules (15-day, 30-day, VIP, etc.)
         scheduler.add_job(
@@ -384,8 +389,15 @@ def start_scheduler():
             id="daily_all_automations_sweep",
             replace_existing=True
         )
+        # 2. Continuous Multi-Step Workflow Engine Sweep (checks delays & conditions every minute)
+        scheduler.add_job(
+            func=process_all_active_workflow_sessions,
+            trigger=IntervalTrigger(minutes=1),
+            id="continuous_workflow_engine_sweep",
+            replace_existing=True
+        )
         scheduler.start()
-        logger.info("🚀 APScheduler started successfully with automatic daily sweeps.")
+        logger.info("🚀 APScheduler started successfully with daily sweep and continuous workflow engine.")
 
 def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
     """
@@ -581,5 +593,418 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
     except Exception as e:
         logger.error(f"Error executing rule {rule_id}: {e}")
         return {"status": "error", "error": str(e), "messages_dispatched": 0, "requires_approval": False}
+    finally:
+        db.close()
+
+
+# =====================================================================
+# 🔀 MULTI-STEP VISUAL FLOWCHART WORKFLOW EXECUTION ENGINE
+# =====================================================================
+
+def find_node_by_id(nodes: list, node_id: str):
+    """Finds a node inside a workflow's nodes list by its ID."""
+    for n in nodes:
+        if str(n.get("id")) == str(node_id):
+            return n
+    return None
+
+
+def find_next_node(nodes: list, edges: list, current_node_id: str, handle: str = None):
+    """
+    Finds the next node in the graph.
+    If handle is provided ('yes' or 'no'), matches the edge sourceHandle.
+    """
+    candidate_edges = [
+        e for e in edges
+        if str(e.get("source")) == str(current_node_id)
+    ]
+    if not candidate_edges:
+        return None
+
+    if handle:
+        matching = [e for e in candidate_edges if str(e.get("sourceHandle", "")).lower() == handle.lower()]
+        if matching:
+            target_id = matching[0].get("target")
+            return find_node_by_id(nodes, target_id)
+        # Fallback if handle wasn't explicitly tagged
+        target_id = candidate_edges[0].get("target")
+        return find_node_by_id(nodes, target_id)
+    else:
+        target_id = candidate_edges[0].get("target")
+        return find_node_by_id(nodes, target_id)
+
+
+def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, db=None) -> models.WorkflowSession:
+    """
+    Initializes a new customer session into a visual workflow journey.
+    Locates the trigger node, persists state, and processes the initial step.
+    """
+    owns_db = False
+    if db is None:
+        db = SessionLocal()
+        owns_db = True
+
+    try:
+        flow = db.query(models.WorkflowFlow).filter(models.WorkflowFlow.id == flow_id).first()
+        if not flow or not flow.is_active:
+            logger.info(f"Flow {flow_id} is inactive or not found.")
+            return None
+
+        nodes = flow.nodes or []
+        edges = flow.edges or []
+        if not nodes:
+            logger.warning(f"Flow {flow_id} has no nodes.")
+            return None
+
+        # Find entry node: node with type 'trigger' or the first node
+        trigger_node = next((n for n in nodes if n.get("type") == "trigger"), nodes[0])
+
+        session = models.WorkflowSession(
+            flow_id=flow.id,
+            customer_phone=customer_phone,
+            current_node_id=str(trigger_node.get("id")),
+            state_data=state_data or {},
+            status="ACTIVE",
+            next_evaluation_at=datetime.utcnow(),
+            history=[{
+                "node_id": str(trigger_node.get("id")),
+                "node_type": "trigger",
+                "label": trigger_node.get("label", "Workflow Started"),
+                "timestamp": datetime.utcnow().isoformat(),
+                "details": f"Session enrolled for {customer_phone}"
+            }]
+        )
+        db.add(session)
+
+        # Update flow stats
+        current_stats = dict(flow.stats or {})
+        current_stats["entered"] = current_stats.get("entered", 0) + 1
+        flow.stats = current_stats
+
+        db.commit()
+        db.refresh(session)
+
+        logger.info(f"🚀 [Workflow Engine] Session #{session.id} started for {customer_phone} in flow '{flow.name}'")
+        
+        # Advance from trigger to first downstream node
+        process_workflow_session_step(session.id, db=db)
+        db.refresh(session)
+        return session
+    except Exception as e:
+        logger.error(f"Error starting workflow session: {e}")
+        db.rollback()
+        return None
+    finally:
+        if owns_db:
+            db.close()
+
+
+def process_workflow_session_step(session_id: int, db=None, mock_send: bool = False) -> dict:
+    """
+    Evaluates and advances a single session in a workflow.
+    Handles Delays, WhatsApp Message Templates, Condition branching, Tagging, and Goals/Exits.
+    """
+    owns_db = False
+    if db is None:
+        db = SessionLocal()
+        owns_db = True
+
+    try:
+        session = db.query(models.WorkflowSession).filter(models.WorkflowSession.id == session_id).first()
+        if not session or session.status in ["COMPLETED_GOAL", "COMPLETED_DROPOUT", "CANCELLED"]:
+            return {"status": "skipped", "reason": "session_inactive_or_finished"}
+
+        flow = db.query(models.WorkflowFlow).filter(models.WorkflowFlow.id == session.flow_id).first()
+        if not flow or not flow.is_active:
+            session.status = "CANCELLED"
+            db.commit()
+            return {"status": "cancelled", "reason": "flow_inactive"}
+
+        nodes = flow.nodes or []
+        edges = flow.edges or []
+        curr_node = find_node_by_id(nodes, session.current_node_id)
+        if not curr_node:
+            logger.warning(f"Session #{session.id} current_node {session.current_node_id} not found in flow.")
+            session.status = "COMPLETED_DROPOUT"
+            db.commit()
+            return {"status": "error", "reason": "node_not_found"}
+
+        node_type = curr_node.get("type", "").lower()
+        node_data = curr_node.get("data", {})
+        now = datetime.utcnow()
+
+        logger.info(f"⚙️ [Workflow Engine] Session #{session.id} ({session.customer_phone}) at node: {curr_node.get('label')} ({node_type})")
+
+        # ─── 1. TRIGGER NODE ───
+        if node_type == "trigger":
+            # Immediately advance to next node
+            next_node = find_next_node(nodes, edges, curr_node.get("id"))
+            if next_node:
+                session.current_node_id = str(next_node.get("id"))
+                db.commit()
+                # Recurse to execute the next node immediately
+                return process_workflow_session_step(session.id, db=db, mock_send=mock_send)
+            else:
+                session.status = "COMPLETED_DROPOUT"
+                db.commit()
+                return {"status": "completed", "outcome": "no_downstream_nodes"}
+
+        # ─── 2. DELAY NODE ───
+        elif node_type == "delay":
+            delay_minutes = int(node_data.get("delay_minutes", 30))
+            if session.status != "WAITING_DELAY":
+                # Enter delay wait
+                session.status = "WAITING_DELAY"
+                session.next_evaluation_at = now + timedelta(minutes=delay_minutes)
+                session.history = (session.history or []) + [{
+                    "node_id": str(curr_node.get("id")),
+                    "node_type": "delay",
+                    "label": curr_node.get("label", f"Wait {delay_minutes}m"),
+                    "timestamp": now.isoformat(),
+                    "details": f"Delayed until {session.next_evaluation_at.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                }]
+                db.commit()
+                logger.info(f"⏳ [Workflow Engine] Session #{session.id} queued for {delay_minutes}m delay.")
+                return {"status": "delay_scheduled", "delay_minutes": delay_minutes}
+            else:
+                # Delay period has elapsed!
+                session.status = "ACTIVE"
+                next_node = find_next_node(nodes, edges, curr_node.get("id"))
+                if next_node:
+                    session.current_node_id = str(next_node.get("id"))
+                    db.commit()
+                    return process_workflow_session_step(session.id, db=db, mock_send=mock_send)
+                else:
+                    session.status = "COMPLETED_DROPOUT"
+                    db.commit()
+                    return {"status": "completed"}
+
+        # ─── 3. WHATSAPP MESSAGE NODE ───
+        elif node_type in ["whatsapp_message", "action_whatsapp", "whatsapp"]:
+            # Check DND & Opt-out
+            opt_out = db.query(models.OptOut).filter(models.OptOut.phone == session.customer_phone).first()
+            if opt_out:
+                session.status = "COMPLETED_DROPOUT"
+                session.history = (session.history or []) + [{
+                    "node_id": str(curr_node.get("id")),
+                    "node_type": "whatsapp_message",
+                    "label": curr_node.get("label"),
+                    "timestamp": now.isoformat(),
+                    "details": "Customer in Opt-Out DND list. Message suppressed."
+                }]
+                db.commit()
+                return {"status": "opted_out", "reason": "dnd_active"}
+
+            template_name = node_data.get("template_name", "cart_recovery_v1")
+            coupon_code = node_data.get("coupon_code", config.DEFAULT_COUPON_CODE)
+            language = node_data.get("language", "en")
+
+            # Look up contact info
+            contact = db.query(models.Contact).filter(models.Contact.phone == session.customer_phone).first()
+            customer_name = contact.name if contact and contact.name else session.state_data.get("customer_name", "Valued Customer")
+            cart_val_str = str(session.state_data.get("cart_value", "450"))
+            items_summary = session.state_data.get("items_summary", "Special Vanela Gathiya & Bhavnagari Gathiya")
+
+            # Build parameters
+            param_dict = {
+                "param_1": customer_name,
+                "param_2": items_summary,
+                "param_3": cart_val_str,
+                "param_4": coupon_code,
+                "param_5": config.BRAND_NAME
+            }
+
+            if mock_send:
+                res = {"status": "success_simulated", "message_id": f"sim_{int(now.timestamp())}"}
+            else:
+                res = send_whatsapp_template(
+                    recipient_phone=session.customer_phone,
+                    template_name=template_name,
+                    language=language,
+                    parameters=param_dict,
+                    coupon_code=coupon_code
+                )
+
+            sent_msg_id = res.get("message_id") or res.get("id") or f"msg_{int(now.timestamp())}"
+            new_state = dict(session.state_data or {})
+            new_state["last_meta_message_id"] = sent_msg_id
+            new_state["last_sent_template"] = template_name
+            session.state_data = new_state
+
+            session.history = (session.history or []) + [{
+                "node_id": str(curr_node.get("id")),
+                "node_type": "whatsapp_message",
+                "label": curr_node.get("label", f"Send {template_name}"),
+                "timestamp": now.isoformat(),
+                "details": f"Dispatched template '{template_name}' (Status: {res.get('status')})"
+            }]
+
+            # Advance to next node
+            next_node = find_next_node(nodes, edges, curr_node.get("id"))
+            if next_node:
+                session.current_node_id = str(next_node.get("id"))
+                db.commit()
+                return {"status": "message_sent", "template": template_name, "next_node": next_node.get("id")}
+            else:
+                session.status = "COMPLETED_GOAL"
+                db.commit()
+                return {"status": "completed", "outcome": "flow_finished"}
+
+        # ─── 4. CONDITION / DECISION NODE ───
+        elif node_type in ["condition", "decision"]:
+            condition_type = node_data.get("condition_type", "ORDER_PLACED")
+            condition_met = False
+
+            if condition_type in ["ORDER_PLACED", "CART_RECOVERED"]:
+                # Check 1: Did cart get marked RECOVERED in CartEvent?
+                cart_token = session.state_data.get("cart_token")
+                if cart_token:
+                    cart = db.query(models.CartEvent).filter(models.CartEvent.cart_token == cart_token).first()
+                    if cart and cart.status == "RECOVERED":
+                        condition_met = True
+                # Check 2: Did contact place a new order after session start?
+                if not condition_met:
+                    contact = db.query(models.Contact).filter(models.Contact.phone == session.customer_phone).first()
+                    if contact and contact.last_order_date and contact.last_order_date >= session.created_at:
+                        condition_met = True
+                # Check 3: State flag
+                if not condition_met and session.state_data.get("order_placed"):
+                    condition_met = True
+
+            elif condition_type == "MESSAGE_READ":
+                # Check if last sent message was READ
+                last_msg_id = session.state_data.get("last_meta_message_id")
+                if last_msg_id:
+                    msg = db.query(models.MessageLog).filter(models.MessageLog.meta_message_id == last_msg_id).first()
+                    if msg and msg.status == "READ":
+                        condition_met = True
+                    chat_msg = db.query(models.ChatMessage).filter(models.ChatMessage.meta_message_id == last_msg_id).first()
+                    if chat_msg and (chat_msg.is_read or chat_msg.status == "READ"):
+                        condition_met = True
+                if not condition_met and session.state_data.get("message_read"):
+                    condition_met = True
+
+            elif condition_type == "CART_VALUE_ABOVE":
+                threshold = float(node_data.get("threshold", 500))
+                cart_val = float(session.state_data.get("cart_value", 0))
+                condition_met = (cart_val >= threshold)
+
+            branch_handle = "yes" if condition_met else "no"
+            logger.info(f"⚖️ [Workflow Engine] Condition '{condition_type}' evaluated to: {condition_met} -> Branch: {branch_handle}")
+
+            cond_str = "YES" if condition_met else "NO"
+            session.history = (session.history or []) + [{
+                "node_id": str(curr_node.get("id")),
+                "node_type": "condition",
+                "label": curr_node.get("label", f"Check {condition_type}"),
+                "timestamp": now.isoformat(),
+                "details": f"Condition evaluated to {cond_str} -> Took '{branch_handle.upper()}' path"
+            }]
+
+            next_node = find_next_node(nodes, edges, curr_node.get("id"), handle=branch_handle)
+            if next_node:
+                session.current_node_id = str(next_node.get("id"))
+                db.commit()
+                # Immediately execute next branch node
+                return process_workflow_session_step(session.id, db=db, mock_send=mock_send)
+            else:
+                session.status = "COMPLETED_GOAL" if condition_met else "COMPLETED_DROPOUT"
+                db.commit()
+                return {"status": "completed", "outcome": f"branch_{branch_handle}_end"}
+
+        # ─── 5. TAG CONTACT NODE ───
+        elif node_type in ["tag", "tag_contact"]:
+            tag_name = node_data.get("tag_name", "Recovered Customer")
+            contact = db.query(models.Contact).filter(models.Contact.phone == session.customer_phone).first()
+            if contact:
+                current_tags = [t.strip() for t in (contact.tags or "").split(",") if t.strip()]
+                if tag_name not in current_tags:
+                    current_tags.append(tag_name)
+                    contact.tags = ", ".join(current_tags)
+                    db.commit()
+
+            session.history = (session.history or []) + [{
+                "node_id": str(curr_node.get("id")),
+                "node_type": "tag",
+                "label": curr_node.get("label", f"Tag '{tag_name}'"),
+                "timestamp": now.isoformat(),
+                "details": f"Contact tagged with '{tag_name}'"
+            }]
+
+            next_node = find_next_node(nodes, edges, curr_node.get("id"))
+            if next_node:
+                session.current_node_id = str(next_node.get("id"))
+                db.commit()
+                return process_workflow_session_step(session.id, db=db, mock_send=mock_send)
+            else:
+                session.status = "COMPLETED_GOAL"
+                db.commit()
+                return {"status": "completed"}
+
+        # ─── 6. EXIT / GOAL NODE ───
+        elif node_type in ["exit", "goal"]:
+            outcome = node_data.get("outcome", "GOAL_MET")
+            session.status = "COMPLETED_GOAL" if outcome == "GOAL_MET" else "COMPLETED_DROPOUT"
+
+            # Update stats
+            current_stats = dict(flow.stats or {})
+            current_stats["completed"] = current_stats.get("completed", 0) + 1
+            if outcome == "GOAL_MET":
+                current_stats["goals_converted"] = current_stats.get("goals_converted", 0) + 1
+                cart_val = float(session.state_data.get("cart_value", 0))
+                current_stats["revenue_recovered"] = current_stats.get("revenue_recovered", 0) + cart_val
+            flow.stats = current_stats
+
+            session.history = (session.history or []) + [{
+                "node_id": str(curr_node.get("id")),
+                "node_type": "exit",
+                "label": curr_node.get("label", "Flow Completed"),
+                "timestamp": now.isoformat(),
+                "details": f"Journey concluded with status: {session.status}"
+            }]
+            db.commit()
+            logger.info(f"🏁 [Workflow Engine] Session #{session.id} concluded with outcome: {outcome}")
+            return {"status": "completed", "outcome": outcome}
+
+        else:
+            logger.warning(f"Unknown node type '{node_type}'. Advancing.")
+            next_node = find_next_node(nodes, edges, curr_node.get("id"))
+            if next_node:
+                session.current_node_id = str(next_node.get("id"))
+                db.commit()
+                return process_workflow_session_step(session.id, db=db, mock_send=mock_send)
+            else:
+                session.status = "COMPLETED_DROPOUT"
+                db.commit()
+                return {"status": "completed"}
+
+    except Exception as e:
+        logger.error(f"Error in process_workflow_session_step: {e}")
+        db.rollback()
+        return {"status": "error", "error": str(e)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+def process_all_active_workflow_sessions():
+    """
+    Periodic job (every minute) that evaluates all active workflow sessions
+    whose next_evaluation_at has arrived.
+    """
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        due_sessions = db.query(models.WorkflowSession).filter(
+            models.WorkflowSession.status.in_(["ACTIVE", "WAITING_DELAY", "WAITING_CONDITION"]),
+            models.WorkflowSession.next_evaluation_at <= now
+        ).all()
+
+        if due_sessions:
+            logger.info(f"⏰ [Workflow Engine] Processing {len(due_sessions)} due workflow session(s)...")
+            for sess in due_sessions:
+                process_workflow_session_step(sess.id, db=db)
+    except Exception as e:
+        logger.error(f"Error in process_all_active_workflow_sessions: {e}")
     finally:
         db.close()

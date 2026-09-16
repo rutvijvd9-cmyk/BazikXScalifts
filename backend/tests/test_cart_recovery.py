@@ -1,5 +1,8 @@
 import pytest
 import uuid
+import hashlib
+import hmac
+import json
 from fastapi import status
 import models
 
@@ -20,6 +23,28 @@ def test_cart_event_webhook(client, auth_headers, db):
     cart = db.query(models.CartEvent).filter(models.CartEvent.cart_token == unique_token).first()
     assert cart is not None
     assert cart.status == "PENDING"
+
+
+def test_store_webhook_requires_valid_signature(client):
+    payload = {
+        "cart_token": f"cart_signed_{uuid.uuid4().hex[:8]}",
+        "customer_phone": "+919876543211",
+        "cart_value": 450.0,
+        "items": []
+    }
+    raw_body = json.dumps(payload).encode()
+    signature = "sha256=" + hmac.new(
+        b"test-store-webhook-secret", raw_body, hashlib.sha256
+    ).hexdigest()
+    accepted = client.post(
+        "/api/webhooks/cart-event",
+        content=raw_body,
+        headers={"Content-Type": "application/json", "X-Hub-Signature-256": signature},
+    )
+    assert accepted.status_code == status.HTTP_202_ACCEPTED
+
+    rejected = client.post("/api/webhooks/cart-event", json=payload)
+    assert rejected.status_code == status.HTTP_401_UNAUTHORIZED
 
 def test_order_completion_cancels_recovery(client, auth_headers, db):
     unique_token = f"cart_test_{uuid.uuid4().hex[:8]}"

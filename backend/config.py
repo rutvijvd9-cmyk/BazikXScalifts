@@ -31,6 +31,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", str(6
 # Webhook secret for HMAC / API Key verification of external e-commerce requests
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 
+META_APP_SECRET = os.getenv("META_APP_SECRET", "")
+
 # Meta Inbound Webhook Verify Token
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
 
@@ -48,6 +50,7 @@ DEFAULT_EXPIRY_DAYS = int(os.getenv("DEFAULT_EXPIRY_DAYS", "30"))
 
 # External HTTP client timeout (in seconds)
 HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "15.0"))
+SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").lower() == "true"
 
 # ── Database Connection ──
 DATABASE_URL = os.getenv(
@@ -77,3 +80,13 @@ INITIAL_ADMIN_EMAIL = os.getenv("INITIAL_ADMIN_EMAIL", "admin@manubhaigathiyawal
 ECOM_SERVICE_USERNAME = os.getenv("ECOM_SERVICE_USERNAME", "ecom_service").strip()
 ECOM_SERVICE_PASSWORD = os.getenv("ECOM_SERVICE_PASSWORD")
 ECOM_SERVICE_EMAIL = os.getenv("ECOM_SERVICE_EMAIL", "ecommerce@manubhaigathiyawala.com").strip()
+
+if ENVIRONMENT == "production":
+    required_secrets = {
+        "WEBHOOK_SECRET": WEBHOOK_SECRET,
+        "WHATSAPP_VERIFY_TOKEN": WHATSAPP_VERIFY_TOKEN,
+        "META_APP_SECRET": META_APP_SECRET,
+    }
+    missing_secrets = [name for name, value in required_secrets.items() if not value]
+    if missing_secrets:
+        raise RuntimeError(f"FATAL: Missing required production secrets: {', '.join(missing_secrets)}")

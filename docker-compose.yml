@@ -7,7 +7,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-ManubhaiDbSecret2026!}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in your environment or .env file}
       POSTGRES_DB: whatsapp_crm
     volumes:
       - crm_db_data:/var/lib/postgresql/data

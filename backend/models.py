@@ -49,6 +49,15 @@ class CartEvent(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class WebhookEvent(Base):
+    __tablename__ = "webhook_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_type = Column(String(50), nullable=False)
+    idempotency_key = Column(String(150), unique=True, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class OptOut(Base):
     __tablename__ = "opt_outs"
 
@@ -94,6 +103,7 @@ class User(Base):
     email = Column(String(120), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
+    role = Column(String(20), default="agent", nullable=False)
     is_2fa_enabled = Column(Boolean, default=False)
     totp_secret = Column(String(64), nullable=True)
     email_recovery_code = Column(String(10), nullable=True)
@@ -146,3 +156,33 @@ class ChatMessage(Base):
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+class WorkflowFlow(Base):
+    __tablename__ = "workflow_flows"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(150), nullable=False)
+    description = Column(Text, nullable=True)
+    trigger_type = Column(String(50), nullable=False, default="ABANDONED_CART")  # ABANDONED_CART, FESTIVAL_PROMO, INACTIVE_CUSTOMERS, ORDER_COUNT_VIP, MANUAL
+    trigger_config = Column(JSON, default=dict)
+    nodes = Column(JSON, nullable=False, default=list)  # [{id, type, label, data, position}]
+    edges = Column(JSON, nullable=False, default=list)  # [{id, source, target, sourceHandle}]
+    is_active = Column(Boolean, default=True)
+    stats = Column(JSON, default=lambda: {"entered": 0, "completed": 0, "goals_converted": 0, "revenue_recovered": 0})
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class WorkflowSession(Base):
+    __tablename__ = "workflow_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    flow_id = Column(Integer, index=True, nullable=False)
+    customer_phone = Column(String(20), index=True, nullable=False)
+    current_node_id = Column(String(50), nullable=True)
+    state_data = Column(JSON, default=dict)  # cart_token, customer_name, cart_value, last_meta_msg_id
+    status = Column(String(50), default="ACTIVE")  # ACTIVE, WAITING_DELAY, WAITING_CONDITION, COMPLETED_GOAL, COMPLETED_DROPOUT, CANCELLED
+    next_evaluation_at = Column(DateTime, default=datetime.utcnow, index=True)
+    history = Column(JSON, default=list)  # [{node_id, action, timestamp, details}]
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

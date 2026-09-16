@@ -1,3 +1,11 @@
+import os
+
+os.environ["DATABASE_URL"] = "sqlite:////tmp/whatsapp_crm_test.db"
+os.environ["SCHEDULER_ENABLED"] = "false"
+os.environ["WHATSAPP_VERIFY_TOKEN"] = "test-meta-verify-token"
+os.environ["META_APP_SECRET"] = "test-meta-app-secret"
+os.environ["WEBHOOK_SECRET"] = "test-store-webhook-secret"
+
 import pytest
 from fastapi.testclient import TestClient
 from database import SessionLocal, Base, engine
@@ -7,8 +15,10 @@ from main import app
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     yield
+    Base.metadata.drop_all(bind=engine)
 
 @pytest.fixture
 def db():
@@ -30,7 +40,8 @@ def seed_test_admin(db):
             username="test_admin",
             email="test_admin@example.com",
             hashed_password=auth.get_password_hash("SecretPassword123!"),
-            is_active=True
+            is_active=True,
+            role="admin"
         )
         db.add(admin)
         db.commit()
