@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -116,6 +116,11 @@ class TemplateCreate(BaseModel):
     body_text: str = Field(..., min_length=5)
     header_text: Optional[str] = None
     footer_text: Optional[str] = None
+    variable_mappings: Optional[Dict[str, Any]] = None  # {"1": {"type": "contact_field", "value": "name"}, ...}
+
+
+class TemplateUpdateMappings(BaseModel):
+    variable_mappings: Optional[Dict[str, Any]] = None
 
 
 class UserCreate(BaseModel):

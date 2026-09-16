@@ -284,8 +284,12 @@ export default function App() {
     language: "en",
     header_text: "",
     body_text: "",
-    footer_text: "Manubhai Gathiyawala"
+    footer_text: "Manubhai Gathiyawala",
+    variable_mappings: {}
   });
+  // Template Mapping Editor State (for existing templates)
+  const [editMappingTemplate, setEditMappingTemplate] = useState(null); // template object being edited
+  const [editMappings, setEditMappings] = useState({});                  // working copy of mappings
 
   // New Journey Flow Modal State
   const [isNewJourneyModalOpen, setIsNewJourneyModalOpen] = useState(false);
@@ -808,7 +812,8 @@ export default function App() {
         language: "en",
         header_text: "",
         body_text: "",
-        footer_text: "Manubhai Gathiyawala"
+        footer_text: "Manubhai Gathiyawala",
+        variable_mappings: {}
       });
       fetchData();
       setTimeout(() => setActionSuccessMsg(""), 6000);
@@ -816,6 +821,24 @@ export default function App() {
       alert("Failed to submit template: " + (err.response?.data?.detail || err.message));
     }
   };
+
+  const handleSaveTemplateMappings = async () => {
+    if (!editMappingTemplate) return;
+    try {
+      await axios.patch(`/api/templates/${editMappingTemplate.id}/mappings`,
+        { variable_mappings: editMappings },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setActionSuccessMsg(`Column mappings saved for '${editMappingTemplate.template_name}'!`);
+      setEditMappingTemplate(null);
+      setEditMappings({});
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert("Failed to save mappings: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
 
   useEffect(() => {
     if (token) {
@@ -2402,8 +2425,7 @@ export default function App() {
                   <>
                     <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                       {paginatedTemplates.map((t) => (
-                        <div
-                          key={t.id}
+                        <div key={t.id}
                           className="border border-gray-200 rounded-xl p-4.5 bg-gray-50/50 flex flex-col justify-between hover:border-gray-300 transition"
                         >
                           <div>
@@ -2420,17 +2442,48 @@ export default function App() {
                               }`}>
                                 {t.status}
                               </span>
+                              {t.variable_mappings && Object.keys(t.variable_mappings).length > 0 ? (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  ✓ Mapped
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                  ⚠ No Mapping
+                                </span>
+                              )}
                             </div>
                             <h4 className="font-bold text-sm text-gray-900 mt-2.5 font-mono">{t.template_name}</h4>
                             <p className="text-xs font-semibold text-[#D35400] mt-0.5">{t.header_text}</p>
                             <p className="text-xs text-gray-700 mt-3 bg-white p-3 rounded-lg border border-gray-200 leading-relaxed font-sans">
                               {t.body_text}
                             </p>
+                            {/* Mapping Pills */}
+                            {t.variable_mappings && Object.keys(t.variable_mappings).length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {Object.entries(t.variable_mappings).map(([idx, m]) => (
+                                  <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-semibold">
+                                    <span className="font-mono font-bold">{`{{${idx}}}`}</span>
+                                    <span className="text-blue-500">→</span>
+                                    <span>{m.type === "contact_field" ? m.value : m.type === "static" ? `"${m.value}"` : `${m.type}.${m.value}`}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                           <div className="mt-3 pt-2.5 border-t border-gray-200 flex items-center justify-between text-[11px] text-gray-400">
                             <span>Category: {t.category}</span>
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-gray-500">{t.footer_text}</span>
+                              <button
+                                onClick={() => {
+                                  setEditMappingTemplate(t);
+                                  setEditMappings(t.variable_mappings || {});
+                                }}
+                                className="text-xs text-blue-600 hover:text-blue-800 font-semibold hover:underline flex items-center gap-1 transition"
+                                title="Configure column mappings for this template"
+                              >
+                                🗂 Columns
+                              </button>
                               <button
                                 onClick={() => handleDeleteTemplate(t.id, t.template_name)}
                                 className="text-xs text-red-500 hover:text-red-700 font-semibold hover:underline flex items-center gap-1 transition"
@@ -4950,6 +5003,72 @@ export default function App() {
                 />
               </div>
 
+
+              {/* ── Auto-Detected Column Mapping ── */}
+              {(() => {
+                const FIELD_OPTIONS = [
+                  { group: "Contact Field", options: [
+                    { value: "contact_field|name", label: "Customer Name" },
+                    { value: "contact_field|phone", label: "Customer Phone" },
+                    { value: "contact_field|city", label: "City" },
+                    { value: "contact_field|total_orders", label: "Total Orders" },
+                    { value: "contact_field|last_order_date", label: "Last Order Date" }
+                  ]},
+                  { group: "Cart / Order", options: [
+                    { value: "cart_event|items", label: "Cart Items Summary" },
+                    { value: "cart_event|cart_value", label: "Cart Value (₹)" },
+                    { value: "cart_event|cart_url", label: "Cart Recovery URL" }
+                  ]},
+                  { group: "Coupon", options: [
+                    { value: "coupon|code", label: "Coupon Code" },
+                    { value: "coupon|discount_value", label: "Discount Value (%/₹)" },
+                    { value: "coupon|expires_at", label: "Coupon Expiry Date" }
+                  ]},
+                  { group: "Static Text", options: [
+                    { value: "static|", label: "Custom static text..." }
+                  ]}
+                ];
+                const params = [...new Set([...(newTemplate.body_text || "").matchAll(/\{\{([a-zA-Z0-9_-]+)\}\}/g)].map(m => m[1]))];
+                if (params.length === 0) return null;
+                return (
+                  <div className="border border-blue-200 bg-blue-50 rounded-xl p-3.5 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold uppercase text-blue-800">📌 Column Mapping</span>
+                      <span className="text-[10px] text-blue-600 ml-1">Configure once → auto-used everywhere</span>
+                    </div>
+                    {params.map(param => {
+                      const cm = (newTemplate.variable_mappings || {})[param] || {};
+                      const cv = cm.type ? (cm.type + "|" + (cm.value || "")) : "";
+                      return (
+                        <div key={param} className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-blue-800 bg-white px-2 py-1 rounded border border-blue-200 text-xs w-14 text-center">{"{{"}{param}{"}}"}</span>
+                          <span className="text-blue-500">→</span>
+                          <select value={cv}
+                            onChange={e => {
+                              const [type, ...rest] = e.target.value.split("|");
+                              setNewTemplate(prev => ({ ...prev, variable_mappings: { ...(prev.variable_mappings || {}), [param]: { type, value: rest.join("|") } } }));
+                            }}
+                            className="flex-1 px-2.5 py-1.5 border border-blue-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                          >
+                            <option value="">— choose field —</option>
+                            {FIELD_OPTIONS.map(g => (
+                              <optgroup key={g.group} label={g.group}>
+                                {g.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                              </optgroup>
+                            ))}
+                          </select>
+                          {cm.type === "static" && (
+                            <input type="text" placeholder="Static text" value={cm.value || ""}
+                              onChange={e => setNewTemplate(prev => ({ ...prev, variable_mappings: { ...(prev.variable_mappings || {}), [param]: { type: "static", value: e.target.value } } }))}
+                              className="w-28 px-2 py-1.5 border border-blue-200 rounded-lg text-xs"
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
               <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
                 <button
                   type="button"
@@ -4966,6 +5085,113 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+
+      {/* ── Configure Column Mappings Modal (Existing Templates) ── */}
+      {editMappingTemplate && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div>
+                <h3 className="font-bold text-base text-gray-900">Configure Column Mappings</h3>
+                <p className="text-xs text-gray-500 mt-0.5 font-mono">{editMappingTemplate.template_name}</p>
+              </div>
+              <button onClick={() => { setEditMappingTemplate(null); setEditMappings({}); }} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <p className="text-xs text-gray-600 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                📌 Map each <span className="font-mono font-bold">{"{{N}}"}</span> placeholder to a contact/cart/coupon field. This config will automatically apply to all automations and campaigns using this template — no per-flow setup needed.
+              </p>
+
+              {/* Template body preview */}
+              <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 text-xs text-gray-700 leading-relaxed font-sans">
+                {editMappingTemplate.body_text}
+              </div>
+
+              {(() => {
+                const FIELD_OPTIONS = [
+                  { group: "Contact Field", options: [
+                    { value: "contact_field|name", label: "Customer Name" },
+                    { value: "contact_field|phone", label: "Customer Phone" },
+                    { value: "contact_field|city", label: "City" },
+                    { value: "contact_field|total_orders", label: "Total Orders" },
+                    { value: "contact_field|last_order_date", label: "Last Order Date" }
+                  ]},
+                  { group: "Cart / Order", options: [
+                    { value: "cart_event|items", label: "Cart Items Summary" },
+                    { value: "cart_event|cart_value", label: "Cart Value (₹)" },
+                    { value: "cart_event|cart_url", label: "Cart Recovery URL" }
+                  ]},
+                  { group: "Coupon", options: [
+                    { value: "coupon|code", label: "Coupon Code" },
+                    { value: "coupon|discount_value", label: "Discount Value (%/₹)" },
+                    { value: "coupon|expires_at", label: "Coupon Expiry Date" }
+                  ]},
+                  { group: "Static Text", options: [
+                    { value: "static|", label: "Custom static text..." }
+                  ]}
+                ];
+                const params = [...new Set([...(editMappingTemplate.body_text || "").matchAll(/\{\{([a-zA-Z0-9_-]+)\}\}/g)].map(m => m[1]))];
+                if (params.length === 0) return (
+                  <p className="text-xs text-center text-gray-400 py-4">No placeholders found in this template body text.</p>
+                );
+                return (
+                  <div className="space-y-3">
+                    {params.map(param => {
+                      const cm = (editMappings || {})[param] || {};
+                      const cv = cm.type ? (cm.type + "|" + (cm.value || "")) : "";
+                      return (
+                        <div key={param} className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-blue-800 bg-blue-50 px-2 py-1 rounded border border-blue-200 text-xs w-14 text-center">{"{{"}{param}{"}}"}</span>
+                          <span className="text-blue-400">→</span>
+                          <select value={cv}
+                            onChange={e => {
+                              const [type, ...rest] = e.target.value.split("|");
+                              setEditMappings(prev => ({ ...prev, [param]: { type, value: rest.join("|") } }));
+                            }}
+                            className="flex-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                          >
+                            <option value="">— choose field —</option>
+                            {FIELD_OPTIONS.map(g => (
+                              <optgroup key={g.group} label={g.group}>
+                                {g.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                              </optgroup>
+                            ))}
+                          </select>
+                          {cm.type === "static" && (
+                            <input type="text" placeholder="Static text" value={cm.value || ""}
+                              onChange={e => setEditMappings(prev => ({ ...prev, [param]: { type: "static", value: e.target.value } }))}
+                              className="w-28 px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none"
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setEditMappingTemplate(null); setEditMappings({}); }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveTemplateMappings}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg font-semibold text-sm shadow-md"
+                >
+                  Save Mappings
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

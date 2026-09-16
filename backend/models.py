@@ -121,6 +121,8 @@ class Template(Base):
     body_text = Column(Text, nullable=False)
     footer_text = Column(String(100), nullable=True)
     status = Column(String(50), default="APPROVED")     # APPROVED, PENDING, REJECTED
+    # Configure-Once-Use-Everywhere: maps {{1}}, {{2}} ... to contact/cart/coupon/static fields
+    variable_mappings = Column(JSON, nullable=True)     # e.g. {"1": {"type": "contact_field", "value": "name"}, "2": {...}}
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class AutomationRule(Base):

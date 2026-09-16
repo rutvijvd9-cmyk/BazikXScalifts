@@ -1800,6 +1800,8 @@ def create_template(
         existing.header_text = payload.header_text
         existing.footer_text = payload.footer_text
         existing.status = status_val
+        if payload.variable_mappings is not None:
+            existing.variable_mappings = payload.variable_mappings
         db.commit()
         db.refresh(existing)
         return existing
@@ -1811,7 +1813,8 @@ def create_template(
         body_text=payload.body_text,
         header_text=payload.header_text,
         footer_text=payload.footer_text,
-        status=status_val
+        status=status_val,
+        variable_mappings=payload.variable_mappings or {}
     )
     db.add(new_tmpl)
     db.commit()
@@ -1857,6 +1860,26 @@ def delete_template(
         "status": "success",
         "message": f"Template '{tmpl_name}' was successfully deleted{meta_note}."
     }
+
+
+@app.patch("/api/templates/{template_id}/mappings")
+def update_template_mappings(
+    template_id: int,
+    payload: schemas.TemplateUpdateMappings,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    """
+    Update only the variable_mappings for an existing template.
+    Allows reconfiguring which contact/cart/coupon field maps to each {{N}} placeholder.
+    """
+    tmpl = db.query(models.Template).filter(models.Template.id == template_id).first()
+    if not tmpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+    tmpl.variable_mappings = payload.variable_mappings or {}
+    db.commit()
+    db.refresh(tmpl)
+    return {"status": "updated", "id": tmpl.id, "variable_mappings": tmpl.variable_mappings}
 
 
 # ==========================================

@@ -317,18 +317,48 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
             contact = db.query(models.Contact).filter(models.Contact.phone == phone).first()
             customer_name = contact.name if contact and contact.name else "Valued Customer"
 
-            # Build parameter dictionary matching the template's required count
-            fallback_values = [
-                customer_name,
-                campaign.title,
-                config.STORE_SUPPORT_PHONE or phone,
-                f"{config.DEFAULT_DISCOUNT_PERCENT}% OFF",
-                config.STORE_LOCATION or config.BRAND_NAME,
-                config.BRAND_NAME
-            ]
+            # Build parameters: use template-level mappings first, then positional fallback
             params = {}
-            for i in range(1, placeholder_count + 1):
-                params[f"param_{i}"] = fallback_values[(i - 1) % len(fallback_values)]
+            if tmpl and tmpl.variable_mappings and isinstance(tmpl.variable_mappings, dict):
+                cart_val_str = str(contact.total_spent if contact else 0)
+                items_summary = campaign.title
+                for idx_str, m_def in tmpl.variable_mappings.items():
+                    if not isinstance(m_def, dict):
+                        continue
+                    m_type = m_def.get("type")
+                    m_val = m_def.get("value")
+                    if m_type == "contact_field":
+                        if m_val == "phone":
+                            val_str = phone
+                        elif m_val == "city":
+                            val_str = contact.city if contact and contact.city else "Ahmedabad"
+                        elif m_val == "total_orders":
+                            val_str = str(contact.total_orders) if contact else "1"
+                        elif m_val == "last_order_date":
+                            val_str = contact.last_order_date.strftime("%d/%m/%Y") if contact and contact.last_order_date else "Recently"
+                        else:
+                            val_str = customer_name
+                    elif m_type == "cart_event":
+                        val_str = cart_val_str if m_val == "cart_value" else items_summary
+                    elif m_type == "coupon":
+                        val_str = config.DEFAULT_COUPON_CODE if hasattr(config, "DEFAULT_COUPON_CODE") else "MANU10"
+                    elif m_type == "static":
+                        val_str = str(m_val) if m_val else ""
+                    else:
+                        val_str = customer_name
+                    params[f"param_{idx_str}"] = val_str
+            else:
+                # Positional fallback if template has no configured mappings
+                fallback_values = [
+                    customer_name,
+                    campaign.title,
+                    config.STORE_SUPPORT_PHONE or phone,
+                    f"{config.DEFAULT_DISCOUNT_PERCENT}% OFF",
+                    config.STORE_LOCATION or config.BRAND_NAME,
+                    config.BRAND_NAME
+                ]
+                for i in range(1, placeholder_count + 1):
+                    params[f"param_{i}"] = fallback_values[(i - 1) % len(fallback_values)]
 
             res = send_whatsapp_template(
                 recipient_phone=phone,
@@ -805,14 +835,69 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             cart_val_str = str(session.state_data.get("cart_value", "450"))
             items_summary = session.state_data.get("items_summary", "Special Vanela Gathiya & Bhavnagari Gathiya")
 
-            # Build parameters
-            param_dict = {
-                "param_1": customer_name,
-                "param_2": items_summary,
-                "param_3": cart_val_str,
-                "param_4": coupon_code,
-                "param_5": config.BRAND_NAME
-            }
+            # Resolve dynamic column / parameter mappings
+            # Priority: node overrides > template-level mappings > smart default fallback
+            user_mappings = node_data.get("variable_mappings")
+            if not user_mappings:
+                # Inherit from the template itself (Configure-Once-Use-Everywhere pattern)
+                tmpl_name_for_lookup = node_data.get("template_name", template_name)
+                template_record = db.query(models.Template).filter(
+                    models.Template.template_name == tmpl_name_for_lookup
+                ).first()
+                if template_record and template_record.variable_mappings:
+                    user_mappings = template_record.variable_mappings
+                else:
+                    user_mappings = {}
+            param_dict = {}
+
+            if isinstance(user_mappings, dict) and user_mappings:
+                for idx_str, m_def in user_mappings.items():
+                    if not isinstance(m_def, dict):
+                        continue
+                    m_type = m_def.get("type")
+                    m_val = m_def.get("value")
+
+                    if m_type == "contact_field":
+                        if m_val == "phone":
+                            val_str = session.customer_phone
+                        elif m_val == "city":
+                            val_str = contact.city if contact and contact.city else "Ahmedabad"
+                        elif m_val == "total_orders":
+                            val_str = str(contact.total_orders) if contact else "1"
+                        elif m_val == "last_order_date":
+                            val_str = contact.last_order_date.strftime("%d/%m/%Y") if contact and contact.last_order_date else "Recently"
+                        else:
+                            val_str = customer_name
+                    elif m_type == "cart_event":
+                        if m_val == "cart_value":
+                            val_str = cart_val_str
+                        elif m_val == "cart_url":
+                            val_str = session.state_data.get("cart_url", "https://manubhai.com/cart")
+                        else:
+                            val_str = items_summary
+                    elif m_type == "coupon":
+                        coupon_rec = db.query(models.DiscountCode).filter(models.DiscountCode.code == coupon_code).first()
+                        if m_val == "discount_value":
+                            val_str = f"{int(coupon_rec.discount_value)}%" if coupon_rec and coupon_rec.discount_type == "PERCENT" else f"{config.DEFAULT_DISCOUNT_PERCENT}%"
+                        elif m_val == "expires_at":
+                            val_str = coupon_rec.expires_at.strftime("%d/%m/%Y") if coupon_rec and coupon_rec.expires_at else (datetime.utcnow() + timedelta(days=config.DEFAULT_EXPIRY_DAYS)).strftime("%d/%m/%Y")
+                        else:
+                            val_str = coupon_code
+                    elif m_type == "static":
+                        val_str = str(m_val) if m_val else ""
+                    else:
+                        val_str = customer_name
+
+                    param_dict[f"param_{idx_str}"] = val_str
+            else:
+                # Default smart fallback
+                param_dict = {
+                    "param_1": customer_name,
+                    "param_2": items_summary,
+                    "param_3": cart_val_str,
+                    "param_4": coupon_code,
+                    "param_5": config.BRAND_NAME
+                }
 
             if mock_send:
                 res = {"status": "success_simulated", "message_id": f"sim_{int(now.timestamp())}"}

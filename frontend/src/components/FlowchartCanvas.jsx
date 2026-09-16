@@ -502,14 +502,28 @@ export default function FlowchartCanvas({
                           </div>
 
                           {/* Message Bubble Preview */}
-                          <div className="bg-[#E7F8EE] border border-[#25D366]/30 rounded-xl p-3 text-xs text-gray-800 space-y-1 relative">
-                            <div className="text-[10px] font-bold text-emerald-800 flex items-center gap-1">
-                              <span>WhatsApp Message Preview:</span>
-                            </div>
-                            <p className="text-[11px] text-gray-700 italic">
-                              "Hi <span className="text-emerald-700 font-bold bg-white px-1 rounded border border-emerald-200">{"{{customer_name}}"}</span>, you left items in your cart! Use code <span className="text-[#D35400] font-bold bg-white px-1 rounded border border-amber-200">{node.data?.coupon_code || "BAZIK7"}</span> to complete your order today."
-                            </p>
-                          </div>
+                          {(() => {
+                            const tmpl = availableTemplates.find(t => t.template_name === (node.data?.template_name || ""));
+                            const mappings = node.data?.variable_mappings || (tmpl?.variable_mappings) || {};
+                            let preview = tmpl?.body_text || "";
+                            if (preview && Object.keys(mappings).length > 0) {
+                              Object.entries(mappings).forEach(([idx, m]) => {
+                                const lbl = m.type === "contact_field" ? (m.value === "name" ? "Customer Name" : m.value)
+                                  : m.type === "cart_event" ? m.value
+                                  : m.type === "static" ? m.value
+                                  : (m.value || "?");
+                                preview = preview.replace(new RegExp("\\{\\{" + idx + "\\}\\}", "g"), "[" + lbl + "]");
+                              });
+                            } else if (!preview) {
+                              preview = `Hi [Customer Name], you left items in your cart! Use code ${node.data?.coupon_code || "BAZIK7"} to complete your order.`;
+                            }
+                            return (
+                              <div className="bg-[#E7F8EE] border border-[#25D366]/30 rounded-xl p-3 text-xs text-gray-800 space-y-1 relative">
+                                <div className="text-[10px] font-bold text-emerald-800">WhatsApp Preview:</div>
+                                <p className="text-[11px] text-gray-700 italic leading-relaxed">{preview}</p>
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
 
@@ -771,6 +785,50 @@ export default function FlowchartCanvas({
                     ))}
                   </div>
                 </div>
+
+                {/* Inherited Template Mappings Info */}
+                {(() => {
+                  const selTmpl = availableTemplates.find(t => t.template_name === (selectedNode.data?.template_name || ""));
+                  const mappings = selectedNode.data?.variable_mappings || (selTmpl && selTmpl.variable_mappings) || {};
+                  const hasMappings = Object.keys(mappings).length > 0;
+                  const bodyText = selTmpl?.body_text || "";
+                  let preview = bodyText;
+                  if (hasMappings && bodyText) {
+                    Object.entries(mappings).forEach(([idx, m]) => {
+                      const label = m.type === "contact_field" ? (m.value === "name" ? "Customer Name" : m.value)
+                        : m.type === "cart_event" ? m.value
+                        : m.type === "static" ? ("\"" + m.value + "\"")
+                        : (m.value || "?");
+                      preview = preview.replace(new RegExp("\\{\\{" + idx + "\\}\\}", "g"), "[" + label + "]");
+                    });
+                  }
+                  return (
+                    <div className="space-y-1.5">
+                      <label className="font-bold text-gray-700 text-xs">Column Mappings <span className="text-[10px] font-normal text-gray-400">(from template)</span></label>
+                      {hasMappings ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {Object.entries(mappings).map(([idx, m]) => (
+                            <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-semibold">
+                              <span className="font-mono">{"{{"}{idx}{"}}"}</span>
+                              <span className="text-blue-400">→</span>
+                              <span>{m.type === "contact_field" ? m.value : m.type === "static" ? ("\"" + m.value + "\"") : (m.type + "." + m.value)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                          ⚠ No mappings — configure in Templates tab → 🗂 Columns
+                        </p>
+                      )}
+                      {bodyText && preview !== bodyText && (
+                        <div className="bg-[#E7F8EE] border border-[#25D366]/30 rounded-xl p-2.5 text-[10px] text-gray-700">
+                          <span className="font-bold text-emerald-800 block mb-1">Live Preview:</span>
+                          <p className="italic leading-relaxed">{preview}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
