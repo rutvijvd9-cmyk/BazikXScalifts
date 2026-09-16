@@ -390,9 +390,59 @@ export default function FlowchartCanvas({
           className="min-h-full min-w-full p-12 flex flex-col items-center justify-start transition-transform origin-top"
           style={{ transform: `scale(${zoom})` }}
         >
-          {/* Step Sequence Layout */}
-          <div className="flex flex-col items-center space-y-4 max-w-4xl w-full">
-            {(flow.nodes || []).map((node, index) => {
+          {(() => {
+            const allNodes = flow.nodes || [];
+            const allEdges = flow.edges || [];
+
+            // Helper to get edge target from source
+            const getEdgeTarget = (sourceId, handle = null) => {
+              const matched = allEdges.filter((e) => {
+                if (String(e.source) !== String(sourceId)) return false;
+                if (handle) {
+                  return String(e.sourceHandle || "").toLowerCase() === handle.toLowerCase();
+                }
+                return true;
+              });
+              return matched.length > 0 ? matched[0].target : null;
+            };
+
+            // Collect all downstream nodes for a given branch
+            const getBranchNodes = (startNodeId) => {
+              const result = [];
+              const visited = new Set();
+              let curId = startNodeId;
+              while (curId && !visited.has(curId)) {
+                visited.add(curId);
+                const n = allNodes.find((x) => String(x.id) === String(curId));
+                if (!n) break;
+                result.push(n);
+                // Next node in this linear branch segment
+                const nextTarget = getEdgeTarget(curId);
+                curId = nextTarget;
+              }
+              return result;
+            };
+
+            // Identify condition nodes
+            const conditionNode = allNodes.find((n) => n.type === "condition");
+
+            // Branch roots
+            const yesRootId = conditionNode ? getEdgeTarget(conditionNode.id, "yes") : null;
+            const noRootId = conditionNode ? getEdgeTarget(conditionNode.id, "no") : null;
+
+            const yesBranchNodes = yesRootId ? getBranchNodes(yesRootId) : [];
+            const noBranchNodes = noRootId ? getBranchNodes(noRootId) : [];
+
+            const branchNodeIds = new Set([
+              ...yesBranchNodes.map((n) => String(n.id)),
+              ...noBranchNodes.map((n) => String(n.id))
+            ]);
+
+            // Main trunk nodes (excluding nodes that belong inside YES or NO branches)
+            const trunkNodes = allNodes.filter((n) => !branchNodeIds.has(String(n.id)));
+
+            // Single Node Card Renderer
+            const renderNodeCard = (node, isBranchChild = false) => {
               const isSelected = selectedNodeId === node.id;
               const isTrigger = node.type === "trigger";
               const isDelay = node.type === "delay";
@@ -405,310 +455,378 @@ export default function FlowchartCanvas({
               const isExit = node.type === "exit" || node.type === "goal";
 
               return (
-                <React.Fragment key={node.id}>
-                  {/* Step Card */}
+                <div
+                  key={node.id}
+                  onClick={() => setSelectedNodeId(node.id)}
+                  className={`w-full bg-white rounded-2xl border-2 transition-all cursor-pointer relative shadow-sm hover:shadow-md ${
+                    isBranchChild ? "max-w-xs sm:max-w-sm" : "max-w-md"
+                  } ${
+                    isSelected
+                      ? "border-[#25D366] ring-4 ring-emerald-100 shadow-md"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  {/* Node Header Pill */}
                   <div
-                    onClick={() => setSelectedNodeId(node.id)}
-                    className={`w-full max-w-md bg-white rounded-2xl border-2 transition-all cursor-pointer relative shadow-sm hover:shadow-md ${
-                      isSelected
-                        ? "border-[#25D366] ring-4 ring-emerald-100 shadow-md"
-                        : "border-gray-200 hover:border-gray-300"
+                    className={`px-4 py-2 rounded-t-2xl flex items-center justify-between text-xs font-bold ${
+                      isTrigger
+                        ? "bg-blue-600 text-white"
+                        : isDelay
+                        ? "bg-amber-500 text-white"
+                        : isWhatsApp
+                        ? "bg-[#25D366] text-white"
+                        : isCondition
+                        ? "bg-purple-600 text-white"
+                        : isTag
+                        ? "bg-indigo-600 text-white"
+                        : node.data?.outcome === "GOAL_MET"
+                        ? "bg-emerald-700 text-white"
+                        : "bg-gray-600 text-white"
                     }`}
                   >
-                    {/* Node Header Pill */}
-                    <div
-                      className={`px-4 py-2 rounded-t-2xl flex items-center justify-between text-xs font-bold ${
-                        isTrigger
-                          ? "bg-blue-600 text-white"
+                    <div className="flex items-center gap-2">
+                      {isTrigger && <Zap className="w-3.5 h-3.5 fill-white" />}
+                      {isDelay && <Clock className="w-3.5 h-3.5" />}
+                      {isWhatsApp && <Send className="w-3.5 h-3.5" />}
+                      {isCondition && <GitBranch className="w-3.5 h-3.5" />}
+                      {isTag && <Tag className="w-3.5 h-3.5" />}
+                      {isExit && <CheckCircle2 className="w-3.5 h-3.5" />}
+                      <span className="uppercase tracking-wider text-[10px]">
+                        {isTrigger
+                          ? "Step 1: Trigger"
                           : isDelay
-                          ? "bg-amber-500 text-white"
+                          ? "Delay Timer"
                           : isWhatsApp
-                          ? "bg-[#25D366] text-white"
+                          ? "WhatsApp Action"
                           : isCondition
-                          ? "bg-purple-600 text-white"
+                          ? "Decision Check"
                           : isTag
-                          ? "bg-indigo-600 text-white"
-                          : node.data?.outcome === "GOAL_MET"
-                          ? "bg-emerald-700 text-white"
-                          : "bg-gray-600 text-white"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        {isTrigger && <Zap className="w-3.5 h-3.5 fill-white" />}
-                        {isDelay && <Clock className="w-3.5 h-3.5" />}
-                        {isWhatsApp && <Send className="w-3.5 h-3.5" />}
-                        {isCondition && <GitBranch className="w-3.5 h-3.5" />}
-                        {isTag && <Tag className="w-3.5 h-3.5" />}
-                        {isExit && <CheckCircle2 className="w-3.5 h-3.5" />}
-                        <span className="uppercase tracking-wider text-[10px]">
-                          {isTrigger
-                            ? "Step 1: Trigger"
-                            : isDelay
-                            ? "Delay Timer"
-                            : isWhatsApp
-                            ? "WhatsApp Action"
-                            : isCondition
-                            ? "Decision Check"
-                            : isTag
-                            ? "Tag Action"
-                            : "Exit / Goal"}
-                        </span>
-                      </div>
-
-                      <span className="text-[10px] opacity-80 font-mono">
-                        #{node.id}
+                          ? "Tag Action"
+                          : "Exit / Goal"}
                       </span>
                     </div>
 
-                    {/* Node Card Body */}
-                    <div className="p-4 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-bold text-gray-900 text-sm">
-                          {node.label}
-                        </h4>
-                        <Sliders className="w-3.5 h-3.5 text-gray-400 hover:text-gray-600" />
-                      </div>
-
-                      {/* Detail Pill Content depending on type */}
-                      {isDelay && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 flex items-center justify-between text-xs">
-                          <span className="text-amber-900 font-semibold flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5 text-amber-600" />
-                            Duration:
-                          </span>
-                          <span className="font-mono font-bold text-amber-900 bg-white px-2 py-0.5 rounded border border-amber-200">
-                            {(() => {
-                              const mins = Number(node.data?.delay_minutes) || 30;
-                              if (mins >= 1440 && mins % 1440 === 0) {
-                                const d = mins / 1440;
-                                return `${d} Day${d > 1 ? "s" : ""}`;
-                              }
-                              if (mins >= 60 && mins % 60 === 0) {
-                                const h = mins / 60;
-                                return `${h} Hour${h > 1 ? "s" : ""}`;
-                              }
-                              if (mins >= 1440) {
-                                return `${(mins / 1440).toFixed(1)} Days (${mins}m)`;
-                              }
-                              if (mins >= 60) {
-                                return `${(mins / 60).toFixed(1)} Hours (${mins}m)`;
-                              }
-                              return `${mins} Minutes`;
-                            })()}
-                          </span>
-                        </div>
-                      )}
-
-                      {isWhatsApp && (
-                        <div className="space-y-2">
-                          <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5 space-y-1.5 text-xs">
-                            <div className="flex items-center justify-between">
-                              <span className="text-gray-500">Template:</span>
-                              <span className="font-mono font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200 text-[11px]">
-                                {node.data?.template_name || "abandoned_cart_recovery"}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-gray-500">Attached Coupon:</span>
-                              <span className="font-mono font-bold text-[#D35400] bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[11px]">
-                                {node.data?.coupon_code || "None"}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Message Bubble Preview */}
-                          {(() => {
-                            const tmpl = availableTemplates.find(t => t.template_name === (node.data?.template_name || ""));
-                            const mappings = node.data?.variable_mappings || (tmpl?.variable_mappings) || {};
-                            let preview = tmpl?.body_text || "";
-                            if (preview && Object.keys(mappings).length > 0) {
-                              Object.entries(mappings).forEach(([idx, m]) => {
-                                const lbl = m.type === "contact_field" ? (m.value === "name" ? "Customer Name" : m.value)
-                                  : m.type === "cart_event" ? m.value
-                                  : m.type === "static" ? m.value
-                                  : (m.value || "?");
-                                preview = preview.replace(new RegExp("\\{\\{" + idx + "\\}\\}", "g"), "[" + lbl + "]");
-                              });
-                            } else if (!preview) {
-                              preview = `Hi [Customer Name], you left items in your cart! Use code ${node.data?.coupon_code || "BAZIK7"} to complete your order.`;
-                            }
-                            return (
-                              <div className="bg-[#E7F8EE] border border-[#25D366]/30 rounded-xl p-3 text-xs text-gray-800 space-y-1 relative">
-                                <div className="text-[10px] font-bold text-emerald-800">WhatsApp Preview:</div>
-                                <p className="text-[11px] text-gray-700 italic leading-relaxed">{preview}</p>
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      )}
-
-                      {isCondition && (
-                        <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-2 text-xs">
-                          <div className="flex items-center justify-between text-purple-900 font-semibold">
-                            <span>Check Criteria:</span>
-                            <span className="font-bold text-purple-800 bg-white px-2 py-0.5 rounded border border-purple-200 text-[11px]">
-                              {node.data?.condition_type === "ORDER_PLACED"
-                                ? "Cart Recovered / Order Placed"
-                                : node.data?.condition_type === "MESSAGE_READ"
-                                ? "Message Read (Blue Ticks)"
-                                : "Cart Value Threshold"}
-                            </span>
-                          </div>
-
-                          {/* Branch indicator preview */}
-                          <div className="grid grid-cols-2 gap-2 pt-1">
-                            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-1.5 text-center text-[10px] font-bold text-emerald-700 flex items-center justify-center gap-1">
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              YES → Goal Converted
-                            </div>
-                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-1.5 text-center text-[10px] font-bold text-amber-700 flex items-center justify-center gap-1">
-                              <Clock className="w-3 h-3 text-amber-600" />
-                              NO → 2nd Discount Followup
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {isTag && (
-                        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-2.5 flex items-center justify-between text-xs">
-                          <span className="text-indigo-900 font-semibold">Tag Appended:</span>
-                          <span className="font-bold text-indigo-700 bg-white px-2.5 py-0.5 rounded-full border border-indigo-200 text-[11px]">
-                            🏷️ {node.data?.tag_name || "Recovered Patron"}
-                          </span>
-                        </div>
-                      )}
-
-                      {isExit && (
-                        <div
-                          className={`rounded-xl p-2.5 flex items-center justify-between text-xs font-bold ${
-                            node.data?.outcome === "GOAL_MET"
-                              ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                              : "bg-gray-100 text-gray-700 border border-gray-200"
-                          }`}
-                        >
-                          <span>Outcome:</span>
-                          <span>
-                            {node.data?.outcome === "GOAL_MET"
-                              ? "Conversion Goal Met (Revenue Recovered)"
-                              : "Standard Journey Dropout"}
-                          </span>
-                        </div>
-                      )}
-                    </div>
+                    <span className="text-[10px] opacity-80 font-mono">
+                      #{node.id}
+                    </span>
                   </div>
 
-                  {/* ── ⚖️ If this node is a Decision Check (Condition), ALWAYS render the visual YES vs NO Branch Split ── */}
-                  {isCondition && (
-                    <div className="w-full max-w-xl my-2 flex flex-col items-center">
-                      {/* Stem coming down from Decision node */}
-                      <div className="w-0.5 h-6 bg-purple-400" />
+                  {/* Node Card Body */}
+                  <div className="p-4 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-gray-900 text-sm">
+                        {node.label}
+                      </h4>
+                      <Sliders className="w-3.5 h-3.5 text-gray-400 hover:text-gray-600" />
+                    </div>
 
-                      {/* Split Horizontal Bar */}
-                      <div className="w-4/5 h-0.5 bg-purple-300 relative">
-                        <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-white px-2 text-[10px] font-bold text-purple-600 rounded-full border border-purple-200 uppercase">
-                          Branch Evaluation
+                    {/* Detail Pill Content depending on type */}
+                    {isDelay && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                        <span className="text-amber-900 font-semibold flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-amber-600" />
+                          Duration:
+                        </span>
+                        <span className="font-mono font-bold text-amber-900 bg-white px-2 py-0.5 rounded border border-amber-200">
+                          {(() => {
+                            const mins = Number(node.data?.delay_minutes) || 30;
+                            if (mins >= 1440 && mins % 1440 === 0) {
+                              const d = mins / 1440;
+                              return `${d} Day${d > 1 ? "s" : ""}`;
+                            }
+                            if (mins >= 60 && mins % 60 === 0) {
+                              const h = mins / 60;
+                              return `${h} Hour${h > 1 ? "s" : ""}`;
+                            }
+                            if (mins >= 1440) {
+                              return `${(mins / 1440).toFixed(1)} Days (${mins}m)`;
+                            }
+                            if (mins >= 60) {
+                              return `${(mins / 60).toFixed(1)} Hours (${mins}m)`;
+                            }
+                            return `${mins} Minutes`;
+                          })()}
+                        </span>
+                      </div>
+                    )}
+
+                    {isWhatsApp && (
+                      <div className="space-y-2">
+                        <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5 space-y-1.5 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-500">Template:</span>
+                            <span className="font-mono font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200 text-[11px]">
+                              {node.data?.template_name || "abandoned_cart_recovery"}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-500">Attached Coupon:</span>
+                            <span className="font-mono font-bold text-[#D35400] bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[11px]">
+                              {node.data?.coupon_code || "None"}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Message Bubble Preview */}
+                        {(() => {
+                          const tmpl = availableTemplates.find(t => t.template_name === (node.data?.template_name || ""));
+                          const mappings = node.data?.variable_mappings || (tmpl?.variable_mappings) || {};
+                          let preview = tmpl?.body_text || "";
+                          if (preview && Object.keys(mappings).length > 0) {
+                            Object.entries(mappings).forEach(([idx, m]) => {
+                              const lbl = m.type === "contact_field" ? (m.value === "name" ? "Customer Name" : m.value)
+                                : m.type === "cart_event" ? m.value
+                                : m.type === "static" ? m.value
+                                : (m.value || "?");
+                              preview = preview.replace(new RegExp("\\{\\{" + idx + "\\}\\}", "g"), "[" + lbl + "]");
+                            });
+                          } else if (!preview) {
+                            preview = `Hi [Customer Name], you left items in your cart! Use code ${node.data?.coupon_code || "BAZIK7"} to complete your order.`;
+                          }
+                          return (
+                            <div className="bg-[#E7F8EE] border border-[#25D366]/30 rounded-xl p-3 text-xs text-gray-800 space-y-1 relative">
+                              <div className="text-[10px] font-bold text-emerald-800">WhatsApp Preview:</div>
+                              <p className="text-[11px] text-gray-700 italic leading-relaxed">{preview}</p>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+
+                    {isCondition && (
+                      <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-2 text-xs">
+                        <div className="flex items-center justify-between text-purple-900 font-semibold">
+                          <span>Check Criteria:</span>
+                          <span className="font-bold text-purple-800 bg-white px-2 py-0.5 rounded border border-purple-200 text-[11px]">
+                            {node.data?.condition_type === "ORDER_PLACED"
+                              ? "Cart Recovered / Order Placed"
+                              : node.data?.condition_type === "MESSAGE_READ"
+                              ? "Message Read (Blue Ticks)"
+                              : "Cart Value Threshold"}
+                          </span>
+                        </div>
+
+                        {/* Branch indicator preview */}
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-1.5 text-center text-[10px] font-bold text-emerald-700 flex items-center justify-center gap-1">
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            YES → Converted / Followup
+                          </div>
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-1.5 text-center text-[10px] font-bold text-amber-700 flex items-center justify-center gap-1">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            NO → Read Check / Recovery
+                          </div>
                         </div>
                       </div>
+                    )}
 
-                      {/* Two Columns: YES on Left, NO on Right */}
-                      <div className="grid grid-cols-2 gap-6 w-full pt-2">
-                        {/* YES Branch Column */}
-                        <div className="flex flex-col items-center p-3.5 rounded-2xl bg-emerald-50/70 border-2 border-dashed border-emerald-300 shadow-xs">
-                          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-850 text-xs font-bold border border-emerald-300 shadow-xs mb-1.5">
-                            <Check className="w-3.5 h-3.5 text-emerald-700" />
-                            YES (Purchased / Goal Met)
-                          </div>
-                          <p className="text-[11px] text-gray-600 text-center mb-3">
-                            Customer placed order! Send thank-you message, VIP tag or exit.
-                          </p>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPickerTarget({ parentId: node.id, handle: "yes" });
-                              setIsPickerOpen(true);
-                            }}
-                            className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-white border-2 border-emerald-400 hover:bg-emerald-500 hover:text-white text-emerald-700 rounded-xl text-xs font-bold transition shadow-xs hover:shadow-md cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            Add Step on YES
-                          </button>
-                        </div>
-
-                        {/* NO Branch Column */}
-                        <div className="flex flex-col items-center p-3.5 rounded-2xl bg-amber-50/70 border-2 border-dashed border-amber-300 shadow-xs">
-                          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-bold border border-amber-300 shadow-xs mb-1.5">
-                            <Clock className="w-3.5 h-3.5 text-amber-700" />
-                            NO (Did Not Purchase)
-                          </div>
-                          <p className="text-[11px] text-gray-600 text-center mb-3">
-                            Order not placed. Wait delay timer or dispatch 2nd recovery discount.
-                          </p>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPickerTarget({ parentId: node.id, handle: "no" });
-                              setIsPickerOpen(true);
-                            }}
-                            className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-white border-2 border-amber-400 hover:bg-amber-500 hover:text-white text-amber-800 rounded-xl text-xs font-bold transition shadow-xs hover:shadow-md cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            Add Step on NO
-                          </button>
-                        </div>
+                    {isTag && (
+                      <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                        <span className="text-indigo-900 font-semibold">Tag Appended:</span>
+                        <span className="font-bold text-indigo-700 bg-white px-2.5 py-0.5 rounded-full border border-indigo-200 text-[11px]">
+                          🏷️ {node.data?.tag_name || "Recovered Patron"}
+                        </span>
                       </div>
+                    )}
 
-                      {/* Connector down to subsequent flow steps if any */}
-                      {index < (flow.nodes || []).length - 1 && (
-                        <div className="flex flex-col items-center mt-3">
-                          <div className="w-0.5 h-6 bg-gray-300" />
-                          <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-400" />
+                    {isExit && (
+                      <div
+                        className={`rounded-xl p-2.5 flex items-center justify-between text-xs font-bold ${
+                          node.data?.outcome === "GOAL_MET"
+                            ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                            : "bg-gray-100 text-gray-700 border border-gray-200"
+                        }`}
+                      >
+                        <span>Outcome:</span>
+                        <span>
+                          {node.data?.outcome === "GOAL_MET"
+                            ? "Conversion Goal Met (Revenue Recovered)"
+                            : "Standard Journey Dropout"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            };
+
+            // Branch Column Renderer for YES or NO
+            const renderBranchColumn = (branchType, branchNodes, parentConditionNode) => {
+              const isYes = branchType === "yes";
+              const lastBranchNode = branchNodes.length > 0 ? branchNodes[branchNodes.length - 1] : null;
+
+              return (
+                <div
+                  className={`flex flex-col items-center p-4 rounded-3xl border-2 transition-all ${
+                    isYes
+                      ? "bg-emerald-50/40 border-emerald-300 shadow-sm"
+                      : "bg-amber-50/40 border-amber-300 shadow-sm"
+                  }`}
+                >
+                  {/* Branch Column Header Tag */}
+                  <div className="flex items-center justify-between w-full mb-3 pb-2 border-b border-gray-200/70">
+                    <div
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-xs ${
+                        isYes
+                          ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                          : "bg-amber-100 text-amber-900 border-amber-300"
+                      }`}
+                    >
+                      {isYes ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-700" />
+                      ) : (
+                        <Clock className="w-3.5 h-3.5 text-amber-700" />
+                      )}
+                      <span>{isYes ? "YES Branch" : "NO Branch"}</span>
+                    </div>
+
+                    <span className="text-[11px] font-semibold text-gray-500">
+                      {branchNodes.length} Step{branchNodes.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-gray-600 text-center mb-4 leading-tight">
+                    {isYes
+                      ? "Condition verified! Send thank-you message, VIP reward tag or mark goal converted."
+                      : "Condition not met. Wait delay, check if message was read, or send 2nd recovery discount."}
+                  </p>
+
+                  {/* Render all nodes inside this branch sequentially */}
+                  <div className="flex flex-col items-center space-y-3 w-full">
+                    {branchNodes.map((bNode, bIdx) => (
+                      <React.Fragment key={bNode.id}>
+                        {renderNodeCard(bNode, true)}
+
+                        {/* Connector down to next node in this branch */}
+                        {bIdx < branchNodes.length - 1 && (
+                          <div className="flex flex-col items-center my-0.5">
+                            <div className={`w-0.5 h-6 ${isYes ? "bg-emerald-300" : "bg-amber-300"}`} />
+                            <div
+                              className={`w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent ${
+                                isYes ? "border-t-emerald-500" : "border-t-amber-500"
+                              }`}
+                            />
+                          </div>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
+
+                  {/* Small spacer if nodes are present */}
+                  {branchNodes.length > 0 && (
+                    <div className="flex flex-col items-center my-2">
+                      <div className={`w-0.5 h-4 ${isYes ? "bg-emerald-300" : "bg-amber-300"}`} />
+                      <div
+                        className={`w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent ${
+                          isYes ? "border-t-emerald-500" : "border-t-amber-500"
+                        }`}
+                      />
+                    </div>
+                  )}
+
+                  {/* Add Step Button dedicated to this branch */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (lastBranchNode) {
+                        // Append to the last node of this branch
+                        setPickerTarget({ parentId: lastBranchNode.id, handle: null });
+                      } else {
+                        // First node of this branch from condition node
+                        setPickerTarget({ parentId: parentConditionNode.id, handle: branchType });
+                      }
+                      setIsPickerOpen(true);
+                    }}
+                    className={`w-full mt-2 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-white border-2 rounded-xl text-xs font-bold transition shadow-xs hover:shadow-md cursor-pointer ${
+                      isYes
+                        ? "border-emerald-400 text-emerald-800 hover:bg-emerald-500 hover:text-white"
+                        : "border-amber-400 text-amber-900 hover:bg-amber-500 hover:text-white"
+                    }`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Step under {isYes ? "YES" : "NO"}</span>
+                  </button>
+                </div>
+              );
+            };
+
+            return (
+              <div className="flex flex-col items-center space-y-4 max-w-4xl w-full">
+                {/* 1. Main Trunk Nodes */}
+                {trunkNodes.map((node, index) => {
+                  const isCondition = node.type === "condition";
+
+                  return (
+                    <React.Fragment key={node.id}>
+                      {/* Step Card */}
+                      {renderNodeCard(node, false)}
+
+                      {/* ── ⚖️ Condition Node: True Split into Parallel Columns ── */}
+                      {isCondition && (
+                        <div className="w-full my-3 flex flex-col items-center">
+                          {/* Stem down */}
+                          <div className="w-0.5 h-6 bg-purple-400" />
+
+                          {/* Split Horizontal Bar */}
+                          <div className="w-4/5 h-0.5 bg-purple-300 relative">
+                            <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-white px-3 py-0.5 text-[10px] font-bold text-purple-700 rounded-full border border-purple-200 uppercase shadow-xs">
+                              Independent Branch Split
+                            </div>
+                          </div>
+
+                          {/* Two Side-by-Side Parallel Columns */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full pt-4">
+                            {/* YES Column */}
+                            {renderBranchColumn("yes", yesBranchNodes, node)}
+
+                            {/* NO Column */}
+                            {renderBranchColumn("no", noBranchNodes, node)}
+                          </div>
                         </div>
                       )}
-                    </div>
-                  )}
 
-                  {/* Standard Flow Connector Arrow with '+' insertion button between non-condition nodes */}
-                  {!isCondition && index < (flow.nodes || []).length - 1 && (
-                    <div className="flex flex-col items-center my-1 relative group">
-                      <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
-                      <button
-                        onClick={() => {
-                          setPickerTarget({ parentId: node.id });
-                          setIsPickerOpen(true);
-                        }}
-                        className="w-6 h-6 rounded-full bg-white border border-gray-300 group-hover:border-[#25D366] text-gray-500 group-hover:text-[#25D366] flex items-center justify-center shadow-xs transition hover:scale-110 -my-3 z-10"
-                        title="Add Step Here"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                      <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
-                      {/* Downward triangle indicator */}
-                      <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-400 group-hover:border-t-[#25D366] transition" />
-                    </div>
-                  )}
-                </React.Fragment>
-              );
-            })}
+                      {/* Standard connector down for non-condition trunk nodes */}
+                      {!isCondition && index < trunkNodes.length - 1 && (
+                        <div className="flex flex-col items-center my-1 relative group">
+                          <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
+                          <button
+                            onClick={() => {
+                              setPickerTarget({ parentId: node.id });
+                              setIsPickerOpen(true);
+                            }}
+                            className="w-6 h-6 rounded-full bg-white border border-gray-300 group-hover:border-[#25D366] text-gray-500 group-hover:text-[#25D366] flex items-center justify-center shadow-xs transition hover:scale-110 -my-3 z-10"
+                            title="Add Step Here"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                          <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
+                          <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-400 group-hover:border-t-[#25D366] transition" />
+                        </div>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
 
-            {/* Bottom Add Step Button (for non-branching flows or linear additions) */}
-            {!(flow.nodes && flow.nodes.length > 0 && flow.nodes[flow.nodes.length - 1]?.type === "condition") && (
-              <div className="pt-4 flex items-center justify-center">
-                <button
-                  onClick={() => {
-                    const lastNode = flow.nodes[flow.nodes.length - 1];
-                    setPickerTarget(lastNode ? { parentId: lastNode.id } : null);
-                    setIsPickerOpen(true);
-                  }}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-dashed border-gray-300 hover:border-[#25D366] text-gray-600 hover:text-[#25D366] rounded-2xl text-xs font-bold transition shadow-xs hover:shadow-sm cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Next Step to Journey
-                </button>
+                {/* Bottom Add Step Button (only if no condition node or linear addition) */}
+                {!conditionNode && trunkNodes.length > 0 && (
+                  <div className="pt-4 flex items-center justify-center">
+                    <button
+                      onClick={() => {
+                        const lastNode = trunkNodes[trunkNodes.length - 1];
+                        setPickerTarget(lastNode ? { parentId: lastNode.id } : null);
+                        setIsPickerOpen(true);
+                      }}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-dashed border-gray-300 hover:border-[#25D366] text-gray-600 hover:text-[#25D366] rounded-2xl text-xs font-bold transition shadow-xs hover:shadow-sm cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Next Step to Journey
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
         </div>
       </div>
 
