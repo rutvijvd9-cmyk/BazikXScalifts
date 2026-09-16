@@ -406,8 +406,8 @@ export default function FlowchartCanvas({
               return matched.length > 0 ? matched[0].target : null;
             };
 
-            // Single Node Card Renderer
-            const renderNodeCard = (node, isBranchChild = false) => {
+            // Single Node Card Renderer - Sleek, Compact, High-End SaaS Card
+            const renderNodeCard = (node) => {
               const isSelected = selectedNodeId === node.id;
               const isTrigger = node.type === "trigger";
               const isDelay = node.type === "delay";
@@ -419,207 +419,97 @@ export default function FlowchartCanvas({
               const isTag = node.type === "tag";
               const isExit = node.type === "exit" || node.type === "goal";
 
+              // Distinct theme colors per node type
+              const theme = isTrigger
+                ? { bg: "bg-blue-50", border: "border-blue-200", iconBg: "bg-blue-600 text-white", tag: "TRIGGER", tagColor: "text-blue-700 bg-blue-100" }
+                : isDelay
+                ? { bg: "bg-amber-50/50", border: "border-amber-200", iconBg: "bg-amber-500 text-white", tag: "DELAY", tagColor: "text-amber-800 bg-amber-100" }
+                : isWhatsApp
+                ? { bg: "bg-emerald-50/40", border: "border-emerald-200", iconBg: "bg-[#25D366] text-white", tag: "WHATSAPP", tagColor: "text-emerald-800 bg-emerald-100" }
+                : isCondition
+                ? { bg: "bg-purple-50/40", border: "border-purple-200", iconBg: "bg-purple-600 text-white", tag: "DECISION", tagColor: "text-purple-800 bg-purple-100" }
+                : isTag
+                ? { bg: "bg-indigo-50/40", border: "border-indigo-200", iconBg: "bg-indigo-600 text-white", tag: "TAG CRM", tagColor: "text-indigo-800 bg-indigo-100" }
+                : node.data?.outcome === "GOAL_MET"
+                ? { bg: "bg-emerald-50/60", border: "border-emerald-300", iconBg: "bg-emerald-600 text-white", tag: "GOAL MET", tagColor: "text-emerald-900 bg-emerald-200" }
+                : { bg: "bg-gray-50", border: "border-gray-200", iconBg: "bg-gray-600 text-white", tag: "EXIT", tagColor: "text-gray-700 bg-gray-200" };
+
+              // Subtitle summary
+              let subtitle = "";
+              if (isTrigger) subtitle = node.data?.trigger_type || "Abandoned Cart";
+              else if (isDelay) {
+                const mins = Number(node.data?.delay_minutes) || 30;
+                subtitle = mins >= 1440 ? `${mins / 1440} Days wait` : mins >= 60 ? `${mins / 60} Hours wait` : `${mins} Mins wait`;
+              } else if (isWhatsApp) {
+                subtitle = `Template: ${node.data?.template_name || "cart_recovery_v1"}`;
+              } else if (isCondition) {
+                subtitle = node.data?.condition_type === "MESSAGE_READ" ? "Check blue ticks" : "Check order placed";
+              } else if (isTag) {
+                subtitle = `Tag: ${node.data?.tag_name || "Recovered Patron"}`;
+              } else if (isExit) {
+                subtitle = node.data?.outcome === "GOAL_MET" ? "Revenue Recovered 🎉" : "End journey";
+              }
+
               return (
                 <div
                   key={node.id}
                   onClick={() => setSelectedNodeId(node.id)}
-                  className={`w-full bg-white rounded-2xl border-2 transition-all cursor-pointer relative shadow-sm hover:shadow-md ${
-                    isBranchChild ? "max-w-xs sm:max-w-sm" : "max-w-md"
-                  } ${
+                  className={`group relative w-64 bg-white rounded-2xl border-2 transition-all cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-0.5 ${
                     isSelected
                       ? "border-[#25D366] ring-4 ring-emerald-100 shadow-md"
-                      : "border-gray-200 hover:border-gray-300"
+                      : "border-gray-200/90 hover:border-gray-300"
                   }`}
                 >
-                  {/* Node Header Pill */}
-                  <div
-                    className={`px-4 py-2 rounded-t-2xl flex items-center justify-between text-xs font-bold ${
-                      isTrigger
-                        ? "bg-blue-600 text-white"
-                        : isDelay
-                        ? "bg-amber-500 text-white"
-                        : isWhatsApp
-                        ? "bg-[#25D366] text-white"
-                        : isCondition
-                        ? "bg-purple-600 text-white"
-                        : isTag
-                        ? "bg-indigo-600 text-white"
-                        : node.data?.outcome === "GOAL_MET"
-                        ? "bg-emerald-700 text-white"
-                        : "bg-gray-600 text-white"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {isTrigger && <Zap className="w-3.5 h-3.5 fill-white" />}
-                      {isDelay && <Clock className="w-3.5 h-3.5" />}
-                      {isWhatsApp && <Send className="w-3.5 h-3.5" />}
-                      {isCondition && <GitBranch className="w-3.5 h-3.5" />}
-                      {isTag && <Tag className="w-3.5 h-3.5" />}
-                      {isExit && <CheckCircle2 className="w-3.5 h-3.5" />}
-                      <span className="uppercase tracking-wider text-[10px]">
-                        {isTrigger
-                          ? "Step 1: Trigger"
-                          : isDelay
-                          ? "Delay Timer"
-                          : isWhatsApp
-                          ? "WhatsApp Action"
-                          : isCondition
-                          ? "Decision Check"
-                          : isTag
-                          ? "Tag Action"
-                          : "Exit / Goal"}
-                      </span>
+                  <div className="p-3.5 flex items-start gap-3">
+                    {/* Leading Rounded Icon */}
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${theme.iconBg}`}>
+                      {isTrigger && <Zap className="w-4 h-4 fill-white" />}
+                      {isDelay && <Clock className="w-4 h-4" />}
+                      {isWhatsApp && <Send className="w-4 h-4" />}
+                      {isCondition && <GitBranch className="w-4 h-4" />}
+                      {isTag && <Tag className="w-4 h-4" />}
+                      {isExit && <CheckCircle2 className="w-4 h-4" />}
                     </div>
 
-                    <span className="text-[10px] opacity-80 font-mono">
-                      #{node.id}
-                    </span>
-                  </div>
+                    {/* Node Text Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className={`text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded ${theme.tagColor}`}>
+                          {theme.tag}
+                        </span>
+                        <Sliders className="w-3 h-3 text-gray-300 group-hover:text-gray-500 transition shrink-0" />
+                      </div>
 
-                  {/* Node Card Body */}
-                  <div className="p-4 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-bold text-gray-900 text-sm">
+                      <h4 className="font-bold text-gray-900 text-xs truncate leading-snug">
                         {node.label}
                       </h4>
-                      <Sliders className="w-3.5 h-3.5 text-gray-400 hover:text-gray-600" />
+                      <p className="text-[10px] text-gray-400 font-medium truncate mt-0.5">
+                        {subtitle}
+                      </p>
                     </div>
-
-                    {/* Detail Pill Content depending on type */}
-                    {isDelay && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 flex items-center justify-between text-xs">
-                        <span className="text-amber-900 font-semibold flex items-center gap-1.5">
-                          <Clock className="w-3.5 h-3.5 text-amber-600" />
-                          Duration:
-                        </span>
-                        <span className="font-mono font-bold text-amber-900 bg-white px-2 py-0.5 rounded border border-amber-200">
-                          {(() => {
-                            const mins = Number(node.data?.delay_minutes) || 30;
-                            if (mins >= 1440 && mins % 1440 === 0) {
-                              const d = mins / 1440;
-                              return `${d} Day${d > 1 ? "s" : ""}`;
-                            }
-                            if (mins >= 60 && mins % 60 === 0) {
-                              const h = mins / 60;
-                              return `${h} Hour${h > 1 ? "s" : ""}`;
-                            }
-                            if (mins >= 1440) {
-                              return `${(mins / 1440).toFixed(1)} Days (${mins}m)`;
-                            }
-                            if (mins >= 60) {
-                              return `${(mins / 60).toFixed(1)} Hours (${mins}m)`;
-                            }
-                            return `${mins} Minutes`;
-                          })()}
-                        </span>
-                      </div>
-                    )}
-
-                    {isWhatsApp && (
-                      <div className="space-y-2">
-                        <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5 space-y-1.5 text-xs">
-                          <div className="flex items-center justify-between">
-                            <span className="text-gray-500">Template:</span>
-                            <span className="font-mono font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200 text-[11px]">
-                              {node.data?.template_name || "abandoned_cart_recovery"}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-gray-500">Attached Coupon:</span>
-                            <span className="font-mono font-bold text-[#D35400] bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[11px]">
-                              {node.data?.coupon_code || "None"}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Message Bubble Preview */}
-                        {(() => {
-                          const tmpl = availableTemplates.find(t => t.template_name === (node.data?.template_name || ""));
-                          const mappings = node.data?.variable_mappings || (tmpl?.variable_mappings) || {};
-                          let preview = tmpl?.body_text || "";
-                          if (preview && Object.keys(mappings).length > 0) {
-                            Object.entries(mappings).forEach(([idx, m]) => {
-                              const lbl = m.type === "contact_field" ? (m.value === "name" ? "Customer Name" : m.value)
-                                : m.type === "cart_event" ? m.value
-                                : m.type === "static" ? m.value
-                                : (m.value || "?");
-                              preview = preview.replace(new RegExp("\\{\\{" + idx + "\\}\\}", "g"), "[" + lbl + "]");
-                            });
-                          } else if (!preview) {
-                            preview = `Hi [Customer Name], you left items in your cart! Use code ${node.data?.coupon_code || "BAZIK7"} to complete your order.`;
-                          }
-                          return (
-                            <div className="bg-[#E7F8EE] border border-[#25D366]/30 rounded-xl p-3 text-xs text-gray-800 space-y-1 relative">
-                              <div className="text-[10px] font-bold text-emerald-800">WhatsApp Preview:</div>
-                              <p className="text-[11px] text-gray-700 italic leading-relaxed">{preview}</p>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
-
-                    {isCondition && (
-                      <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-2 text-xs">
-                        <div className="flex items-center justify-between text-purple-900 font-semibold">
-                          <span>Check Criteria:</span>
-                          <span className="font-bold text-purple-800 bg-white px-2 py-0.5 rounded border border-purple-200 text-[11px]">
-                            {node.data?.condition_type === "ORDER_PLACED"
-                              ? "Cart Recovered / Order Placed"
-                              : node.data?.condition_type === "MESSAGE_READ"
-                              ? "Message Read (Blue Ticks)"
-                              : "Cart Value Threshold"}
-                          </span>
-                        </div>
-
-                        {/* Branch indicator preview */}
-                        <div className="grid grid-cols-2 gap-2 pt-1">
-                          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-1.5 text-center text-[10px] font-bold text-emerald-700 flex items-center justify-center gap-1">
-                            <Check className="w-3 h-3 text-emerald-600" />
-                            YES → Converted / Followup
-                          </div>
-                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-1.5 text-center text-[10px] font-bold text-amber-700 flex items-center justify-center gap-1">
-                            <Clock className="w-3 h-3 text-amber-600" />
-                            NO → Read Check / Recovery
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {isTag && (
-                      <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-2.5 flex items-center justify-between text-xs">
-                        <span className="text-indigo-900 font-semibold">Tag Appended:</span>
-                        <span className="font-bold text-indigo-700 bg-white px-2.5 py-0.5 rounded-full border border-indigo-200 text-[11px]">
-                          🏷️ {node.data?.tag_name || "Recovered Patron"}
-                        </span>
-                      </div>
-                    )}
-
-                    {isExit && (
-                      <div
-                        className={`rounded-xl p-2.5 flex items-center justify-between text-xs font-bold ${
-                          node.data?.outcome === "GOAL_MET"
-                            ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                            : "bg-gray-100 text-gray-700 border border-gray-200"
-                        }`}
-                      >
-                        <span>Outcome:</span>
-                        <span>
-                          {node.data?.outcome === "GOAL_MET"
-                            ? "Conversion Goal Met (Revenue Recovered)"
-                            : "Standard Journey Dropout"}
-                        </span>
-                      </div>
-                    )}
                   </div>
                 </div>
               );
             };
 
-            // Recursive Flow Chain Renderer
-            // startNodeId: node id to begin rendering
-            // isBranchChild: true if inside a branch container
-            // depth: nesting level
-            const renderFlowChain = (startNodeId, isBranchChild = false, depth = 0) => {
+            // Circular Add Step Button
+            const renderAddButton = (targetParentId, targetHandle = null) => (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPickerTarget({ parentId: targetParentId, handle: targetHandle });
+                  setIsPickerOpen(true);
+                }}
+                className="w-7 h-7 rounded-full bg-white border-2 border-gray-300 hover:border-[#25D366] hover:bg-emerald-50 text-gray-400 hover:text-[#25D366] flex items-center justify-center shadow-xs transition hover:scale-115 z-10 cursor-pointer"
+                title="Add Next Step Here"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            );
+
+            // Recursive Flow Chain Renderer - Clean Vertical Open Tree
+            const renderFlowChain = (startNodeId) => {
               const chainNodes = [];
               const visited = new Set();
               let curId = startNodeId;
@@ -630,179 +520,102 @@ export default function FlowchartCanvas({
                 if (!n) break;
                 chainNodes.push(n);
 
-                // If this node is a condition, its flow splits into YES & NO subtrees
+                // Stop linear traversal if condition node (forks into branches)
                 if (n.type === "condition") {
                   break;
                 }
 
-                // Follow linear edge to next node
                 curId = getEdgeTarget(curId);
               }
 
               if (chainNodes.length === 0) return null;
 
               const lastNode = chainNodes[chainNodes.length - 1];
-              const endsWithCondition = lastNode.type === "condition";
+              const isCondition = lastNode.type === "condition";
 
               return (
-                <div className="flex flex-col items-center space-y-4 w-full">
+                <div className="flex flex-col items-center">
                   {chainNodes.map((node, idx) => {
-                    const isConditionNode = node.type === "condition";
-                    const isLastInChain = idx === chainNodes.length - 1;
+                    const isLast = idx === chainNodes.length - 1;
+                    const isNodeCondition = node.type === "condition";
 
                     return (
                       <React.Fragment key={node.id}>
-                        {renderNodeCard(node, isBranchChild)}
+                        {/* The Node Card */}
+                        {renderNodeCard(node)}
 
                         {/* Connector down to next linear node */}
-                        {!isLastInChain && (
+                        {!isLast && (
                           <div className="flex flex-col items-center my-1 relative group">
-                            <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
-                            <button
-                              onClick={() => {
-                                setPickerTarget({ parentId: node.id });
-                                setIsPickerOpen(true);
-                              }}
-                              className="w-6 h-6 rounded-full bg-white border border-gray-300 group-hover:border-[#25D366] text-gray-500 group-hover:text-[#25D366] flex items-center justify-center shadow-xs transition hover:scale-110 -my-3 z-10"
-                              title="Add Step Here"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                            </button>
-                            <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
+                            <div className="w-0.5 h-5 bg-gray-300 group-hover:bg-[#25D366] transition" />
+                            {renderAddButton(node.id, null)}
+                            <div className="w-0.5 h-5 bg-gray-300 group-hover:bg-[#25D366] transition" />
                             <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-400 group-hover:border-t-[#25D366] transition" />
                           </div>
                         )}
 
-                        {/* If this node is a Condition, render its recursive YES and NO branch split */}
-                        {isConditionNode && (
-                          <div className="w-full my-3 flex flex-col items-center">
-                            {/* Stem down */}
+                        {/* If this node is a Condition, render its Open Tree Fork */}
+                        {isNodeCondition && (
+                          <div className="w-full flex flex-col items-center mt-1">
+                            {/* Stem down from Condition Card */}
                             <div className="w-0.5 h-6 bg-purple-400" />
 
-                            {/* Split Horizontal Bar */}
-                            <div className="w-4/5 h-0.5 bg-purple-300 relative">
-                              <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-white px-3 py-0.5 text-[10px] font-bold text-purple-700 rounded-full border border-purple-200 uppercase shadow-xs whitespace-nowrap">
-                                Branch Split #{depth + 1}
-                              </div>
+                            {/* Wide Horizontal Fork Bar */}
+                            <div className="w-full max-w-2xl px-6 relative flex items-center justify-between">
+                              <div className="absolute top-0 left-12 right-12 h-0.5 bg-purple-300" />
                             </div>
 
-                            {/* Two Side-by-Side Parallel Columns */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 w-full pt-4">
-                              {/* YES Column */}
-                              {(() => {
-                                const yesTargetId = getEdgeTarget(node.id, "yes");
-                                return (
-                                  <div className="flex flex-col items-center p-4 rounded-3xl border-2 bg-emerald-50/40 border-emerald-300 shadow-sm transition-all">
-                                    <div className="flex items-center justify-between w-full mb-3 pb-2 border-b border-gray-200/70">
-                                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-xs bg-emerald-100 text-emerald-900 border-emerald-300">
-                                        <Check className="w-3.5 h-3.5 text-emerald-700" />
-                                        <span>YES Branch</span>
-                                      </div>
-                                      <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">
-                                        Condition Met
-                                      </span>
+                            {/* Two Open Side-by-Side Tree Branches (No outer container boxes) */}
+                            <div className="flex items-start justify-center gap-12 sm:gap-20 pt-1 w-full">
+                              {/* ── LEFT BRANCH: YES (Condition Met) ── */}
+                              <div className="flex flex-col items-center">
+                                {/* Downward connector with floating YES badge */}
+                                <div className="w-0.5 h-4 bg-emerald-400" />
+                                <div className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold border border-emerald-300 shadow-xs mb-1">
+                                  YES
+                                </div>
+                                <div className="w-0.5 h-4 bg-emerald-400" />
+                                <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-emerald-500 mb-2" />
+
+                                {/* Subtree under YES */}
+                                {(() => {
+                                  const yesTargetId = getEdgeTarget(node.id, "yes");
+                                  if (yesTargetId) {
+                                    return renderFlowChain(yesTargetId);
+                                  }
+                                  return (
+                                    <div className="flex flex-col items-center">
+                                      {renderAddButton(node.id, "yes")}
+                                      <span className="text-[10px] font-semibold text-gray-400 mt-1">Add step on YES</span>
                                     </div>
-                                    <p className="text-[11px] text-gray-600 text-center mb-3 leading-tight">
-                                      Criteria verified! Send thank-you message, VIP tag or conclude goal.
-                                    </p>
+                                  );
+                                })()}
+                              </div>
 
-                                    {/* Recursive downstream chain under YES */}
-                                    {yesTargetId ? (
-                                      renderFlowChain(yesTargetId, true, depth + 1)
-                                    ) : (
-                                      <div className="w-full py-4 border border-dashed border-emerald-200 rounded-2xl bg-white/70 flex flex-col items-center justify-center text-center px-4">
-                                        <span className="text-xs font-semibold text-emerald-800">Branch is empty</span>
-                                        <span className="text-[10px] text-gray-400 mt-0.5">Click below to add the first step on YES</span>
-                                      </div>
-                                    )}
+                              {/* ── RIGHT BRANCH: NO (Condition Not Met) ── */}
+                              <div className="flex flex-col items-center">
+                                {/* Downward connector with floating NO badge */}
+                                <div className="w-0.5 h-4 bg-amber-400" />
+                                <div className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-extrabold border border-amber-300 shadow-xs mb-1">
+                                  NO
+                                </div>
+                                <div className="w-0.5 h-4 bg-amber-400" />
+                                <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-amber-500 mb-2" />
 
-                                    {/* Add Step Button for YES */}
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (yesTargetId) {
-                                          // Find tail of the yes branch
-                                          let tailId = yesTargetId;
-                                          const seen = new Set();
-                                          while (tailId && !seen.has(tailId)) {
-                                            seen.add(tailId);
-                                            const nxt = getEdgeTarget(tailId);
-                                            if (!nxt) break;
-                                            tailId = nxt;
-                                          }
-                                          setPickerTarget({ parentId: tailId, handle: null });
-                                        } else {
-                                          setPickerTarget({ parentId: node.id, handle: "yes" });
-                                        }
-                                        setIsPickerOpen(true);
-                                      }}
-                                      className="w-full mt-3 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-white border-2 border-emerald-400 text-emerald-800 hover:bg-emerald-500 hover:text-white rounded-xl text-xs font-bold transition shadow-xs hover:shadow-md cursor-pointer"
-                                    >
-                                      <Plus className="w-3.5 h-3.5" />
-                                      <span>Add Step under YES</span>
-                                    </button>
-                                  </div>
-                                );
-                              })()}
-
-                              {/* NO Column */}
-                              {(() => {
-                                const noTargetId = getEdgeTarget(node.id, "no");
-                                return (
-                                  <div className="flex flex-col items-center p-4 rounded-3xl border-2 bg-amber-50/40 border-amber-300 shadow-sm transition-all">
-                                    <div className="flex items-center justify-between w-full mb-3 pb-2 border-b border-gray-200/70">
-                                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-xs bg-amber-100 text-amber-900 border-amber-300">
-                                        <Clock className="w-3.5 h-3.5 text-amber-700" />
-                                        <span>NO Branch</span>
-                                      </div>
-                                      <span className="text-[10px] font-semibold text-amber-700 uppercase tracking-wider">
-                                        Condition Not Met
-                                      </span>
+                                {/* Subtree under NO */}
+                                {(() => {
+                                  const noTargetId = getEdgeTarget(node.id, "no");
+                                  if (noTargetId) {
+                                    return renderFlowChain(noTargetId);
+                                  }
+                                  return (
+                                    <div className="flex flex-col items-center">
+                                      {renderAddButton(node.id, "no")}
+                                      <span className="text-[10px] font-semibold text-gray-400 mt-1">Add step on NO</span>
                                     </div>
-                                    <p className="text-[11px] text-gray-600 text-center mb-3 leading-tight">
-                                      Criteria not met. Check blue ticks, wait delay, or dispatch recovery message.
-                                    </p>
-
-                                    {/* Recursive downstream chain under NO */}
-                                    {noTargetId ? (
-                                      renderFlowChain(noTargetId, true, depth + 1)
-                                    ) : (
-                                      <div className="w-full py-4 border border-dashed border-amber-200 rounded-2xl bg-white/70 flex flex-col items-center justify-center text-center px-4">
-                                        <span className="text-xs font-semibold text-amber-800">Branch is empty</span>
-                                        <span className="text-[10px] text-gray-400 mt-0.5">Click below to add the first step on NO</span>
-                                      </div>
-                                    )}
-
-                                    {/* Add Step Button for NO */}
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (noTargetId) {
-                                          // Find tail of the no branch
-                                          let tailId = noTargetId;
-                                          const seen = new Set();
-                                          while (tailId && !seen.has(tailId)) {
-                                            seen.add(tailId);
-                                            const nxt = getEdgeTarget(tailId);
-                                            if (!nxt) break;
-                                            tailId = nxt;
-                                          }
-                                          setPickerTarget({ parentId: tailId, handle: null });
-                                        } else {
-                                          setPickerTarget({ parentId: node.id, handle: "no" });
-                                        }
-                                        setIsPickerOpen(true);
-                                      }}
-                                      className="w-full mt-3 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-white border-2 border-amber-400 text-amber-900 hover:bg-amber-500 hover:text-white rounded-xl text-xs font-bold transition shadow-xs hover:shadow-md cursor-pointer"
-                                    >
-                                      <Plus className="w-3.5 h-3.5" />
-                                      <span>Add Step under NO</span>
-                                    </button>
-                                  </div>
-                                );
-                              })()}
+                                  );
+                                })()}
+                              </div>
                             </div>
                           </div>
                         )}
@@ -810,26 +623,18 @@ export default function FlowchartCanvas({
                     );
                   })}
 
-                  {/* If chain ends with a regular node and is the top trunk, allow adding next step to journey */}
-                  {!endsWithCondition && !isBranchChild && (
-                    <div className="pt-4 flex items-center justify-center">
-                      <button
-                        onClick={() => {
-                          setPickerTarget({ parentId: lastNode.id, handle: null });
-                          setIsPickerOpen(true);
-                        }}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-dashed border-gray-300 hover:border-[#25D366] text-gray-600 hover:text-[#25D366] rounded-2xl text-xs font-bold transition shadow-xs hover:shadow-sm cursor-pointer"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Add Next Step to Journey
-                      </button>
+                  {/* If chain ends with a regular node, provide a neat circular (+) button to extend */}
+                  {!isCondition && (
+                    <div className="flex flex-col items-center mt-2">
+                      <div className="w-0.5 h-4 bg-gray-300" />
+                      {renderAddButton(lastNode.id, null)}
                     </div>
                   )}
                 </div>
               );
             };
 
-            // Find root trigger node (or first node) to begin recursive rendering
+            // Find root trigger node (or first node) to begin tree rendering
             const rootNode = allNodes.find((n) => n.type === "trigger") || allNodes[0];
 
             if (!rootNode) {
@@ -850,7 +655,7 @@ export default function FlowchartCanvas({
               );
             }
 
-            return renderFlowChain(rootNode.id, false, 0);
+            return renderFlowChain(rootNode.id);
           })()}
         </div>
       </div>
