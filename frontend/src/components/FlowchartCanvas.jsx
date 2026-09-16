@@ -574,35 +574,37 @@ export default function FlowchartCanvas({
                                 Curves outward from top-center (x=50%, y=0) 
                                 smoothly to Left column (x=25%, y=100%) and Right column (x=75%, y=100%)
                               */}
-                              <div className="w-full min-w-[600px] h-12 relative pointer-events-none">
+                              <div className="w-full min-w-full px-4 h-12 relative pointer-events-none">
                                 <svg
                                   className="w-full h-full overflow-visible"
-                                  viewBox="0 0 600 48"
+                                  viewBox="0 0 100 48"
                                   preserveAspectRatio="none"
                                 >
                                   {/* Left Branch Curve to YES */}
                                   <path
-                                    d="M 300,0 C 300,24 150,24 150,48"
+                                    d="M 50,0 C 50,24 25,24 25,48"
                                     fill="none"
                                     stroke="#94A3B8"
-                                    strokeWidth="2"
+                                    strokeWidth="1.5"
                                     strokeLinecap="round"
+                                    vectorEffect="non-scaling-stroke"
                                   />
                                   {/* Right Branch Curve to NO */}
                                   <path
-                                    d="M 300,0 C 300,24 450,24 450,48"
+                                    d="M 50,0 C 50,24 75,24 75,48"
                                     fill="none"
                                     stroke="#94A3B8"
-                                    strokeWidth="2"
+                                    strokeWidth="1.5"
                                     strokeLinecap="round"
+                                    vectorEffect="non-scaling-stroke"
                                   />
                                 </svg>
                               </div>
 
                               {/* Two Side-by-Side Tree Branches (Left = YES, Right = NO) */}
-                              <div className="w-full min-w-[600px] grid grid-cols-2">
+                              <div className="w-full min-w-full grid grid-cols-2 gap-8 px-4">
                                 {/* ── LEFT BRANCH: YES ── */}
-                                <div className="flex flex-col items-center w-full px-2">
+                                <div className="flex flex-col items-center w-full min-w-0">
                                   {/* Floating YES Pill Badge */}
                                   <div className="px-3 py-0.5 rounded-full bg-[#E6F4EA] text-[#137333] text-[11px] font-bold border border-[#CEEAD6] shadow-xs select-none">
                                     {yesLabel}
@@ -627,7 +629,7 @@ export default function FlowchartCanvas({
                                 </div>
 
                                 {/* ── RIGHT BRANCH: NO ── */}
-                                <div className="flex flex-col items-center w-full px-2">
+                                <div className="flex flex-col items-center w-full min-w-0">
                                   {/* Floating NO Pill Badge */}
                                   <div className="px-3 py-0.5 rounded-full bg-[#FEF7E0] text-[#B06000] text-[11px] font-bold border border-[#FEEFC3] shadow-xs select-none">
                                     {noLabel}
@@ -658,8 +660,8 @@ export default function FlowchartCanvas({
                     );
                   })}
 
-                  {/* If chain ends with a regular node, provide a neat circular (+) button to extend */}
-                  {!isCondition && (
+                  {/* If chain ends with a regular node, provide a neat circular (+) button to extend UNLESS it is concluded/exit/goal */}
+                  {!isCondition && !lastNode.type?.includes("exit") && !lastNode.type?.includes("goal") && !lastNode.label?.toLowerCase().includes("conclude") && (
                     <div className="flex flex-col items-center mt-2">
                       <div className="w-0.5 h-4 bg-gray-300" />
                       {renderAddButton(lastNode.id, null)}
