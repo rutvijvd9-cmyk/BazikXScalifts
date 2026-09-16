@@ -52,7 +52,8 @@ import {
   CheckCheck,
   Sparkles,
   PhoneCall,
-  GitBranch
+  GitBranch,
+  Play
 } from "lucide-react";
 import axios, { getApiBaseUrl, renderProductionUrl as RENDER_PROD_URL, setApiBaseUrl } from "./api";
 import FlowchartCanvas from "./components/FlowchartCanvas";
@@ -449,6 +450,15 @@ export default function App() {
   useEffect(() => {
     fetchRegistrationStatus();
   }, [token]);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setToken("");
+      setUsername("");
+    };
+    window.addEventListener("auth:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("auth:unauthorized", handleUnauthorized);
+  }, []);
 
   const handleRegister = async (e) => {
     e.preventDefault();

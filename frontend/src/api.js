@@ -20,4 +20,19 @@ export function setApiBaseUrl(url) {
   api.defaults.baseURL = url;
 }
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      const url = error.config?.url || "";
+      if (!url.includes("/api/auth/token") && !url.includes("/api/auth/login")) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("username");
+        window.dispatchEvent(new Event("auth:unauthorized"));
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default api;
