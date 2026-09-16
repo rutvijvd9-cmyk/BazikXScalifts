@@ -56,7 +56,8 @@ import {
   Play,
   BarChart3,
   TrendingUp,
-  MousePointerClick
+  MousePointerClick,
+  ArrowRight
 } from "lucide-react";
 import axios, { getApiBaseUrl, renderProductionUrl as RENDER_PROD_URL, setApiBaseUrl } from "./api";
 import FlowchartCanvas from "./components/FlowchartCanvas";
@@ -170,7 +171,6 @@ export default function App() {
   const [templates, setTemplates] = useState([]);
   const [automationRules, setAutomationRules] = useState([]);
   const [workflowFlows, setWorkflowFlows] = useState([]);
-  const [activeWorkflowTab, setActiveWorkflowTab] = useState("flows"); // "flows" or "classic"
   const [editingWorkflow, setEditingWorkflow] = useState(null);
   const [systemSettings, setSystemSettings] = useState({});
   const [systemUsers, setSystemUsers] = useState([]);
@@ -287,40 +287,63 @@ export default function App() {
     footer_text: "Manubhai Gathiyawala"
   });
 
-  // New Rule Modal State
-  const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
-  const [newRule, setNewRule] = useState({
-    rule_name: "",
-    rule_type: "INACTIVE_DAYS",
-    threshold_value: 15,
-    template_name: "cart_recovery_v1",
-    coupon_code: "",
-    dedup_days: 7,
-    expires_at: "",
-    variable_mappings: {}
+  // New Journey Flow Modal State
+  const [isNewJourneyModalOpen, setIsNewJourneyModalOpen] = useState(false);
+  const [newJourneyForm, setNewJourneyForm] = useState({
+    name: "",
+    trigger_type: "ABANDONED_CART",
+    trigger_config: { delay_minutes: 30 }
   });
 
-  const handleOpenRuleModal = () => {
-    const approvedTmpl = templates.find((t) => t.status === "APPROVED") || templates[0];
-    setNewRule({
-      rule_name: "",
-      rule_type: "INACTIVE_DAYS",
-      threshold_value: 15,
-      template_name: approvedTmpl ? approvedTmpl.template_name : "cart_recovery_v1",
-      coupon_code: discountCodes[0]?.code || "",
-      dedup_days: 7,
-      expires_at: "",
-      variable_mappings: {}
+  const handleOpenNewJourneyModal = () => {
+    setNewJourneyForm({
+      name: "",
+      trigger_type: "ABANDONED_CART",
+      trigger_config: { delay_minutes: 30 }
     });
-    setIsRuleModalOpen(true);
+    setIsNewJourneyModalOpen(true);
   };
 
-  // Configure & Test Simulator Modal State
-  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
-  const [selectedRuleForConfig, setSelectedRuleForConfig] = useState(null);
-  const [testPhone, setTestPhone] = useState("");
-  const [testCartValue, setTestCartValue] = useState(450);
-  const [simulatingAction, setSimulatingAction] = useState(false);
+  const handleConfirmCreateJourney = (e) => {
+    e?.preventDefault();
+    const triggerLabels = {
+      ABANDONED_CART: "Abandoned Cart",
+      INACTIVE_WINBACK: "Customer Inactive Winback",
+      FESTIVAL_OFFER: "Festival / Promotional Event",
+      ORDER_COMPLETED: "Post-Purchase Order Completed",
+      CONTACT_TAGGED: "Customer Tagged / VIP"
+    };
+    const tType = newJourneyForm.trigger_type || "ABANDONED_CART";
+    const tLabel = triggerLabels[tType] || "Trigger";
+    const defaultName = newJourneyForm.name.trim() || `${tLabel} Flow`;
+
+    const newWf = {
+      name: defaultName,
+      description: `Multi-step automated flowchart journey starting with ${tLabel}`,
+      trigger_type: tType,
+      trigger_config: newJourneyForm.trigger_config || {},
+      is_active: true,
+      nodes: [
+        {
+          id: "node_1",
+          type: "trigger",
+          label: `${tLabel} Trigger`,
+          position: { x: 280, y: 40 },
+          data: {
+            trigger_type: tType,
+            ...newJourneyForm.trigger_config
+          }
+        }
+      ],
+      edges: [],
+      stats: { entered: 0, completed: 0, goals_converted: 0, revenue_recovered: 0 }
+    };
+
+    setIsNewJourneyModalOpen(false);
+    setEditingWorkflow(newWf);
+  };
+
+
   // Add User from Settings Modal State
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
   const [newUserForm, setNewUserForm] = useState({ username: "", email: "", password: "" });
@@ -954,50 +977,7 @@ export default function App() {
   };
 
   const handleCreateNewWorkflow = () => {
-    const newWf = {
-      name: "New Custom Customer Journey",
-      description: "Multi-step automated flowchart journey with delays and conditions",
-      trigger_type: "ABANDONED_CART",
-      trigger_config: { delay_minutes: 30 },
-      is_active: true,
-      nodes: [
-        {
-          id: "node_1",
-          type: "trigger",
-          label: "Cart Abandoned Trigger",
-          position: { x: 280, y: 40 },
-          data: { trigger_type: "ABANDONED_CART" }
-        },
-        {
-          id: "node_2",
-          type: "delay",
-          label: "Wait 30 Mins",
-          position: { x: 280, y: 160 },
-          data: { delay_minutes: 30 }
-        },
-        {
-          id: "node_3",
-          type: "whatsapp_message",
-          label: "Stage 1: Friendly Reminder",
-          position: { x: 280, y: 280 },
-          data: { template_name: "abandoned_cart_recovery", coupon_code: "BAZIK7", language: "en" }
-        },
-        {
-          id: "node_4",
-          type: "exit",
-          label: "Goal Reached",
-          position: { x: 280, y: 400 },
-          data: { outcome: "GOAL_MET" }
-        }
-      ],
-      edges: [
-        { id: "e1_2", source: "node_1", target: "node_2" },
-        { id: "e2_3", source: "node_2", target: "node_3" },
-        { id: "e3_4", source: "node_3", target: "node_4" }
-      ],
-      stats: { entered: 0, completed: 0, goals_converted: 0, revenue_recovered: 0 }
-    };
-    setEditingWorkflow(newWf);
+    handleOpenNewJourneyModal();
   };
 
   const handleTriggerRule = async (rule) => {
@@ -1033,155 +1013,7 @@ export default function App() {
     }
   };
 
-  const handleCreateRule = async (e) => {
-    e.preventDefault();
-    try {
-      const triggerDesc =
-        newRule.rule_type === "INACTIVE_DAYS"
-          ? `Days Inactive > ${newRule.threshold_value}`
-          : newRule.rule_type === "ORDER_COUNT_VIP"
-          ? `Total Orders >= ${newRule.threshold_value}`
-          : `Cart Delay ${newRule.threshold_value}m`;
 
-      await axios.post(
-        "/api/automation-rules",
-        {
-          ...newRule,
-          expires_at: newRule.expires_at ? new Date(newRule.expires_at).toISOString() : null,
-          trigger_condition: triggerDesc
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setIsRuleModalOpen(false);
-      fetchData();
-    } catch (err) {
-      alert("Failed to create rule: " + (err.response?.data?.detail || err.message));
-    }
-  };
-
-  const handleSaveConfigRule = async (e) => {
-    e.preventDefault();
-    if (!selectedRuleForConfig) return;
-    try {
-      await axios.patch(
-        `/api/automation-rules/${selectedRuleForConfig.id}`,
-        {
-          rule_name: selectedRuleForConfig.rule_name,
-          trigger_condition: selectedRuleForConfig.trigger_condition,
-          template_name: selectedRuleForConfig.template_name,
-          threshold_value: selectedRuleForConfig.threshold_value,
-          coupon_code: selectedRuleForConfig.coupon_code,
-          dedup_days: selectedRuleForConfig.dedup_days,
-          expires_at: selectedRuleForConfig.expires_at ? new Date(selectedRuleForConfig.expires_at).toISOString() : null,
-          variable_mappings: selectedRuleForConfig.variable_mappings || {}
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setActionSuccessMsg(`Automation '${selectedRuleForConfig.rule_name}' updated successfully!`);
-      setIsConfigModalOpen(false);
-      fetchData();
-      setTimeout(() => setActionSuccessMsg(""), 5000);
-    } catch (err) {
-      alert("Failed to save rule settings: " + (err.response?.data?.detail || err.message));
-    }
-  };
-
-  const handleDeleteRule = async (ruleId, ruleName) => {
-    if (!window.confirm(`Are you sure you want to delete the automation rule "${ruleName}"?`)) return;
-    try {
-      await axios.delete(`/api/automation-rules/${ruleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setActionSuccessMsg(`🗑️ Automation '${ruleName}' deleted.`);
-      if (selectedRuleForConfig && selectedRuleForConfig.id === ruleId) {
-        setIsConfigModalOpen(false);
-      }
-      fetchData();
-      setTimeout(() => setActionSuccessMsg(""), 5000);
-    } catch (err) {
-      alert("Failed to delete rule: " + (err.response?.data?.detail || err.message));
-    }
-  };
-
-  const handleSimulateCartAbandonment = async () => {
-    setSimulatingAction(true);
-    try {
-      const mockToken = `cart_test_${Date.now()}`;
-      const res = await axios.post("/api/webhooks/cart-event", {
-        customer_phone: testPhone,
-        cart_token: mockToken,
-        cart_value: parseFloat(testCartValue) || 450,
-        items: [
-          { item: "Special Vanela Gathiya 500g", price: 200, qty: 1 },
-          { item: "Spicy Bhavnagari Gathiya 250g", price: 110, qty: 1 },
-          { item: "Papdi Gathiya with Kadhi 500g", price: 140, qty: 1 }
-        ]
-      }, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { delay_seconds: 10 } // 10 second delay for rapid testing!
-      });
-      setActionSuccessMsg(`🛒 Test Cart Abandonment simulated! Cart #${mockToken.slice(-6)} recorded. WhatsApp recovery scheduled in 10s.`);
-      fetchData();
-      setTimeout(() => setActionSuccessMsg(""), 6000);
-    } catch (err) {
-      alert("Cart simulation error: " + (err.response?.data?.detail || err.message));
-    } finally {
-      setSimulatingAction(false);
-    }
-  };
-
-  const handleDirectSendTest = async () => {
-    if (!testPhone) {
-      alert("Please enter a test phone number first!");
-      return;
-    }
-    setSimulatingAction(true);
-    try {
-      const selectedTmpl = templates.find((t) => t.template_name === selectedRuleForConfig?.template_name) || templates[0];
-      const res = await axios.post("/api/messages/send-test", {
-        phone: testPhone,
-        template_name: selectedTmpl ? selectedTmpl.template_name : (selectedRuleForConfig?.template_name || "address_update_1"),
-        language: selectedTmpl ? selectedTmpl.language : "en_US"
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.data.status === "blocked") {
-        alert(`⚠️ Message blocked: ${res.data.reason}`);
-      } else if (res.data.status === "success_simulated") {
-        setActionSuccessMsg(`📱 Simulated WhatsApp dispatched to ${testPhone} (Logged in DB)`);
-      } else if (res.data.status === "success") {
-        setActionSuccessMsg(`🚀 Live WhatsApp message delivered to ${testPhone}! Meta ID: ${res.data.message_id}`);
-      } else {
-        alert(`Meta response: ${JSON.stringify(res.data)}`);
-      }
-      fetchData();
-      setTimeout(() => setActionSuccessMsg(""), 6000);
-    } catch (err) {
-      alert("Test send error: " + (err.response?.data?.detail || err.message));
-    } finally {
-      setSimulatingAction(false);
-    }
-  };
-
-  const handleSimulateOrderCompleted = async (cartToken) => {
-    setSimulatingAction(true);
-    try {
-      const res = await axios.post("/api/webhooks/order-completed", null, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: {
-          cart_token: cartToken || `cart_test_${Date.now()}`,
-          customer_phone: testPhone
-        }
-      });
-      setActionSuccessMsg(`🎉 Order completed recorded! Cart marked as RECOVERED & scheduled message cancelled.`);
-      fetchData();
-      setTimeout(() => setActionSuccessMsg(""), 6000);
-    } catch (err) {
-      alert("Order completed error: " + (err.response?.data?.detail || err.message));
-    } finally {
-      setSimulatingAction(false);
-    }
-  };
 
   const handleCreateCampaign = async (e) => {
     e.preventDefault();
@@ -1582,7 +1414,7 @@ export default function App() {
                 icon: MessageSquare,
                 badge: chatConversations.reduce((acc, c) => acc + (c.unread_count || 0), 0)
               },
-              { id: "automations", label: "Automations", icon: Sliders, badge: automationRules.length },
+              { id: "automations", label: "Automations", icon: Sliders, badge: workflowFlows.length },
               { id: "campaigns", label: "Campaigns", icon: Megaphone },
               { id: "analytics", label: "Analytics", icon: BarChart3 },
               { id: "templates", label: "Templates", icon: BookOpen, badge: templates.length },
@@ -1709,11 +1541,11 @@ export default function App() {
 
             {activeTab === "automations" && (
               <button
-                onClick={handleOpenRuleModal}
-                className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#E67E22] text-black px-4 py-2 rounded-lg font-bold text-sm shadow-sm transition"
+                onClick={handleOpenNewJourneyModal}
+                className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-lg font-bold text-sm shadow-sm transition"
               >
                 <Plus className="w-4 h-4" />
-                Create New Rule
+                <span>Create Journey Flow</span>
               </button>
             )}
 
@@ -1795,45 +1627,65 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Active Automations Quick Glance */}
+              {/* Active Journey Automations Quick Glance */}
               <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="font-bold text-gray-900 text-base">Active Background Automations</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">Automated customer recovery & engagement triggers</p>
+                    <h3 className="font-bold text-gray-900 text-base">Active Journey Automations</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">Multi-step flowchart workflows and triggers</p>
                   </div>
                   <button
                     onClick={() => handleTabChange("automations")}
-                    className="text-xs font-bold text-[#F5A623] hover:underline"
+                    className="text-xs font-bold text-[#25D366] hover:underline"
                   >
-                    View All Rules ({automationRules.length}) →
+                    View All Journeys ({workflowFlows.length}) →
                   </button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {automationRules.map((r) => (
-                    <div key={r.id} className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col justify-between">
-                      <div>
-                        <div className="flex items-center justify-between">
-                          <span className={`w-2 h-2 rounded-full ${r.is_active ? "bg-emerald-500" : "bg-gray-400"}`}></span>
-                          <span className="text-[10px] font-bold font-mono text-gray-500 bg-white px-2 py-0.5 rounded border border-gray-200">
-                            {r.coupon_code || "NO CODE"}
-                          </span>
+                {workflowFlows.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {workflowFlows.map((flow) => (
+                      <div key={flow.id} className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col justify-between hover:border-gray-300 transition">
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <span className={`w-2 h-2 rounded-full ${flow.is_active ? "bg-emerald-500" : "bg-gray-400"}`}></span>
+                            <span className="text-[10px] font-bold font-mono text-gray-600 bg-white px-2 py-0.5 rounded border border-gray-200">
+                              {(flow.nodes || []).length} steps
+                            </span>
+                          </div>
+                          <h4 className="font-bold text-sm text-gray-900 mt-2 truncate" title={flow.name}>{flow.name}</h4>
+                          <p className="text-xs text-gray-500 mt-1">Trigger: <span className="font-semibold text-gray-700">{flow.trigger_type}</span></p>
                         </div>
-                        <h4 className="font-bold text-sm text-gray-900 mt-2">{r.rule_name}</h4>
-                        <p className="text-xs text-gray-500 mt-1 font-mono">{r.trigger_condition}</p>
+                        <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-between text-xs">
+                          <span className={`font-semibold ${flow.is_active ? "text-emerald-600" : "text-gray-400"}`}>
+                            {flow.is_active ? "Active" : "Paused"}
+                          </span>
+                          <button
+                            onClick={() => {
+                              handleTabChange("automations");
+                              setEditingWorkflow(flow);
+                            }}
+                            className="font-bold text-[#25D366] hover:text-[#1EBE5D] flex items-center gap-1"
+                          >
+                            <Sliders className="w-3.5 h-3.5" /> Open Flow
+                          </button>
+                        </div>
                       </div>
-                      <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-between text-xs">
-                        <span className="text-gray-500">Dedup: {r.dedup_days}d</span>
-                        <button
-                          onClick={() => handleTriggerRule(r)}
-                          className="font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
-                        >
-                          <PlayCircle className="w-3.5 h-3.5" /> Run
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-8 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                    <p className="text-xs text-gray-500 mb-2">No visual journey automations created yet.</p>
+                    <button
+                      onClick={() => {
+                        handleTabChange("automations");
+                        handleOpenNewJourneyModal();
+                      }}
+                      className="text-xs font-bold text-[#25D366] hover:underline"
+                    >
+                      + Create First Journey Flow
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Recent Campaigns Table */}
@@ -1891,54 +1743,22 @@ export default function App() {
               />
             ) : (
             <div className="space-y-6">
-              {/* ── Sub-Navigation Switcher ── */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-gray-200 rounded-2xl p-2 shadow-xs">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setActiveWorkflowTab("flows")}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
-                      activeWorkflowTab === "flows"
-                        ? "bg-[#25D366] text-white shadow-xs"
-                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                    }`}
-                  >
-                    <GitBranch className="w-4 h-4" />
-                    <span>Visual Journey Flows (Multi-Step)</span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-                        activeWorkflowTab === "flows"
-                          ? "bg-white/20 text-white"
-                          : "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {workflowFlows.length}
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={() => setActiveWorkflowTab("classic")}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
-                      activeWorkflowTab === "classic"
-                        ? "bg-[#111827] text-white shadow-xs"
-                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                    }`}
-                  >
-                    <Zap className="w-4 h-4 text-[#F5A623]" />
-                    <span>Single-Step Quick Rules</span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-                        activeWorkflowTab === "classic"
-                          ? "bg-white/20 text-white"
-                          : "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {automationRules.length}
-                    </span>
-                  </button>
+              {/* ── Automations Header Bar ── */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-gray-200 rounded-2xl p-4 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#25D366] flex items-center justify-center">
+                    <GitBranch className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">Visual Journey Automations</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Multi-step flowchart workflows with delays, smart condition branching, and revenue goals
+                    </p>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {(workflowFlows.length > 0 || automationRules.length > 0) && (
+                <div className="flex items-center gap-2.5">
+                  {workflowFlows.length > 0 && (
                     <button
                       onClick={handleCleanSlate}
                       className="flex items-center gap-1.5 bg-gray-100 hover:bg-red-50 text-gray-600 hover:text-red-600 border border-gray-200 px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs"
@@ -1949,29 +1769,15 @@ export default function App() {
                     </button>
                   )}
 
-                  {activeWorkflowTab === "flows" ? (
-                    <button
-                      onClick={handleCreateNewWorkflow}
-                      className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Create Journey Flow
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => setIsRuleModalOpen(true)}
-                      className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#E67E22] text-black px-4 py-2 rounded-xl font-bold text-xs shadow-xs transition"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Create Custom Rule
-                    </button>
-                  )}
+                  <button
+                    onClick={handleOpenNewJourneyModal}
+                    className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Create Journey Flow</span>
+                  </button>
                 </div>
               </div>
-
-              {/* ── VIEW 1: VISUAL MULTI-STEP FLOWCHART JOURNEYS ── */}
-              {activeWorkflowTab === "flows" && (
-                <div className="space-y-6">
                   {/* ── 📊 CLEAN EXECUTIVE AUTOMATION OVERVIEW (ADMIN PORTAL THEME) ── */}
                   <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
                     <div className="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
@@ -2147,11 +1953,11 @@ export default function App() {
                     </div>
                     <div className="flex items-center gap-2.5">
                       <button
-                        onClick={handleCreateNewWorkflow}
+                        onClick={handleOpenNewJourneyModal}
                         className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-xl font-bold text-xs shadow-xs transition inline-flex items-center gap-2"
                       >
                         <Plus className="w-4 h-4" />
-                        Create Journey Flow
+                        <span>Create Journey Flow</span>
                       </button>
                     </div>
                   </div>
@@ -2307,402 +2113,17 @@ export default function App() {
                         Create your first visual flowchart automation to guide customers from cart abandonment or festival campaigns through multi-stage follow-ups.
                       </p>
                       <button
-                        onClick={handleCreateNewWorkflow}
+                        onClick={handleOpenNewJourneyModal}
                         className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-xs inline-flex items-center gap-2 transition"
                       >
                         <Plus className="w-4 h-4" />
-                        + Create First Journey Flow
+                        <span>Create First Journey Flow</span>
                       </button>
                     </div>
                   )}
                 </div>
-              )}
-
-              {/* ── VIEW 2: SINGLE-STEP QUICK RULES (CLASSIC) ── */}
-              {activeWorkflowTab === "classic" && (
-                <div className="space-y-6">
-                  {/* ── 📊 CLEAN EXECUTIVE AUTOMATION OVERVIEW (ADMIN PORTAL THEME) ── */}
-                  <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
-                <div className="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-                  
-                  {/* LEFT: Clean Circular Progress & Key Metrics */}
-                  <div className="lg:col-span-5 flex items-center gap-6 border-b lg:border-b-0 lg:border-r border-gray-100 pb-5 lg:pb-0 lg:pr-6">
-                    {/* Minimal Circular Dial */}
-                    <div className="relative w-32 h-32 flex items-center justify-center shrink-0">
-                      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 120 120">
-                        {/* Background track */}
-                        <circle cx="60" cy="60" r="48" stroke="#F3F4F6" strokeWidth="8" fill="transparent" />
-                        {/* Active Automations Arc */}
-                        <circle
-                          cx="60"
-                          cy="60"
-                          r="48"
-                          stroke="#25D366"
-                          strokeWidth="8"
-                          strokeDasharray="301"
-                          strokeDashoffset={
-                            automationRules.length > 0
-                              ? 301 - (301 * (automationRules.filter((r) => r.is_active).length / Math.max(1, automationRules.length)))
-                              : 301
-                          }
-                          strokeLinecap="round"
-                          fill="transparent"
-                          className="transition-all duration-700"
-                        />
-                      </svg>
-                      <div className="absolute flex flex-col items-center justify-center text-center">
-                        <span className="text-xl font-black text-gray-900 leading-none">
-                          {automationRules.filter((r) => r.is_active).length}
-                        </span>
-                        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
-                          of {automationRules.length} Active
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Clean Executive Readouts */}
-                    <div className="space-y-2.5 flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-[#25D366]"></span>
-                          Active Rules
-                        </span>
-                        <span className="text-xs font-bold text-gray-900">
-                          {automationRules.filter((r) => r.is_active).length} / {automationRules.length}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-[#F5A623]"></span>
-                          Recovered (30d)
-                        </span>
-                        <span className="text-xs font-bold text-[#D35400] font-mono">
-                          ₹{cartEvents.filter((c) => c.status === "RECOVERED").reduce((sum, c) => sum + (c.cart_value || 0), 0).toLocaleString()}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                          Sent Today
-                        </span>
-                        <span className="text-xs font-bold text-gray-900 font-mono">
-                          {messageLogs.filter((m) => {
-                            const today = new Date().toISOString().split("T")[0];
-                            return m.created_at && m.created_at.startsWith(today);
-                          }).length} msgs
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                          Opt-Out Rate
-                        </span>
-                        <span className="text-xs font-bold text-emerald-600 font-mono">
-                          {optOuts.length === 0 ? "0% (Healthy)" : `${optOuts.length} opted out`}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* RIGHT: Live Automation Stream & Guardrail Status */}
-                  <div className="lg:col-span-7 flex flex-col justify-between space-y-3.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Activity className="w-4 h-4 text-[#25D366]" />
-                        <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                          Automation Activity & System Health
-                        </h4>
-                      </div>
-                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#25D366] animate-pulse"></span>
-                        Scheduler Online
-                      </div>
-                    </div>
-
-                    {/* Activity Feed Cards */}
-                    <div className="space-y-2">
-                      {cartEvents.length > 0 ? (
-                        <div className="bg-gray-50 border border-gray-100 p-2.5 rounded-lg flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-2.5">
-                            <ShoppingCart className="w-3.5 h-3.5 text-[#F5A623]" />
-                            <span className="text-gray-700">
-                              Latest cart: <strong className="font-mono text-gray-900">₹{cartEvents[0].cart_value || 0}</strong> • Status: <span className="font-semibold text-gray-800">{cartEvents[0].status}</span>
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-gray-400 font-mono">
-                            {cartEvents[0].customer_phone ? cartEvents[0].customer_phone.replace(/(\d{5})(\d{5})/, "$1*****") : "Customer"}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="bg-gray-50 border border-gray-100 p-2.5 rounded-lg flex items-center justify-between text-xs text-gray-500">
-                          <div className="flex items-center gap-2">
-                            <Radio className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Listening for store cart events & inactive customer triggers</span>
-                          </div>
-                          <span className="text-[11px] font-mono text-gray-400">Idle (Standby)</span>
-                        </div>
-                      )}
-
-                      {messageLogs.length > 0 ? (
-                        <div className="bg-gray-50 border border-gray-100 p-2.5 rounded-lg flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-2.5">
-                            <Send className="w-3.5 h-3.5 text-[#25D366]" />
-                            <span className="text-gray-700">
-                              Dispatched <code className="text-gray-900 font-bold bg-white px-1.5 py-0.5 rounded border border-gray-200 text-[11px]">{messageLogs[0].template_name}</code> to {messageLogs[0].recipient_phone}
-                            </span>
-                          </div>
-                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                            Sent
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="bg-gray-50 border border-gray-100 p-2.5 rounded-lg flex items-center justify-between text-xs text-gray-500">
-                          <div className="flex items-center gap-2">
-                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Daily safety guardrail active: 0 of 500 WhatsApp limit used</span>
-                          </div>
-                          <span className="text-[11px] text-emerald-600 font-semibold">100% Capacity</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Operational Guardrails Bar */}
-                    <div className="flex items-center justify-between pt-1 text-xs text-gray-500">
-                      <div className="flex items-center gap-3 text-[11px]">
-                        <span>Opt-out enforcement: <strong className="text-gray-800">Strict DND</strong></span>
-                        <span className="text-gray-300">•</span>
-                        <span>Deduplication window: <strong className="text-gray-800">3-7 Days</strong></span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          const cartRule = automationRules.find((r) => r.rule_type === "CART_RECOVERY") || automationRules[0];
-                          setSelectedRuleForConfig(cartRule);
-                          setIsConfigModalOpen(true);
-                        }}
-                        className="text-xs font-bold text-[#25D366] hover:text-[#1EBE5D] flex items-center gap-1 cursor-pointer transition"
-                      >
-                        ⚡ Test Simulator Flow →
-                      </button>
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-
-
-
-              {/* Subheader & Actions */}
-              <div className="flex items-center justify-between flex-wrap gap-4 pt-2">
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900">E-Commerce Lifecycle Automations</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Trigger-based smart WhatsApp messages driven by customer cart events, purchase history, and store activity
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => {
-                      const cartRule = automationRules.find((r) => r.rule_type === "CART_RECOVERY") || automationRules[0];
-                      setSelectedRuleForConfig(cartRule);
-                      setIsConfigModalOpen(true);
-                    }}
-                    className="flex items-center gap-2 bg-[#111827] hover:bg-black text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition"
-                  >
-                    <PlayCircle className="w-4 h-4 text-[#F5A623]" />
-                    Test & Simulate Cart Flow
-                  </button>
-                  <button
-                    onClick={() => setIsRuleModalOpen(true)}
-                    className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#E67E22] text-black px-4 py-2 rounded-xl font-bold text-xs shadow-xs transition"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Create Custom Rule
-                  </button>
-                </div>
-              </div>
-
-              {/* 8 Modern Visual Automation Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {automationRules.map((rule) => {
-                  const isCart = rule.rule_type === "CART_RECOVERY";
-                  const isInactive = rule.rule_type === "INACTIVE_DAYS";
-                  const isBirthday = rule.rule_type === "BIRTHDAY";
-                  const isVIP = rule.rule_type === "ORDER_COUNT_VIP";
-                  const isReview = rule.rule_type === "POST_DELIVERY";
-                  const isBackInStock = rule.rule_type === "BACK_IN_STOCK";
-                  const isLowStock = rule.rule_type === "LOW_STOCK";
-                  const isWeather = rule.rule_type === "WEATHER_TRIGGER";
-
-                  return (
-                    <div
-                      key={rule.id}
-                      className="bg-white rounded-2xl border border-gray-200 shadow-xs hover:shadow-md transition p-6 flex flex-col justify-between relative overflow-hidden"
-                    >
-                      <div className="space-y-4">
-                        {/* Card Header: Icon + Title + Toggle */}
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-3.5">
-                            <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${
-                              isCart ? "bg-amber-50 text-[#D35400]" :
-                              isInactive ? "bg-blue-50 text-blue-600" :
-                              isBirthday ? "bg-pink-50 text-pink-600" :
-                              isVIP ? "bg-purple-50 text-purple-600" :
-                              isReview ? "bg-emerald-50 text-emerald-600" :
-                              isBackInStock ? "bg-indigo-50 text-indigo-600" :
-                              isLowStock ? "bg-orange-50 text-orange-600" :
-                              "bg-cyan-50 text-cyan-600"
-                            }`}>
-                              {isCart ? <ShoppingCart className="w-5 h-5" /> :
-                               isInactive ? <Clock className="w-5 h-5" /> :
-                               isBirthday ? <Gift className="w-5 h-5" /> :
-                               isVIP ? <Star className="w-5 h-5" /> :
-                               isReview ? <Package className="w-5 h-5" /> :
-                               isBackInStock ? <CheckCircle2 className="w-5 h-5" /> :
-                               isLowStock ? <AlertTriangle className="w-5 h-5" /> :
-                               <CloudRain className="w-5 h-5" />}
-                            </div>
-                            <div>
-                              <h4 className="font-bold text-gray-900 text-sm">{rule.rule_name}</h4>
-                              <p className="text-xs text-gray-500 mt-0.5">{rule.trigger_condition}</p>
-                            </div>
-                          </div>
-
-                          {/* Toggle Switch */}
-                          <button
-                            onClick={() => handleToggleRule(rule)}
-                            className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold transition flex-shrink-0 ${
-                              rule.is_active
-                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                : "bg-gray-100 text-gray-400 border border-gray-200"
-                            }`}
-                          >
-                            {rule.is_active ? <ToggleRight className="w-4 h-4 text-emerald-600" /> : <ToggleLeft className="w-4 h-4 text-gray-400" />}
-                            {rule.is_active ? "Active" : "Paused"}
-                          </button>
-                        </div>
-
-                        {/* Card Details: Template, Coupon, Stats */}
-                        <div className="bg-gray-50 rounded-xl p-3.5 space-y-2 text-xs">
-                          <div className="flex items-center justify-between text-gray-600">
-                            <span className="font-medium text-gray-500">Template Linked:</span>
-                            <span className="font-mono font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200">
-                              {rule.template_name}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-gray-600">
-                            <span className="font-medium text-gray-500">Coupon Attached:</span>
-                            <span className="font-mono font-bold text-[#D35400] bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                              {rule.coupon_code || "None"}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-gray-600">
-                            <span className="font-medium text-gray-500">Dedup Cooldown:</span>
-                            <span className="font-semibold text-gray-700">{rule.dedup_days} Days</span>
-                          </div>
-                          {rule.expires_at && (
-                            <div className="flex items-center justify-between text-gray-600">
-                              <span className="font-medium text-gray-500">Expiry Deadline:</span>
-                              <span className={`font-semibold px-2 py-0.5 rounded text-[11px] ${
-                                new Date(rule.expires_at) < new Date()
-                                  ? "bg-red-100 text-red-700 font-bold"
-                                  : "bg-emerald-100 text-emerald-800"
-                              }`}>
-                                {new Date(rule.expires_at).toLocaleDateString()} {new Date(rule.expires_at) < new Date() ? "(Expired)" : ""}
-                              </span>
-                            </div>
-                          )}
-                          <div className="flex items-center justify-between text-gray-600 border-t border-gray-200/60 pt-2">
-                            <span className="font-medium text-gray-500">Total Dispatched:</span>
-                            <span className="font-bold text-gray-900">{rule.total_triggered} sent</span>
-                          </div>
-
-                          {rule.approval_status === "PENDING_APPROVAL" && (
-                            <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 flex items-center justify-between">
-                              <span className="font-semibold flex items-center gap-1">
-                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                                Held: {rule.pending_recipients_count} contacts (&gt;100 limit)
-                              </span>
-                              <span className="font-bold text-amber-700 underline cursor-pointer" onClick={() => handleTriggerRule(rule)}>
-                                Review & Approve →
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Card Footer Actions */}
-                      <div className="pt-4 mt-4 border-t border-gray-100 flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => {
-                              setSelectedRuleForConfig(rule);
-                              setIsConfigModalOpen(true);
-                            }}
-                            className="text-xs font-semibold text-gray-700 hover:text-black flex items-center gap-1.5 transition"
-                          >
-                            <Sliders className="w-3.5 h-3.5 text-gray-500" />
-                            Configure & Test
-                          </button>
-                          <button
-                            onClick={() => handleDeleteRule(rule.id, rule.rule_name)}
-                            className="text-xs text-red-500 hover:text-red-700 font-semibold flex items-center gap-1 transition"
-                            title="Delete this automation"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-
-                        {rule.approval_status === "PENDING_APPROVAL" ? (
-                          <button
-                            onClick={() => handleTriggerRule(rule)}
-                            className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-black px-3.5 py-1.5 rounded-lg text-xs font-black transition shadow-xs animate-pulse"
-                          >
-                            <KeyRound className="w-3.5 h-3.5" />
-                            2FA Approve ({rule.pending_recipients_count})
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleTriggerRule(rule)}
-                            disabled={!rule.is_active}
-                            className="flex items-center gap-1.5 bg-[#111827] hover:bg-black disabled:opacity-40 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-xs"
-                          >
-                            <PlayCircle className="w-3.5 h-3.5 text-[#F5A623]" />
-                            Execute Now
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Clean Empty State when 0 automations exist */}
-              {automationRules.length === 0 && (
-                <div className="bg-white rounded-2xl border border-dashed border-gray-300 p-12 text-center">
-                  <div className="w-14 h-14 rounded-2xl bg-amber-50 text-[#F5A623] flex items-center justify-center mx-auto mb-4">
-                    <Sliders className="w-7 h-7" />
-                  </div>
-                  <h4 className="text-base font-bold text-gray-900">No Automations Active</h4>
-                  <p className="text-xs text-gray-500 max-w-md mx-auto mt-1 mb-5 leading-relaxed">
-                    All previous automation rules have been deleted. You have a clean slate! Click below to create your first customized automation rule (such as Abandoned Cart Recovery).
-                  </p>
-                  <button
-                    onClick={handleOpenRuleModal}
-                    className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-xs inline-flex items-center gap-2 transition"
-                  >
-                    <Plus className="w-4 h-4" />
-                    + Create First Automation
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )
-    )}
+              )
+            )}
 
           {/* ========================================================= */}
           {/* TAB 3: SETTINGS VIEW */}
@@ -4757,338 +4178,167 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Create Rule Modal ── */}
-      {isRuleModalOpen && (
+      {/* ── Create New Journey Flow Modal ── */}
+      {isNewJourneyModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-4 border-b border-gray-100">
-              <h3 className="font-bold text-lg text-gray-900">Create New Automation Trigger Rule</h3>
-              <button onClick={() => setIsRuleModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 text-[#25D366] flex items-center justify-center font-bold">
+                  <GitBranch className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-gray-900 leading-tight">Create Journey Flow</h3>
+                  <p className="text-xs text-gray-500">Pick a starting trigger to begin building your visual automation flow</p>
+                </div>
+              </div>
+              <button onClick={() => setIsNewJourneyModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl leading-none">✕</button>
             </div>
 
-            <form onSubmit={handleCreateRule} className="mt-5 space-y-4">
+            <form onSubmit={handleConfirmCreateJourney} className="mt-5 space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Rule Name</label>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Journey Flow Name</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. 15-Day Gentle Inactive Winback"
-                  value={newRule.rule_name}
-                  onChange={(e) => setNewRule({ ...newRule, rule_name: e.target.value })}
+                  placeholder="e.g. 30-Min Cart Recovery Sequence, Festive Diwali Offer"
+                  value={newJourneyForm.name}
+                  onChange={(e) => setNewJourneyForm({ ...newJourneyForm, name: e.target.value })}
                   className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Trigger Type</label>
-                  <select
-                    value={newRule.rule_type}
-                    onChange={(e) => setNewRule({ ...newRule, rule_type: e.target.value })}
-                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  >
-                    <option value="INACTIVE_DAYS">Days Since Last Order</option>
-                    <option value="ORDER_COUNT_VIP">Repeat VIP Buyers (Order Count)</option>
-                    <option value="CART_RECOVERY">Abandoned Cart Delay</option>
-                  </select>
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-2">Select Starting Trigger Event</label>
+                <div className="space-y-2">
+                  {[
+                    {
+                      id: "ABANDONED_CART",
+                      title: "Abandoned Cart",
+                      desc: "Triggers when a visitor adds snacks to cart but doesn't check out within a timeframe.",
+                      icon: ShoppingCart,
+                      color: "text-amber-600 bg-amber-50 border-amber-200"
+                    },
+                    {
+                      id: "INACTIVE_WINBACK",
+                      title: "Customer Inactive Winback",
+                      desc: "Triggers when a past customer has made no orders for N days.",
+                      icon: Clock,
+                      color: "text-blue-600 bg-blue-50 border-blue-200"
+                    },
+                    {
+                      id: "ORDER_COMPLETED",
+                      title: "Post-Purchase / Order Completed",
+                      desc: "Triggers right after an order is placed/delivered for feedback or cross-sell snacks.",
+                      icon: Package,
+                      color: "text-purple-600 bg-purple-50 border-purple-200"
+                    },
+                    {
+                      id: "FESTIVAL_OFFER",
+                      title: "Festival & Promotional Event",
+                      desc: "Triggers an outbound promotional campaign or seasonal festive blast.",
+                      icon: Sparkles,
+                      color: "text-pink-600 bg-pink-50 border-pink-200"
+                    },
+                    {
+                      id: "CONTACT_TAGGED",
+                      title: "Contact Tagged / VIP Milestone",
+                      desc: "Triggers when a customer receives a specific tag or joins VIP segment.",
+                      icon: Tag,
+                      color: "text-emerald-600 bg-emerald-50 border-emerald-200"
+                    }
+                  ].map((trig) => {
+                    const isSelected = (newJourneyForm.trigger_type || "ABANDONED_CART") === trig.id;
+                    const IconComp = trig.icon;
+                    return (
+                      <div
+                        key={trig.id}
+                        onClick={() => setNewJourneyForm({ ...newJourneyForm, trigger_type: trig.id })}
+                        className={`cursor-pointer p-3 rounded-xl border transition-all flex items-center gap-3.5 ${
+                          isSelected
+                            ? "border-[#25D366] bg-emerald-50/40 ring-2 ring-[#25D366]/20 shadow-xs"
+                            : "border-gray-200 hover:border-gray-300 hover:bg-gray-50/70"
+                        }`}
+                      >
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border ${trig.color}`}>
+                          <IconComp className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <div className="text-sm font-bold text-gray-900">{trig.title}</div>
+                            {isSelected && (
+                              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                Selected
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">{trig.desc}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
-                    {newRule.rule_type === "CART_RECOVERY" ? "Cart Delay" :
-                     newRule.rule_type === "INACTIVE_DAYS" ? "Inactive Duration" :
-                     newRule.rule_type === "ORDER_COUNT_VIP" ? "Order Milestone Count" :
-                     "Threshold Value"}
-                  </label>
-                  <div className="relative flex items-center">
+              {/* Specific Trigger Option Quick Config */}
+              {newJourneyForm.trigger_type === "ABANDONED_CART" && (
+                <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl flex items-center justify-between text-xs">
+                  <span className="font-semibold text-amber-900">Wait Delay Before Triggering:</span>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="5"
+                      max="1440"
+                      value={newJourneyForm.trigger_config?.delay_minutes || 30}
+                      onChange={(e) =>
+                        setNewJourneyForm({
+                          ...newJourneyForm,
+                          trigger_config: { ...newJourneyForm.trigger_config, delay_minutes: parseInt(e.target.value) || 30 }
+                        })
+                      }
+                      className="w-20 px-2.5 py-1 bg-white border border-amber-300 rounded font-bold text-center text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    />
+                    <span className="text-amber-800 font-medium">minutes</span>
+                  </div>
+                </div>
+              )}
+
+              {newJourneyForm.trigger_type === "INACTIVE_WINBACK" && (
+                <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl flex items-center justify-between text-xs">
+                  <span className="font-semibold text-blue-900">Customer Inactivity Period:</span>
+                  <div className="flex items-center gap-1.5">
                     <input
                       type="number"
                       min="1"
-                      required
-                      value={newRule.threshold_value}
-                      onChange={(e) => setNewRule({ ...newRule, threshold_value: parseInt(e.target.value) || 1 })}
-                      className="w-full pl-3.5 pr-20 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                    />
-                    <span className="absolute right-2.5 px-2.5 py-1 text-xs font-bold rounded-md bg-gray-100 text-gray-700 border border-gray-200 uppercase">
-                      {newRule.rule_type === "CART_RECOVERY" ? "Minutes" :
-                       newRule.rule_type === "INACTIVE_DAYS" ? "Days" :
-                       newRule.rule_type === "ORDER_COUNT_VIP" ? "Orders" :
-                       "Units"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Template to Send</label>
-                  <select
-                    value={newRule.template_name}
-                    onChange={(e) => setNewRule({ ...newRule, template_name: e.target.value })}
-                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  >
-                    {templates.length > 0 ? (
-                      [...templates]
-                        .sort((a, b) => (a.status === "APPROVED" ? -1 : 1))
-                        .map((t) => {
-                          const isApproved = t.status === "APPROVED";
-                          return (
-                            <option key={t.id} value={t.template_name}>
-                              {isApproved ? "🟢 [APPROVED]" : "🟡 [PENDING]"} {t.template_name} ({t.language})
-                            </option>
-                          );
+                      max="365"
+                      value={newJourneyForm.trigger_config?.inactive_days || 15}
+                      onChange={(e) =>
+                        setNewJourneyForm({
+                          ...newJourneyForm,
+                          trigger_config: { ...newJourneyForm.trigger_config, inactive_days: parseInt(e.target.value) || 15 }
                         })
-                    ) : (
-                      <option value="cart_recovery_v1">cart_recovery_v1</option>
-                    )}
-                  </select>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-bold uppercase text-gray-700">Discount Coupon Code</label>
-                    {discountCodes.length > 0 && (
-                      <span className="text-[10px] text-gray-400">({discountCodes.length} available)</span>
-                    )}
-                  </div>
-                  {discountCodes.length > 0 ? (
-                    <div className="space-y-1.5">
-                      <select
-                        value={
-                          discountCodes.some((d) => d.code === newRule.coupon_code)
-                            ? newRule.coupon_code
-                            : newRule.coupon_code ? "__CUSTOM__" : ""
-                        }
-                        onChange={(e) => {
-                          if (e.target.value === "__CUSTOM__") {
-                            setNewRule({ ...newRule, coupon_code: "" });
-                          } else {
-                            setNewRule({ ...newRule, coupon_code: e.target.value });
-                          }
-                        }}
-                        className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                      >
-                        <option value="">-- Select Active Coupon --</option>
-                        {discountCodes.map((d) => (
-                          <option key={d.id} value={d.code}>
-                            {d.code} ({d.discount_type === "PERCENT" ? `${d.discount_value}% OFF` : `₹${d.discount_value} OFF`})
-                          </option>
-                        ))}
-                        <option value="__CUSTOM__">✍️ Custom Code (Type below)</option>
-                      </select>
-                      {(!discountCodes.some((d) => d.code === newRule.coupon_code) || newRule.coupon_code === "") && (
-                        <input
-                          type="text"
-                          placeholder="Type custom coupon (e.g. BAZIK7)"
-                          value={newRule.coupon_code}
-                          onChange={(e) => setNewRule({ ...newRule, coupon_code: e.target.value.toUpperCase() })}
-                          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                        />
-                      )}
-                    </div>
-                  ) : (
-                    <input
-                      type="text"
-                      placeholder="e.g. VIP15 or BAZIK7"
-                      value={newRule.coupon_code}
-                      onChange={(e) => setNewRule({ ...newRule, coupon_code: e.target.value.toUpperCase() })}
-                      className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                      }
+                      className="w-20 px-2.5 py-1 bg-white border border-blue-300 rounded font-bold text-center text-blue-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Deduplication Gate (Days)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={newRule.dedup_days}
-                    onChange={(e) => setNewRule({ ...newRule, dedup_days: parseInt(e.target.value) || 7 })}
-                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  />
-                  <p className="text-[11px] text-gray-400 mt-1">Prevents messaging the same customer again</p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
-                    End Date / Expiry Deadline <span className="text-gray-400 font-normal lowercase">(optional)</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={newRule.expires_at || ""}
-                    onChange={(e) => setNewRule({ ...newRule, expires_at: e.target.value })}
-                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  />
-                  <p className="text-[11px] text-gray-400 mt-1">Auto-deactivates rule once this date passes</p>
-                </div>
-              </div>
-
-              {/* Dynamic Meta Template Variable Mapper */}
-              {(() => {
-                const selectedTmpl = templates.find((t) => t.template_name === newRule.template_name);
-                const bodyText = selectedTmpl?.body_text || "";
-                const matches = Array.from(new Set(Array.from(bodyText.matchAll(/\{\{(\d+)\}\}/g), (m) => parseInt(m[1])))).sort((a, b) => a - b);
-
-                if (matches.length === 0) return null;
-
-                return (
-                  <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4 space-y-3">
-                    <div className="flex items-center justify-between border-b border-emerald-200/60 pb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">🧩</span>
-                        <h4 className="text-xs font-bold text-emerald-900 uppercase tracking-wider">
-                          Manual Variable Mapping ({matches.length} parameter{matches.length !== 1 ? "s" : ""})
-                        </h4>
-                      </div>
-                      <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
-                        Required by Meta
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-gray-600">
-                      Match each template placeholder (like <code>{"{{1}}"}</code>, <code>{"{{2}}"}</code>) to a contact database field, discount coupon, or custom text.
-                    </p>
-
-                    <div className="space-y-2.5 pt-1">
-                      {matches.map((idx) => {
-                        const curMapping = newRule.variable_mappings?.[String(idx)] || {
-                          type: idx === 1 ? "contact_field" : idx === 2 ? "coupon" : "static",
-                          value: idx === 1 ? "name" : idx === 2 ? "code" : ""
-                        };
-
-                        const updateMapping = (newType, newVal) => {
-                          setNewRule({
-                            ...newRule,
-                            variable_mappings: {
-                              ...(newRule.variable_mappings || {}),
-                              [String(idx)]: { type: newType, value: newVal }
-                            }
-                          });
-                        };
-
-                        return (
-                          <div key={idx} className="bg-white border border-gray-200 rounded-lg p-2.5 flex items-center gap-2 text-xs shadow-2xs min-w-0">
-                            <span className="font-mono font-bold text-emerald-700 bg-emerald-100/70 px-2 py-1 rounded min-w-[44px] text-center shrink-0">
-                              {"{{" + idx + "}}"}
-                            </span>
-
-                            {/* Mapping Type Selector */}
-                            <select
-                              value={curMapping.type || "contact_field"}
-                              onChange={(e) => {
-                                const t = e.target.value;
-                                const defaultVal = t === "contact_field" ? "name" : t === "cart_event" ? "items" : t === "coupon" ? "code" : "";
-                                updateMapping(t, defaultVal);
-                              }}
-                              className="w-36 sm:w-44 shrink-0 px-2 py-1.5 border border-gray-300 rounded-md text-xs font-semibold bg-gray-50 focus:bg-white truncate"
-                            >
-                              <option value="contact_field">👤 Contact Field</option>
-                              <option value="cart_event">🛒 Cart Event</option>
-                              <option value="coupon">🏷️ Attached Coupon</option>
-                              <option value="static">✍️ Custom Text</option>
-                            </select>
-
-                            {/* Value Selector / Input */}
-                            <div className="flex-1 min-w-0">
-                              {curMapping.type === "contact_field" ? (
-                                <select
-                                  value={curMapping.value || "name"}
-                                  onChange={(e) => updateMapping("contact_field", e.target.value)}
-                                  className="w-full min-w-0 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#25D366] truncate"
-                                >
-                                  <option value="name">Customer Name</option>
-                                  <option value="phone">Phone Number</option>
-                                  <option value="city">City</option>
-                                  <option value="total_orders">Total Orders Count</option>
-                                  <option value="last_order_date">Last Order Date</option>
-                                </select>
-                              ) : curMapping.type === "cart_event" ? (
-                                <select
-                                  value={curMapping.value || "items"}
-                                  onChange={(e) => updateMapping("cart_event", e.target.value)}
-                                  className="w-full min-w-0 px-2.5 py-1.5 border border-amber-300 bg-amber-50/50 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-500 truncate"
-                                >
-                                  <option value="items">📦 Cart Items / Snacks</option>
-                                  <option value="cart_value">💰 Cart Total Amount</option>
-                                </select>
-                              ) : curMapping.type === "coupon" ? (
-                                <select
-                                  value={curMapping.value || "code"}
-                                  onChange={(e) => updateMapping("coupon", e.target.value)}
-                                  className="w-full min-w-0 px-2.5 py-1.5 border border-[#F5A623] bg-amber-50/60 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-[#F5A623] truncate"
-                                >
-                                  <option value="code">🏷️ Coupon Code</option>
-                                  <option value="discount_value">🎁 Discount Value (%)</option>
-                                  <option value="expires_at">⏳ Coupon Expiry Date</option>
-                                </select>
-                              ) : (
-                                <input
-                                  type="text"
-                                  placeholder={`e.g. ${idx === 3 ? "₹50 or 20% off" : idx === 4 ? "30 Sep 2026" : "Value"}`}
-                                  value={curMapping.value || ""}
-                                  onChange={(e) => updateMapping("static", e.target.value)}
-                                  className="w-full min-w-0 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#25D366]"
-                                />
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Live Preview of Body Text with Substituted Variables */}
-                    {bodyText && (
-                      <div className="mt-3 bg-white/80 p-3 rounded-lg border border-gray-200 text-xs">
-                        <div className="text-[10px] font-bold uppercase text-gray-500 mb-1">Message Preview:</div>
-                        <p className="whitespace-pre-wrap text-gray-800 font-sans leading-relaxed">
-                          {(() => {
-                            let preview = bodyText;
-                            matches.forEach((idx) => {
-                              const curMapping = newRule.variable_mappings?.[String(idx)] || {
-                                type: idx === 1 ? "contact_field" : idx === 2 ? "coupon" : "static",
-                                value: idx === 1 ? "name" : idx === 2 ? "code" : ""
-                              };
-                              let sampleVal = `[Param ${idx}]`;
-                              if (curMapping.type === "contact_field") {
-                                sampleVal = curMapping.value === "name" ? "Ravi" : curMapping.value === "city" ? "Ahmedabad" : curMapping.value;
-                              } else if (curMapping.type === "cart_event") {
-                                sampleVal = curMapping.value === "cart_value" ? "450" : "Special Vanela Gathiya & Bhavnagari Gathiya";
-                              } else if (curMapping.type === "coupon") {
-                                if (curMapping.value === "discount_value") {
-                                  sampleVal = discountCodes.find((d) => d.code === newRule.coupon_code)?.discount_value ? `${discountCodes.find((d) => d.code === newRule.coupon_code).discount_value}%` : "7%";
-                                } else if (curMapping.value === "expires_at") {
-                                  sampleVal = newRule.expires_at || discountCodes.find((d) => d.code === newRule.coupon_code)?.expires_at?.split("T")[0] || "30/09/2026";
-                                } else {
-                                  sampleVal = newRule.coupon_code || "OFFER";
-                                }
-                              } else {
-                                sampleVal = curMapping.value || `[Custom ${idx}]`;
-                              }
-                              preview = preview.replaceAll(`{{${idx}}}`, sampleVal);
-                            });
-                            return preview;
-                          })()}
-                        </p>
-                      </div>
-                    )}
+                    <span className="text-blue-800 font-medium">days</span>
                   </div>
-                );
-              })()}
+                </div>
+              )}
 
               <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsRuleModalOpen(false)}
+                  onClick={() => setIsNewJourneyModalOpen(false)}
                   className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2 rounded-lg font-semibold text-sm shadow-md"
+                  className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2 rounded-lg font-semibold text-sm shadow-md flex items-center gap-2"
                 >
-                  Save & Enable Rule
+                  <span>Open Flow Builder</span>
+                  <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
             </form>
@@ -5767,460 +5017,7 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* ── Configure & Test Simulator Modal ── */}
-      {isConfigModalOpen && selectedRuleForConfig && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-gray-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-50 text-[#D35400] flex items-center justify-center">
-                  <Sliders className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-base text-gray-900">Configure & Test: {selectedRuleForConfig.rule_name}</h3>
-                  <p className="text-xs text-gray-500">Tune trigger thresholds, coupons, and simulate live WhatsApp flow</p>
-                </div>
-              </div>
-              <button onClick={() => setIsConfigModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold text-xl">✕</button>
-            </div>
 
-            {/* Configuration Form */}
-            <form onSubmit={handleSaveConfigRule} className="mt-4 space-y-4">
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase text-gray-700 tracking-wider">1. Automation Rule Settings</h4>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteRule(selectedRuleForConfig.id, selectedRuleForConfig.rule_name)}
-                    className="flex items-center gap-1 text-red-600 hover:text-red-700 text-xs font-semibold hover:bg-red-50 px-2 py-1 rounded transition"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Delete Rule
-                  </button>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Rule Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={selectedRuleForConfig.rule_name || ""}
-                    onChange={(e) => setSelectedRuleForConfig({
-                      ...selectedRuleForConfig,
-                      rule_name: e.target.value
-                    })}
-                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">
-                      {selectedRuleForConfig.rule_type === "CART_RECOVERY" ? "Cart Delay" :
-                       selectedRuleForConfig.rule_type === "INACTIVE_DAYS" ? "Inactive Duration" :
-                       selectedRuleForConfig.rule_type === "ORDER_COUNT_VIP" ? "Order Milestone Count" :
-                       "Threshold Value"}
-                    </label>
-                    <div className="relative flex items-center">
-                      <input
-                        type="number"
-                        min="1"
-                        value={selectedRuleForConfig.threshold_value}
-                        onChange={(e) => setSelectedRuleForConfig({
-                          ...selectedRuleForConfig,
-                          threshold_value: parseInt(e.target.value) || 1
-                        })}
-                        className="w-full pl-3 pr-20 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                      />
-                      <span className="absolute right-2 px-2 py-0.5 text-[10px] font-bold rounded bg-gray-100 text-gray-700 border border-gray-200 uppercase">
-                        {selectedRuleForConfig.rule_type === "CART_RECOVERY" ? "Minutes" :
-                         selectedRuleForConfig.rule_type === "INACTIVE_DAYS" ? "Days" :
-                         selectedRuleForConfig.rule_type === "ORDER_COUNT_VIP" ? "Orders" :
-                         "Units"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[11px] font-bold uppercase text-gray-600">Discount Coupon Code</label>
-                      {discountCodes.length > 0 && (
-                        <span className="text-[10px] text-gray-400">({discountCodes.length} available)</span>
-                      )}
-                    </div>
-                    {discountCodes.length > 0 ? (
-                      <div className="space-y-1.5">
-                        <select
-                          value={
-                            discountCodes.some((d) => d.code === selectedRuleForConfig.coupon_code)
-                              ? selectedRuleForConfig.coupon_code
-                              : selectedRuleForConfig.coupon_code ? "__CUSTOM__" : ""
-                          }
-                          onChange={(e) => {
-                            if (e.target.value === "__CUSTOM__") {
-                              setSelectedRuleForConfig({
-                                ...selectedRuleForConfig,
-                                coupon_code: ""
-                              });
-                            } else {
-                              setSelectedRuleForConfig({
-                                ...selectedRuleForConfig,
-                                coupon_code: e.target.value
-                              });
-                            }
-                          }}
-                          className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                        >
-                          <option value="">-- Select Active Coupon --</option>
-                          {discountCodes.map((d) => (
-                            <option key={d.id} value={d.code}>
-                              {d.code} ({d.discount_type === "PERCENT" ? `${d.discount_value}% OFF` : `₹${d.discount_value} OFF`})
-                            </option>
-                          ))}
-                          <option value="__CUSTOM__">✍️ Custom Code (Type below)</option>
-                        </select>
-                        {(!discountCodes.some((d) => d.code === selectedRuleForConfig.coupon_code) || selectedRuleForConfig.coupon_code === "") && (
-                          <input
-                            type="text"
-                            value={selectedRuleForConfig.coupon_code || ""}
-                            onChange={(e) => setSelectedRuleForConfig({
-                              ...selectedRuleForConfig,
-                              coupon_code: e.target.value.toUpperCase()
-                            })}
-                            placeholder="Type coupon code (e.g. BAZIK7)"
-                            className="w-full px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                          />
-                        )}
-                      </div>
-                    ) : (
-                      <input
-                        type="text"
-                        value={selectedRuleForConfig.coupon_code || ""}
-                        onChange={(e) => setSelectedRuleForConfig({
-                          ...selectedRuleForConfig,
-                          coupon_code: e.target.value.toUpperCase()
-                        })}
-                        placeholder="e.g. BAZIK7"
-                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                      />
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Cooldown / Dedup</label>
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="number"
-                        min="1"
-                        value={selectedRuleForConfig.dedup_days}
-                        onChange={(e) => setSelectedRuleForConfig({
-                          ...selectedRuleForConfig,
-                          dedup_days: parseInt(e.target.value) || 1
-                        })}
-                        className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                      />
-                      <span className="text-[11px] text-gray-500 font-semibold">Days</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Template Linked</label>
-                    <select
-                      value={selectedRuleForConfig.template_name}
-                      onChange={(e) => setSelectedRuleForConfig({
-                        ...selectedRuleForConfig,
-                        template_name: e.target.value
-                      })}
-                      className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                    >
-                      {templates.length > 0 ? (
-                        [...templates]
-                          .sort((a, b) => (a.status === "APPROVED" ? -1 : 1))
-                          .map((t) => {
-                            const isApproved = t.status === "APPROVED";
-                            return (
-                              <option key={t.id} value={t.template_name}>
-                                {isApproved ? "🟢 [APPROVED]" : "🟡 [PENDING]"} {t.template_name} ({t.language})
-                              </option>
-                            );
-                          })
-                      ) : (
-                        <option value="cart_recovery_v1">cart_recovery_v1</option>
-                      )}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">
-                    ⏳ Expiry Deadline <span className="normal-case font-normal text-gray-400">(automation auto-stops on this date)</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={selectedRuleForConfig.expires_at ? selectedRuleForConfig.expires_at.split("T")[0] : ""}
-                    onChange={(e) => setSelectedRuleForConfig({
-                      ...selectedRuleForConfig,
-                      expires_at: e.target.value
-                    })}
-                    className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  />
-                </div>
-
-                {/* Dynamic Meta Template Variable Mapper for Configure Modal */}
-                {(() => {
-                  const selectedTmpl = templates.find((t) => t.template_name === selectedRuleForConfig.template_name);
-                  const bodyText = selectedTmpl?.body_text || "";
-                  const matches = Array.from(new Set(Array.from(bodyText.matchAll(/\{\{(\d+)\}\}/g), (m) => parseInt(m[1])))).sort((a, b) => a - b);
-
-                  if (matches.length === 0) return null;
-
-                  return (
-                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 space-y-2.5 mt-3">
-                      <div className="flex items-center justify-between border-b border-emerald-200/60 pb-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm">🧩</span>
-                          <h4 className="text-xs font-bold text-emerald-900 uppercase tracking-wider">
-                            Template Variable Mapping ({matches.length} parameter{matches.length !== 1 ? "s" : ""})
-                          </h4>
-                        </div>
-                        <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
-                          Required by Meta
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-gray-600">
-                        Match each template variable (<code>{"{{1}}"}</code>, <code>{"{{2}}"}</code>, etc.) to a customer field, coupon, or static text.
-                      </p>
-
-                      <div className="space-y-2 pt-1">
-                        {matches.map((idx) => {
-                          const curMapping = selectedRuleForConfig.variable_mappings?.[String(idx)] || {
-                            type: idx === 1 ? "contact_field" : idx === 2 ? "coupon" : "static",
-                            value: idx === 1 ? "name" : idx === 2 ? "code" : ""
-                          };
-
-                          const updateConfigMapping = (newType, newVal) => {
-                            setSelectedRuleForConfig({
-                              ...selectedRuleForConfig,
-                              variable_mappings: {
-                                ...(selectedRuleForConfig.variable_mappings || {}),
-                                [String(idx)]: { type: newType, value: newVal }
-                              }
-                            });
-                          };
-
-                          return (
-                            <div key={idx} className="bg-white border border-gray-200 rounded-lg p-2.5 flex items-center gap-2 text-xs shadow-2xs min-w-0">
-                              <span className="font-mono font-bold text-emerald-700 bg-emerald-100/70 px-2 py-1 rounded min-w-[44px] text-center shrink-0">
-                                {"{{" + idx + "}}"}
-                              </span>
-
-                              {/* Mapping Type Selector */}
-                              <select
-                                value={curMapping.type || "contact_field"}
-                                onChange={(e) => {
-                                  const t = e.target.value;
-                                  const defaultVal = t === "contact_field" ? "name" : t === "cart_event" ? "items" : t === "coupon" ? "code" : "";
-                                  updateConfigMapping(t, defaultVal);
-                                }}
-                                className="w-36 sm:w-44 shrink-0 px-2 py-1.5 border border-gray-300 rounded-md text-xs font-semibold bg-gray-50 focus:bg-white truncate"
-                              >
-                                <option value="contact_field">👤 Contact Field</option>
-                                <option value="cart_event">🛒 Cart Event</option>
-                                <option value="coupon">🏷️ Attached Coupon</option>
-                                <option value="static">✍️ Custom Text</option>
-                              </select>
-
-                              {/* Value Selector / Input */}
-                              <div className="flex-1 min-w-0">
-                                {curMapping.type === "contact_field" ? (
-                                  <select
-                                    value={curMapping.value || "name"}
-                                    onChange={(e) => updateConfigMapping("contact_field", e.target.value)}
-                                    className="w-full min-w-0 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[#25D366] truncate"
-                                  >
-                                    <option value="name">Customer Name</option>
-                                    <option value="phone">Phone Number</option>
-                                    <option value="city">City</option>
-                                    <option value="total_orders">Total Orders Count</option>
-                                    <option value="last_order_date">Last Order Date</option>
-                                  </select>
-                                ) : curMapping.type === "cart_event" ? (
-                                  <select
-                                    value={curMapping.value || "items"}
-                                    onChange={(e) => updateConfigMapping("cart_event", e.target.value)}
-                                    className="w-full min-w-0 px-2.5 py-1.5 border border-amber-300 bg-amber-50/50 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-500 truncate"
-                                  >
-                                    <option value="items">📦 Cart Items / Snacks</option>
-                                    <option value="cart_value">💰 Cart Total Amount</option>
-                                  </select>
-                                ) : curMapping.type === "coupon" ? (
-                                  <select
-                                    value={curMapping.value || "code"}
-                                    onChange={(e) => updateConfigMapping("coupon", e.target.value)}
-                                    className="w-full min-w-0 px-2.5 py-1.5 border border-[#F5A623] bg-amber-50/60 rounded-md text-xs font-medium text-amber-900 focus:outline-none focus:ring-1 focus:ring-[#F5A623] truncate"
-                                  >
-                                    <option value="code">🏷️ Coupon Code</option>
-                                    <option value="discount_value">🎁 Discount Value (%)</option>
-                                    <option value="expires_at">⏳ Coupon Expiry Date</option>
-                                  </select>
-                                ) : (
-                                  <input
-                                    type="text"
-                                    placeholder={`e.g. ${idx === 3 ? "₹50 or 20% off" : idx === 4 ? "30 Sep 2026" : "Value"}`}
-                                    value={curMapping.value || ""}
-                                    onChange={(e) => updateConfigMapping("static", e.target.value)}
-                                    className="w-full min-w-0 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-[#25D366]"
-                                  />
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Live Preview */}
-                      {bodyText && (
-                        <div className="mt-2 bg-white/90 p-2.5 rounded-lg border border-gray-200 text-xs">
-                          <div className="text-[10px] font-bold uppercase text-gray-500 mb-0.5">Message Preview:</div>
-                          <p className="whitespace-pre-wrap text-gray-800 font-sans leading-relaxed text-[11px]">
-                            {(() => {
-                              let preview = bodyText;
-                              matches.forEach((idx) => {
-                                const curMapping = selectedRuleForConfig.variable_mappings?.[String(idx)] || {
-                                  type: idx === 1 ? "contact_field" : idx === 2 ? "coupon" : "static",
-                                  value: idx === 1 ? "name" : idx === 2 ? "code" : ""
-                                };
-                                let sampleVal = `[Param ${idx}]`;
-                                if (curMapping.type === "contact_field") {
-                                  sampleVal = curMapping.value === "name" ? "Ravi" : curMapping.value === "city" ? "Ahmedabad" : curMapping.value;
-                                } else if (curMapping.type === "cart_event") {
-                                  sampleVal = curMapping.value === "cart_value" ? "450" : "Special Vanela Gathiya & Bhavnagari Gathiya";
-                                } else if (curMapping.type === "coupon") {
-                                  if (curMapping.value === "discount_value") {
-                                    sampleVal = discountCodes.find((d) => d.code === selectedRuleForConfig.coupon_code)?.discount_value ? `${discountCodes.find((d) => d.code === selectedRuleForConfig.coupon_code).discount_value}%` : "7%";
-                                  } else if (curMapping.value === "expires_at") {
-                                    sampleVal = selectedRuleForConfig.expires_at ? selectedRuleForConfig.expires_at.split("T")[0] : discountCodes.find((d) => d.code === selectedRuleForConfig.coupon_code)?.expires_at?.split("T")[0] || "30/09/2026";
-                                  } else {
-                                    sampleVal = selectedRuleForConfig.coupon_code || "OFFER";
-                                  }
-                                } else {
-                                  sampleVal = curMapping.value || `[Custom ${idx}]`;
-                                }
-                                preview = preview.replaceAll(`{{${idx}}}`, sampleVal);
-                              });
-                              return preview;
-                            })()}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                <div className="flex justify-end pt-2">
-                  <button
-                    type="submit"
-                    className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-5 py-2 rounded-lg font-bold text-xs shadow-xs transition"
-                  >
-                    Save Changes
-                  </button>
-                </div>
-              </div>
-            </form>
-
-            {/* Test Simulator Section */}
-            <div className="mt-5 bg-gradient-to-br from-amber-50/50 to-orange-50/40 p-4 rounded-xl border border-amber-200/80 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <PlayCircle className="w-4 h-4 text-[#D35400]" />
-                  <h4 className="text-xs font-bold uppercase text-gray-900 tracking-wider">2. Interactive Test & Simulator</h4>
-                </div>
-                <span className="text-[10px] bg-amber-100 text-[#D35400] font-bold px-2 py-0.5 rounded border border-amber-300">
-                  Fast 10-Second Test Delay
-                </span>
-              </div>
-              <p className="text-[11px] text-gray-600 leading-relaxed">
-                Test the whole automation flow without waiting 30 minutes! Simulate an abandoned cart, check if order completion cancels it, or execute the WhatsApp template immediately.
-              </p>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-gray-600 mb-1">Test Phone Number</label>
-                  <input
-                    type="text"
-                    value={testPhone}
-                    onChange={(e) => setTestPhone(e.target.value)}
-                    placeholder="+919876543210"
-                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-gray-600 mb-1">Simulated Cart Value (₹)</label>
-                  <input
-                    type="number"
-                    value={testCartValue}
-                    onChange={(e) => setTestCartValue(e.target.value)}
-                    placeholder="450"
-                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                  />
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2">
-                <button
-                  type="button"
-                  disabled={simulatingAction}
-                  onClick={handleSimulateCartAbandonment}
-                  className="bg-[#F5A623] hover:bg-[#E67E22] text-black font-bold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-xs transition"
-                >
-                  <ShoppingCart className="w-3.5 h-3.5" />
-                  1. Abandon Cart
-                </button>
-
-                <button
-                  type="button"
-                  disabled={simulatingAction}
-                  onClick={() => handleSimulateOrderCompleted()}
-                  className="bg-[#10B981] hover:bg-emerald-600 text-white font-bold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-xs transition"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  2. Checkout (Recover)
-                </button>
-
-                <button
-                  type="button"
-                  disabled={simulatingAction}
-                  onClick={handleDirectSendTest}
-                  className="bg-[#111827] hover:bg-black text-white font-bold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-xs transition"
-                >
-                  <Send className="w-3.5 h-3.5 text-[#F5A623]" />
-                  {simulatingAction ? "Sending..." : "3. Send WhatsApp"}
-                </button>
-              </div>
-            </div>
-
-            <div className="pt-4 mt-4 border-t border-gray-100 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => handleDeleteRule(selectedRuleForConfig.id, selectedRuleForConfig.rule_name)}
-                className="text-xs text-red-600 hover:text-red-700 font-semibold"
-              >
-                Delete this rule
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsConfigModalOpen(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── 2FA Setup Modal (QR Code & Google Authenticator) ── */}
       {is2faModalOpen && twoFactorSetupData && (
