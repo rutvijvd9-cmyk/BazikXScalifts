@@ -597,113 +597,117 @@ export default function FlowchartCanvas({
                     </div>
                   </div>
 
-                  {/* Flow Connector Arrow with '+' insertion button */}
-                  {index < (flow.nodes || []).length - 1 && (
-                    isCondition ? (
-                      /* ── ⚖️ True Visual 2-Branch Split (YES vs NO) ── */
-                      <div className="w-full max-w-xl my-2 flex flex-col items-center">
-                        {/* Stem coming down from Decision node */}
-                        <div className="w-0.5 h-6 bg-purple-400" />
+                  {/* ── ⚖️ If this node is a Decision Check (Condition), ALWAYS render the visual YES vs NO Branch Split ── */}
+                  {isCondition && (
+                    <div className="w-full max-w-xl my-2 flex flex-col items-center">
+                      {/* Stem coming down from Decision node */}
+                      <div className="w-0.5 h-6 bg-purple-400" />
 
-                        {/* Split Horizontal Bar */}
-                        <div className="w-4/5 h-0.5 bg-purple-300 relative">
-                          <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-white px-2 text-[10px] font-bold text-purple-600 rounded-full border border-purple-200 uppercase">
-                            Branch Evaluation
+                      {/* Split Horizontal Bar */}
+                      <div className="w-4/5 h-0.5 bg-purple-300 relative">
+                        <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-white px-2 text-[10px] font-bold text-purple-600 rounded-full border border-purple-200 uppercase">
+                          Branch Evaluation
+                        </div>
+                      </div>
+
+                      {/* Two Columns: YES on Left, NO on Right */}
+                      <div className="grid grid-cols-2 gap-6 w-full pt-2">
+                        {/* YES Branch Column */}
+                        <div className="flex flex-col items-center p-3.5 rounded-2xl bg-emerald-50/70 border-2 border-dashed border-emerald-300 shadow-xs">
+                          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-850 text-xs font-bold border border-emerald-300 shadow-xs mb-1.5">
+                            <Check className="w-3.5 h-3.5 text-emerald-700" />
+                            YES (Purchased / Goal Met)
                           </div>
+                          <p className="text-[11px] text-gray-600 text-center mb-3">
+                            Customer placed order! Send thank-you message, VIP tag or exit.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPickerTarget({ parentId: node.id, handle: "yes" });
+                              setIsPickerOpen(true);
+                            }}
+                            className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-white border-2 border-emerald-400 hover:bg-emerald-500 hover:text-white text-emerald-700 rounded-xl text-xs font-bold transition shadow-xs hover:shadow-md cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Add Step on YES
+                          </button>
                         </div>
 
-                        {/* Two Columns: YES on Left, NO on Right */}
-                        <div className="grid grid-cols-2 gap-8 w-full pt-2">
-                          {/* YES Branch Column */}
-                          <div className="flex flex-col items-center p-3 rounded-2xl bg-emerald-50/50 border border-dashed border-emerald-300">
-                            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 shadow-xs mb-2">
-                              <Check className="w-3.5 h-3.5 text-emerald-700" />
-                              YES (Purchased / Goal Met)
-                            </div>
-                            <p className="text-[11px] text-gray-500 text-center mb-3">
-                              Order placed or criteria satisfied. Send confirmation, VIP tag or exit.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPickerTarget({ parentId: node.id, handle: "yes" });
-                                setIsPickerOpen(true);
-                              }}
-                              className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-white border border-emerald-400 hover:bg-emerald-500 hover:text-white text-emerald-700 rounded-xl text-xs font-bold transition shadow-xs"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              Add Action on YES
-                            </button>
+                        {/* NO Branch Column */}
+                        <div className="flex flex-col items-center p-3.5 rounded-2xl bg-amber-50/70 border-2 border-dashed border-amber-300 shadow-xs">
+                          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-bold border border-amber-300 shadow-xs mb-1.5">
+                            <Clock className="w-3.5 h-3.5 text-amber-700" />
+                            NO (Did Not Purchase)
                           </div>
-
-                          {/* NO Branch Column */}
-                          <div className="flex flex-col items-center p-3 rounded-2xl bg-amber-50/50 border border-dashed border-amber-300">
-                            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-bold border border-amber-300 shadow-xs mb-2">
-                              <Clock className="w-3.5 h-3.5 text-amber-700" />
-                              NO (Did Not Purchase)
-                            </div>
-                            <p className="text-[11px] text-gray-500 text-center mb-3">
-                              Still pending. Wait delay timer, dispatch 2nd reminder or bigger coupon.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPickerTarget({ parentId: node.id, handle: "no" });
-                                setIsPickerOpen(true);
-                              }}
-                              className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-white border border-amber-400 hover:bg-amber-500 hover:text-white text-amber-800 rounded-xl text-xs font-bold transition shadow-xs"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              Add Action on NO
-                            </button>
-                          </div>
+                          <p className="text-[11px] text-gray-600 text-center mb-3">
+                            Order not placed. Wait delay timer or dispatch 2nd recovery discount.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPickerTarget({ parentId: node.id, handle: "no" });
+                              setIsPickerOpen(true);
+                            }}
+                            className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-white border-2 border-amber-400 hover:bg-amber-500 hover:text-white text-amber-800 rounded-xl text-xs font-bold transition shadow-xs hover:shadow-md cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Add Step on NO
+                          </button>
                         </div>
+                      </div>
 
-                        {/* Connector down to subsequent flow steps */}
+                      {/* Connector down to subsequent flow steps if any */}
+                      {index < (flow.nodes || []).length - 1 && (
                         <div className="flex flex-col items-center mt-3">
                           <div className="w-0.5 h-6 bg-gray-300" />
                           <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-400" />
                         </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center my-1 relative group">
-                        <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
-                        <button
-                          onClick={() => {
-                            setPickerTarget({ parentId: node.id });
-                            setIsPickerOpen(true);
-                          }}
-                          className="w-6 h-6 rounded-full bg-white border border-gray-300 group-hover:border-[#25D366] text-gray-500 group-hover:text-[#25D366] flex items-center justify-center shadow-xs transition hover:scale-110 -my-3 z-10"
-                          title="Add Step Here"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
-                        <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
-                        {/* Downward triangle indicator */}
-                        <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-400 group-hover:border-t-[#25D366] transition" />
-                      </div>
-                    )
+                      )}
+                    </div>
+                  )}
+
+                  {/* Standard Flow Connector Arrow with '+' insertion button between non-condition nodes */}
+                  {!isCondition && index < (flow.nodes || []).length - 1 && (
+                    <div className="flex flex-col items-center my-1 relative group">
+                      <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
+                      <button
+                        onClick={() => {
+                          setPickerTarget({ parentId: node.id });
+                          setIsPickerOpen(true);
+                        }}
+                        className="w-6 h-6 rounded-full bg-white border border-gray-300 group-hover:border-[#25D366] text-gray-500 group-hover:text-[#25D366] flex items-center justify-center shadow-xs transition hover:scale-110 -my-3 z-10"
+                        title="Add Step Here"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                      <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
+                      {/* Downward triangle indicator */}
+                      <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-400 group-hover:border-t-[#25D366] transition" />
+                    </div>
                   )}
                 </React.Fragment>
               );
             })}
 
-            {/* Bottom Add Step Button */}
-            <div className="pt-4 flex items-center justify-center">
-              <button
-                onClick={() => {
-                  const lastNode = flow.nodes[flow.nodes.length - 1];
-                  setPickerTarget(lastNode ? { parentId: lastNode.id } : null);
-                  setIsPickerOpen(true);
-                }}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-dashed border-gray-300 hover:border-[#25D366] text-gray-600 hover:text-[#25D366] rounded-2xl text-xs font-bold transition shadow-xs hover:shadow-sm"
-              >
-                <Plus className="w-4 h-4" />
-                Add Next Step to Journey
-              </button>
-            </div>
+            {/* Bottom Add Step Button (for non-branching flows or linear additions) */}
+            {!(flow.nodes && flow.nodes.length > 0 && flow.nodes[flow.nodes.length - 1]?.type === "condition") && (
+              <div className="pt-4 flex items-center justify-center">
+                <button
+                  onClick={() => {
+                    const lastNode = flow.nodes[flow.nodes.length - 1];
+                    setPickerTarget(lastNode ? { parentId: lastNode.id } : null);
+                    setIsPickerOpen(true);
+                  }}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-dashed border-gray-300 hover:border-[#25D366] text-gray-600 hover:text-[#25D366] rounded-2xl text-xs font-bold transition shadow-xs hover:shadow-sm cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Next Step to Journey
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
