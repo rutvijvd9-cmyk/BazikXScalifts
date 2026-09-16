@@ -43,6 +43,7 @@ class CartEvent(Base):
     customer_phone = Column(String(20), index=True, nullable=False)
     cart_value = Column(Float, default=0.0)
     items = Column(JSON, default=list)
+    extra_data = Column(JSON, default=dict)  # Arbitrary dynamic fields from ecom store (e.g. firstname, products_summary, address)
     status = Column(String(50), default="PENDING")  # PENDING, RECOVERED, EXPIRED
     message_sent = Column(Boolean, default=False)
     message_sent_at = Column(DateTime, nullable=True)
@@ -188,3 +189,18 @@ class WorkflowSession(Base):
     history = Column(JSON, default=list)  # [{node_id, action, timestamp, details}]
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ExternalDataSource(Base):
+    __tablename__ = "external_data_sources"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)          # e.g. "Store Live Customer API", "Shipping API"
+    endpoint_url = Column(Text, nullable=False)          # e.g. https://store.example.com/api/crm-customer
+    auth_method = Column(String(30), default="api_key")  # api_key, bearer, none
+    api_key = Column(Text, nullable=True)               # API secret token passed in headers
+    header_name = Column(String(100), default="X-CRM-Token") # Header key name e.g. X-CRM-Token or Authorization
+    lookup_param = Column(String(30), default="phone")  # query param key name (e.g. ?phone=...)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+

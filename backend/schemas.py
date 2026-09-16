@@ -70,6 +70,45 @@ class CartEventPayload(BaseModel):
     customer_phone: str = Field(..., description="Customer phone number")
     cart_value: float = Field(default=0.0, ge=0)
     items: List[dict] = Field(default_factory=list)
+    customer_name: Optional[str] = None
+    first_name: Optional[str] = None
+    delivery_address: Optional[str] = None
+    extra_data: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Arbitrary key-value store payload fields")
+
+
+class ExternalDataSourceCreate(BaseModel):
+    name: str = Field(..., max_length=100)
+    endpoint_url: str = Field(..., description="Full URL e.g. https://store.example.com/api/crm-customer")
+    auth_method: Optional[str] = "api_key"
+    api_key: Optional[str] = None
+    header_name: Optional[str] = "X-CRM-Token"
+    lookup_param: Optional[str] = "phone"
+    is_active: Optional[bool] = True
+
+
+class ExternalDataSourceUpdate(BaseModel):
+    name: Optional[str] = None
+    endpoint_url: Optional[str] = None
+    auth_method: Optional[str] = None
+    api_key: Optional[str] = None
+    header_name: Optional[str] = None
+    lookup_param: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class ExternalDataSourceResponse(BaseModel):
+    id: int
+    name: str
+    endpoint_url: str
+    auth_method: str
+    api_key: Optional[str] = None
+    header_name: str
+    lookup_param: str
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class OptOutRequest(BaseModel):

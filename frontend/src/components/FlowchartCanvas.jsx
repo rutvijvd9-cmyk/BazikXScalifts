@@ -796,6 +796,8 @@ export default function FlowchartCanvas({
                   if (hasMappings && bodyText) {
                     Object.entries(mappings).forEach(([idx, m]) => {
                       const label = m.type === "contact_field" ? (m.value === "name" ? "Customer Name" : m.value)
+                        : m.type === "event_field" ? `event.${m.value}`
+                        : m.type === "external_api" ? `api.${m.value}`
                         : m.type === "cart_event" ? m.value
                         : m.type === "static" ? ("\"" + m.value + "\"")
                         : (m.value || "?");
@@ -807,13 +809,29 @@ export default function FlowchartCanvas({
                       <label className="font-bold text-gray-700 text-xs">Column Mappings <span className="text-[10px] font-normal text-gray-400">(from template)</span></label>
                       {hasMappings ? (
                         <div className="flex flex-wrap gap-1.5">
-                          {Object.entries(mappings).map(([idx, m]) => (
-                            <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-semibold">
-                              <span className="font-mono">{"{{"}{idx}{"}}"}</span>
-                              <span className="text-blue-400">→</span>
-                              <span>{m.type === "contact_field" ? m.value : m.type === "static" ? ("\"" + m.value + "\"") : (m.type + "." + m.value)}</span>
-                            </span>
-                          ))}
+                          {Object.entries(mappings).map(([idx, m]) => {
+                            const isApi = m.type === "external_api";
+                            const isEvent = m.type === "event_field";
+                            const pillStyle = isApi
+                              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                              : isEvent
+                              ? "bg-purple-50 text-purple-800 border-purple-200"
+                              : "bg-blue-50 text-blue-700 border-blue-200";
+
+                            const displayVal = m.type === "contact_field" ? m.value
+                              : m.type === "static" ? `"${m.value}"`
+                              : isEvent ? `event.${m.value}`
+                              : isApi ? `api.${m.value}`
+                              : `${m.type}.${m.value}`;
+
+                            return (
+                              <span key={idx} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${pillStyle}`}>
+                                <span className="font-mono">{"{{"}{idx}{"}}"}</span>
+                                <span className="opacity-60">→</span>
+                                <span>{displayVal}</span>
+                              </span>
+                            );
+                          })}
                         </div>
                       ) : (
                         <p className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">

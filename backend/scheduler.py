@@ -22,6 +22,79 @@ import config
 WEBHOOK_SECRET = config.WEBHOOK_SECRET
 MANUBHAI_STORE_INACTIVE_FEED_URL = config.MANUBHAI_STORE_INACTIVE_FEED_URL
 
+# In-memory short-lived cache for external API pulls to prevent duplicate HTTP calls for the same customer
+_api_cache = {}
+
+
+def fetch_external_api_value(field_key: str, phone: str, source_id: int = None, db = None) -> str:
+    """
+    Safely and securely queries an external e-commerce API to fetch customer/order data by phone.
+    Caches responses for 60 seconds.
+    """
+    if not phone or not field_key:
+        return ""
+
+    cache_key = f"{source_id or 'default'}:{phone}"
+    now_ts = datetime.utcnow().timestamp()
+
+    if cache_key in _api_cache:
+        data, expiry = _api_cache[cache_key]
+        if now_ts < expiry:
+            return str(data.get(field_key, ""))
+
+    # Find data source
+    close_db = False
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+
+    try:
+        source = None
+        if source_id:
+            source = db.query(models.ExternalDataSource).filter(
+                models.ExternalDataSource.id == source_id,
+                models.ExternalDataSource.is_active == True
+            ).first()
+        if not source:
+            source = db.query(models.ExternalDataSource).filter(
+                models.ExternalDataSource.is_active == True
+            ).first()
+
+        if not source:
+            logger.info(f"No active ExternalDataSource found to pull field '{field_key}' for {phone}")
+            return ""
+
+        headers = {}
+        if source.auth_method == "bearer" and source.api_key:
+            headers["Authorization"] = f"Bearer {source.api_key}"
+        elif source.api_key:
+            h_name = source.header_name or "X-CRM-Token"
+            headers[h_name] = source.api_key
+
+        param_name = source.lookup_param or "phone"
+        clean_phone = re.sub(r"[^\d+]", "", str(phone)).strip()
+        params = {param_name: clean_phone}
+
+        logger.info(f"🌐 [External API Pull] Querying {source.endpoint_url} for {clean_phone}")
+        with httpx.Client(timeout=config.HTTP_TIMEOUT_SECONDS) as client:
+            resp = client.get(source.endpoint_url, params=params, headers=headers)
+            if resp.status_code == 200:
+                resp_json = resp.json()
+                if isinstance(resp_json, dict):
+                    # Cache result for 60 seconds
+                    _api_cache[cache_key] = (resp_json, now_ts + 60.0)
+                    val = resp_json.get(field_key)
+                    return str(val) if val is not None else ""
+            else:
+                logger.warning(f"External API returned {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        logger.error(f"Error pulling from external API: {e}")
+    finally:
+        if close_db:
+            db.close()
+
+    return ""
+
 
 def process_abandoned_cart_job(cart_event_id: int):
     """
@@ -82,6 +155,22 @@ def process_abandoned_cart_job(cart_event_id: int):
                 val_str = customer_name if m_val == "name" else (cart.customer_phone if m_val == "phone" else customer_name)
             elif m_type == "cart_event":
                 val_str = cart_val_str if m_val == "cart_value" else items_summary
+            elif m_type == "event_field":
+                # Direct lookup from cart's extra_data payload
+                extra = cart.extra_data if isinstance(cart.extra_data, dict) else {}
+                if m_val == "firstname" or m_val == "first_name":
+                    val_str = extra.get("first_name") or extra.get("firstname") or customer_name
+                elif m_val == "products" or m_val == "products_summary" or m_val == "items":
+                    val_str = extra.get("products_summary") or extra.get("products") or items_summary
+                elif m_val == "amount" or m_val == "cart_value":
+                    val_str = str(extra.get("amount")) if extra.get("amount") else f"₹{cart_val_str}"
+                elif m_val == "delivery_address" or m_val == "address":
+                    val_str = extra.get("delivery_address") or extra.get("address") or (contact.city if contact else "")
+                else:
+                    val_str = str(extra.get(m_val, ""))
+            elif m_type == "external_api":
+                src_id = m_def.get("source_id")
+                val_str = fetch_external_api_value(field_key=m_val, phone=cart.customer_phone, source_id=src_id, db=db)
             elif m_type == "coupon":
                 effective_code = (cart_rule.coupon_code if cart_rule and cart_rule.coupon_code else config.DEFAULT_COUPON_CODE)
                 coupon_rec = db.query(models.DiscountCode).filter(
@@ -560,6 +649,24 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                         val_str = str(int(recent_cart.cart_value)) if recent_cart and recent_cart.cart_value == int(recent_cart.cart_value) else (f"{recent_cart.cart_value:.2f}" if recent_cart else "450")
                     else:
                         val_str = ", ".join([it.get("item", "Namkeen") for it in recent_cart.items]) if recent_cart and recent_cart.items else "Special Vanela Gathiya & Bhavnagari Gathiya"
+                elif m_type == "event_field":
+                    recent_cart = db.query(models.CartEvent).filter(
+                        models.CartEvent.customer_phone == phone
+                    ).order_by(models.CartEvent.id.desc()).first()
+                    extra = recent_cart.extra_data if recent_cart and isinstance(recent_cart.extra_data, dict) else {}
+                    if m_val == "firstname" or m_val == "first_name":
+                        val_str = extra.get("first_name") or extra.get("firstname") or cust_name
+                    elif m_val == "products" or m_val == "products_summary" or m_val == "items":
+                        val_str = extra.get("products_summary") or extra.get("products") or ", ".join([it.get("item", "Namkeen") for it in recent_cart.items]) if recent_cart and recent_cart.items else "Special Vanela Gathiya & Bhavnagari Gathiya"
+                    elif m_val == "amount" or m_val == "cart_value":
+                        val_str = str(extra.get("amount")) if extra.get("amount") else (f"₹{int(recent_cart.cart_value)}" if recent_cart else "₹450")
+                    elif m_val == "delivery_address" or m_val == "address":
+                        val_str = extra.get("delivery_address") or extra.get("address") or cust_city
+                    else:
+                        val_str = str(extra.get(m_val, ""))
+                elif m_type == "external_api":
+                    src_id = mapping_def.get("source_id")
+                    val_str = fetch_external_api_value(field_key=m_val, phone=phone, source_id=src_id, db=db)
                 elif m_type == "coupon":
                     # Look up attached coupon details from DB
                     coupon_rec = db.query(models.DiscountCode).filter(
@@ -875,6 +982,23 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                             val_str = session.state_data.get("cart_url", "https://manubhai.com/cart")
                         else:
                             val_str = items_summary
+                    elif m_type == "event_field":
+                        # Look up from session.state_data or extra_data dict
+                        state_dict = session.state_data if isinstance(session.state_data, dict) else {}
+                        extra_dict = state_dict.get("extra_data") if isinstance(state_dict.get("extra_data"), dict) else {}
+                        if m_val == "firstname" or m_val == "first_name":
+                            val_str = state_dict.get("first_name") or extra_dict.get("first_name") or customer_name
+                        elif m_val == "products" or m_val == "products_summary" or m_val == "items":
+                            val_str = state_dict.get("products_summary") or extra_dict.get("products_summary") or items_summary
+                        elif m_val == "amount" or m_val == "cart_value":
+                            val_str = str(state_dict.get("amount") or extra_dict.get("amount") or f"₹{cart_val_str}")
+                        elif m_val == "delivery_address" or m_val == "address":
+                            val_str = state_dict.get("delivery_address") or extra_dict.get("delivery_address") or (contact.city if contact else "")
+                        else:
+                            val_str = str(state_dict.get(m_val) or extra_dict.get(m_val, ""))
+                    elif m_type == "external_api":
+                        src_id = m_def.get("source_id")
+                        val_str = fetch_external_api_value(field_key=m_val, phone=session.customer_phone, source_id=src_id, db=db)
                     elif m_type == "coupon":
                         coupon_rec = db.query(models.DiscountCode).filter(models.DiscountCode.code == coupon_code).first()
                         if m_val == "discount_value":

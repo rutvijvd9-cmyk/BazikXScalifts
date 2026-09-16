@@ -169,6 +169,7 @@ export default function App() {
   const [messageLogs, setMessageLogs] = useState([]);
   const [optOuts, setOptOuts] = useState([]);
   const [templates, setTemplates] = useState([]);
+  const [externalDataSources, setExternalDataSources] = useState([]);
   const [automationRules, setAutomationRules] = useState([]);
   const [workflowFlows, setWorkflowFlows] = useState([]);
   const [editingWorkflow, setEditingWorkflow] = useState(null);
@@ -525,7 +526,7 @@ export default function App() {
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes, discRes, meRes, convRes, wfRes] = await Promise.all([
+      const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes, discRes, meRes, convRes, wfRes, extRes] = await Promise.all([
         axios.get("/api/campaigns", { headers }).catch(() => ({ data: [] })),
         axios.get("/api/contacts", { headers }).catch((e) => { if (e.response?.status === 401) throw e; return { data: [] }; }),
         axios.get("/api/cart-events", { headers }).catch(() => ({ data: [] })),
@@ -538,7 +539,8 @@ export default function App() {
         axios.get("/api/discount-codes", { headers }).catch(() => ({ data: [] })),
         axios.get("/api/auth/me", { headers }).catch(() => ({ data: null })),
         axios.get("/api/chat/conversations", { headers }).catch(() => ({ data: [] })),
-        axios.get("/api/workflows", { headers }).catch(() => ({ data: [] }))
+        axios.get("/api/workflows", { headers }).catch(() => ({ data: [] })),
+        axios.get("/api/external-data-sources", { headers }).catch(() => ({ data: [] }))
       ]);
       setCampaigns(campRes.data || []);
       setContacts(contRes.data || []);
@@ -552,6 +554,7 @@ export default function App() {
       setSystemUsers(usersRes.data || []);
       setDiscountCodes(discRes.data || []);
       setChatConversations(convRes.data || []);
+      setExternalDataSources(extRes.data || []);
       if (meRes?.data) setCurrentUserProfile(meRes.data);
       fetchAnalytics(analyticsTimeRange, true);
     } catch (err) {
@@ -2460,13 +2463,33 @@ export default function App() {
                             {/* Mapping Pills */}
                             {t.variable_mappings && Object.keys(t.variable_mappings).length > 0 && (
                               <div className="mt-2 flex flex-wrap gap-1.5">
-                                {Object.entries(t.variable_mappings).map(([idx, m]) => (
-                                  <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-semibold">
-                                    <span className="font-mono font-bold">{`{{${idx}}}`}</span>
-                                    <span className="text-blue-500">→</span>
-                                    <span>{m.type === "contact_field" ? m.value : m.type === "static" ? `"${m.value}"` : `${m.type}.${m.value}`}</span>
-                                  </span>
-                                ))}
+                                {Object.entries(t.variable_mappings).map(([idx, m]) => {
+                                  const isApi = m.type === "external_api";
+                                  const isEvent = m.type === "event_field";
+                                  const pillStyle = isApi
+                                    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                    : isEvent
+                                    ? "bg-purple-50 text-purple-800 border-purple-200"
+                                    : "bg-blue-50 text-blue-700 border-blue-200";
+
+                                  const displayVal = m.type === "contact_field"
+                                    ? m.value
+                                    : m.type === "static"
+                                    ? `"${m.value}"`
+                                    : isEvent
+                                    ? `event.${m.value}`
+                                    : isApi
+                                    ? `api.${m.value}`
+                                    : `${m.type}.${m.value}`;
+
+                                  return (
+                                    <span key={idx} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${pillStyle}`}>
+                                      <span className="font-mono font-bold">{`{{${idx}}}`}</span>
+                                      <span className="opacity-60">→</span>
+                                      <span>{displayVal}</span>
+                                    </span>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -5007,19 +5030,30 @@ export default function App() {
               {/* ── Auto-Detected Column Mapping ── */}
               {(() => {
                 const FIELD_OPTIONS = [
-                  { group: "Contact Field", options: [
+                  { group: "Contact Field (CRM)", options: [
                     { value: "contact_field|name", label: "Customer Name" },
                     { value: "contact_field|phone", label: "Customer Phone" },
                     { value: "contact_field|city", label: "City" },
                     { value: "contact_field|total_orders", label: "Total Orders" },
                     { value: "contact_field|last_order_date", label: "Last Order Date" }
                   ]},
-                  { group: "Cart / Order", options: [
-                    { value: "cart_event|items", label: "Cart Items Summary" },
-                    { value: "cart_event|cart_value", label: "Cart Value (₹)" },
-                    { value: "cart_event|cart_url", label: "Cart Recovery URL" }
+                  { group: "Store Webhook Payload (Event Push)", options: [
+                    { value: "event_field|first_name", label: "First Name (e.g. Ramesh)" },
+                    { value: "event_field|products_summary", label: "Products Summary (e.g. Vanela Gathiya)" },
+                    { value: "event_field|amount", label: "Cart Amount (e.g. ₹450)" },
+                    { value: "event_field|delivery_address", label: "Delivery Address" },
+                    { value: "cart_event|cart_url", label: "Cart Recovery URL" },
+                    { value: "event_field|custom", label: "Custom Webhook Field..." }
                   ]},
-                  { group: "Coupon", options: [
+                  { group: "External Live API (On-Demand Pull)", options: [
+                    { value: "external_api|delivery_address", label: "Delivery / Shipping Address" },
+                    { value: "external_api|tracking_number", label: "Tracking Number / AWB" },
+                    { value: "external_api|order_status", label: "Live Order Status" },
+                    { value: "external_api|estimated_delivery", label: "Estimated Delivery Date" },
+                    { value: "external_api|support_contact", label: "Support Contact / Helpline" },
+                    { value: "external_api|custom", label: "Custom API JSON Key..." }
+                  ]},
+                  { group: "Coupon (CRM)", options: [
                     { value: "coupon|code", label: "Coupon Code" },
                     { value: "coupon|discount_value", label: "Discount Value (%/₹)" },
                     { value: "coupon|expires_at", label: "Coupon Expiry Date" }
@@ -5038,30 +5072,65 @@ export default function App() {
                     </div>
                     {params.map(param => {
                       const cm = (newTemplate.variable_mappings || {})[param] || {};
-                      const cv = cm.type ? (cm.type + "|" + (cm.value || "")) : "";
+                      const isCustomEvent = cm.type === "event_field" && !["first_name", "products_summary", "amount", "delivery_address"].includes(cm.value);
+                      const isCustomApi = cm.type === "external_api" && !["delivery_address", "tracking_number", "order_status", "estimated_delivery", "support_contact"].includes(cm.value);
+
+                      const cv = cm.type ? (
+                        isCustomEvent ? "event_field|custom" :
+                        isCustomApi ? "external_api|custom" :
+                        (cm.type + "|" + (cm.value || ""))
+                      ) : "";
+
                       return (
-                        <div key={param} className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-blue-800 bg-white px-2 py-1 rounded border border-blue-200 text-xs w-14 text-center">{"{{"}{param}{"}}"}</span>
-                          <span className="text-blue-500">→</span>
-                          <select value={cv}
-                            onChange={e => {
-                              const [type, ...rest] = e.target.value.split("|");
-                              setNewTemplate(prev => ({ ...prev, variable_mappings: { ...(prev.variable_mappings || {}), [param]: { type, value: rest.join("|") } } }));
-                            }}
-                            className="flex-1 px-2.5 py-1.5 border border-blue-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
-                          >
-                            <option value="">— choose field —</option>
-                            {FIELD_OPTIONS.map(g => (
-                              <optgroup key={g.group} label={g.group}>
-                                {g.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                              </optgroup>
-                            ))}
-                          </select>
+                        <div key={param} className="space-y-1.5 p-2.5 rounded-lg bg-white border border-blue-200">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-blue-800 bg-blue-100 px-2 py-1 rounded border border-blue-200 text-xs w-14 text-center">{"{{"}{param}{"}}"}</span>
+                            <span className="text-blue-500 font-bold">→</span>
+                            <select value={cv}
+                              onChange={e => {
+                                const [type, ...rest] = e.target.value.split("|");
+                                const valPart = rest.join("|");
+                                const finalVal = valPart === "custom" ? (cm.value || "") : valPart;
+                                setNewTemplate(prev => ({ ...prev, variable_mappings: { ...(prev.variable_mappings || {}), [param]: { type, value: finalVal } } }));
+                              }}
+                              className="flex-1 px-2.5 py-1.5 border border-blue-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                            >
+                              <option value="">— choose field —</option>
+                              {FIELD_OPTIONS.map(g => (
+                                <optgroup key={g.group} label={g.group}>
+                                  {g.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                                </optgroup>
+                              ))}
+                            </select>
+                          </div>
+
                           {cm.type === "static" && (
-                            <input type="text" placeholder="Static text" value={cm.value || ""}
-                              onChange={e => setNewTemplate(prev => ({ ...prev, variable_mappings: { ...(prev.variable_mappings || {}), [param]: { type: "static", value: e.target.value } } }))}
-                              className="w-28 px-2 py-1.5 border border-blue-200 rounded-lg text-xs"
-                            />
+                            <div className="pl-16">
+                              <input type="text" placeholder="Enter fixed text" value={cm.value || ""}
+                                onChange={e => setNewTemplate(prev => ({ ...prev, variable_mappings: { ...(prev.variable_mappings || {}), [param]: { type: "static", value: e.target.value } } }))}
+                                className="w-full px-2.5 py-1.5 border border-blue-200 rounded-lg text-xs"
+                              />
+                            </div>
+                          )}
+
+                          {cm.type === "event_field" && isCustomEvent && (
+                            <div className="pl-16 flex items-center gap-1.5">
+                              <span className="text-[10px] text-gray-500 font-semibold">Key:</span>
+                              <input type="text" placeholder="e.g. shipping_address" value={cm.value || ""}
+                                onChange={e => setNewTemplate(prev => ({ ...prev, variable_mappings: { ...(prev.variable_mappings || {}), [param]: { type: "event_field", value: e.target.value } } }))}
+                                className="w-full px-2.5 py-1.5 border border-purple-300 rounded-lg text-xs font-mono"
+                              />
+                            </div>
+                          )}
+
+                          {cm.type === "external_api" && isCustomApi && (
+                            <div className="pl-16 flex items-center gap-1.5">
+                              <span className="text-[10px] text-gray-500 font-semibold">Key:</span>
+                              <input type="text" placeholder="e.g. tracking_code" value={cm.value || ""}
+                                onChange={e => setNewTemplate(prev => ({ ...prev, variable_mappings: { ...(prev.variable_mappings || {}), [param]: { type: "external_api", value: e.target.value } } }))}
+                                className="w-full px-2.5 py-1.5 border border-emerald-300 rounded-lg text-xs font-mono"
+                              />
+                            </div>
                           )}
                         </div>
                       );
@@ -5114,19 +5183,30 @@ export default function App() {
 
               {(() => {
                 const FIELD_OPTIONS = [
-                  { group: "Contact Field", options: [
+                  { group: "Contact Field (CRM)", options: [
                     { value: "contact_field|name", label: "Customer Name" },
                     { value: "contact_field|phone", label: "Customer Phone" },
                     { value: "contact_field|city", label: "City" },
                     { value: "contact_field|total_orders", label: "Total Orders" },
                     { value: "contact_field|last_order_date", label: "Last Order Date" }
                   ]},
-                  { group: "Cart / Order", options: [
-                    { value: "cart_event|items", label: "Cart Items Summary" },
-                    { value: "cart_event|cart_value", label: "Cart Value (₹)" },
-                    { value: "cart_event|cart_url", label: "Cart Recovery URL" }
+                  { group: "Store Webhook Payload (Event Push)", options: [
+                    { value: "event_field|first_name", label: "First Name (e.g. Ramesh)" },
+                    { value: "event_field|products_summary", label: "Products Summary (e.g. Vanela Gathiya)" },
+                    { value: "event_field|amount", label: "Cart Amount (e.g. ₹450)" },
+                    { value: "event_field|delivery_address", label: "Delivery Address" },
+                    { value: "cart_event|cart_url", label: "Cart Recovery URL" },
+                    { value: "event_field|custom", label: "Custom Webhook Field..." }
                   ]},
-                  { group: "Coupon", options: [
+                  { group: "External Live API (On-Demand Pull)", options: [
+                    { value: "external_api|delivery_address", label: "Delivery / Shipping Address" },
+                    { value: "external_api|tracking_number", label: "Tracking Number / AWB" },
+                    { value: "external_api|order_status", label: "Live Order Status" },
+                    { value: "external_api|estimated_delivery", label: "Estimated Delivery Date" },
+                    { value: "external_api|support_contact", label: "Support Contact / Helpline" },
+                    { value: "external_api|custom", label: "Custom API JSON Key..." }
+                  ]},
+                  { group: "Coupon (CRM)", options: [
                     { value: "coupon|code", label: "Coupon Code" },
                     { value: "coupon|discount_value", label: "Discount Value (%/₹)" },
                     { value: "coupon|expires_at", label: "Coupon Expiry Date" }
@@ -5143,30 +5223,66 @@ export default function App() {
                   <div className="space-y-3">
                     {params.map(param => {
                       const cm = (editMappings || {})[param] || {};
-                      const cv = cm.type ? (cm.type + "|" + (cm.value || "")) : "";
+                      const isCustomEvent = cm.type === "event_field" && !["first_name", "products_summary", "amount", "delivery_address"].includes(cm.value);
+                      const isCustomApi = cm.type === "external_api" && !["delivery_address", "tracking_number", "order_status", "estimated_delivery", "support_contact"].includes(cm.value);
+                      
+                      const cv = cm.type ? (
+                        isCustomEvent ? "event_field|custom" :
+                        isCustomApi ? "external_api|custom" :
+                        (cm.type + "|" + (cm.value || ""))
+                      ) : "";
+
                       return (
-                        <div key={param} className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-blue-800 bg-blue-50 px-2 py-1 rounded border border-blue-200 text-xs w-14 text-center">{"{{"}{param}{"}}"}</span>
-                          <span className="text-blue-400">→</span>
-                          <select value={cv}
-                            onChange={e => {
-                              const [type, ...rest] = e.target.value.split("|");
-                              setEditMappings(prev => ({ ...prev, [param]: { type, value: rest.join("|") } }));
-                            }}
-                            className="flex-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
-                          >
-                            <option value="">— choose field —</option>
-                            {FIELD_OPTIONS.map(g => (
-                              <optgroup key={g.group} label={g.group}>
-                                {g.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                              </optgroup>
-                            ))}
-                          </select>
+                        <div key={param} className="space-y-1.5 p-2.5 rounded-xl bg-gray-50 border border-gray-200">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-blue-800 bg-blue-100 px-2.5 py-1 rounded border border-blue-200 text-xs w-16 text-center">{"{{"}{param}{"}}"}</span>
+                            <span className="text-blue-400 font-bold">→</span>
+                            <select value={cv}
+                              onChange={e => {
+                                const [type, ...rest] = e.target.value.split("|");
+                                const valPart = rest.join("|");
+                                const finalVal = valPart === "custom" ? (cm.value || "") : valPart;
+                                setEditMappings(prev => ({ ...prev, [param]: { type, value: finalVal } }));
+                              }}
+                              className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                            >
+                              <option value="">— choose field —</option>
+                              {FIELD_OPTIONS.map(g => (
+                                <optgroup key={g.group} label={g.group}>
+                                  {g.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                                </optgroup>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Secondary input for custom keys or static text */}
                           {cm.type === "static" && (
-                            <input type="text" placeholder="Static text" value={cm.value || ""}
-                              onChange={e => setEditMappings(prev => ({ ...prev, [param]: { type: "static", value: e.target.value } }))}
-                              className="w-28 px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none"
-                            />
+                            <div className="flex items-center gap-2 pl-20">
+                              <input type="text" placeholder="Enter fixed text (e.g. Ahmedabad)" value={cm.value || ""}
+                                onChange={e => setEditMappings(prev => ({ ...prev, [param]: { type: "static", value: e.target.value } }))}
+                                className="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
+                              />
+                            </div>
+                          )}
+
+                          {cm.type === "event_field" && isCustomEvent && (
+                            <div className="flex items-center gap-2 pl-20">
+                              <span className="text-[10px] text-gray-500 font-semibold">JSON Key:</span>
+                              <input type="text" placeholder="e.g. shipping_address or customer_pincode" value={cm.value || ""}
+                                onChange={e => setEditMappings(prev => ({ ...prev, [param]: { type: "event_field", value: e.target.value } }))}
+                                className="w-full px-2.5 py-1.5 border border-purple-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-purple-300 bg-white"
+                              />
+                            </div>
+                          )}
+
+                          {cm.type === "external_api" && isCustomApi && (
+                            <div className="flex items-center gap-2 pl-20">
+                              <span className="text-[10px] text-gray-500 font-semibold">API JSON Key:</span>
+                              <input type="text" placeholder="e.g. invoice_url or package_weight" value={cm.value || ""}
+                                onChange={e => setEditMappings(prev => ({ ...prev, [param]: { type: "external_api", value: e.target.value } }))}
+                                className="w-full px-2.5 py-1.5 border border-emerald-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-300 bg-white"
+                              />
+                            </div>
                           )}
                         </div>
                       );

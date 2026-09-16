@@ -107,6 +107,8 @@ def on_startup():
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_order_date TIMESTAMP",
         # templates: configure-once variable mappings
         "ALTER TABLE templates ADD COLUMN IF NOT EXISTS variable_mappings JSON",
+        # cart_events: open extra_data payload for dynamic ecom variables
+        "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS extra_data JSON",
     ]
     try:
         with engine.connect() as _conn:
@@ -1022,12 +1024,24 @@ async def receive_cart_webhook(
     if is_opted_out:
         return {"status": "ignored", "reason": "Customer is on Opt-Out / DND list"}
 
+    # Collect all dynamic ecom extra payload data
+    extra_payload = dict(payload.extra_data or {})
+    if payload.first_name:
+        extra_payload.setdefault("first_name", payload.first_name)
+    if payload.customer_name:
+        extra_payload.setdefault("customer_name", payload.customer_name)
+    if payload.delivery_address:
+        extra_payload.setdefault("delivery_address", payload.delivery_address)
+
+    resolved_cust_name = payload.first_name or payload.customer_name or "Valued Customer"
+
     # Save cart event
     cart_record = models.CartEvent(
         cart_token=payload.cart_token,
         customer_phone=payload.customer_phone,
         cart_value=payload.cart_value,
         items=payload.items,
+        extra_data=extra_payload,
         status="PENDING"
     )
     db.add(cart_record)
@@ -1046,9 +1060,14 @@ async def receive_cart_webhook(
         state_data = {
             "cart_token": payload.cart_token,
             "cart_value": payload.cart_value,
-            "customer_name": "Valued Customer",
-            "items_summary": items_summary
+            "customer_name": resolved_cust_name,
+            "items_summary": items_summary,
+            "extra_data": extra_payload
         }
+        # Flatten extra_payload directly into state_data for direct access
+        for k, v in extra_payload.items():
+            state_data.setdefault(k, str(v))
+
         from scheduler import start_workflow_session
         wf_sess = start_workflow_session(flow_id=active_cart_flow.id, customer_phone=payload.customer_phone, state_data=state_data, db=db)
         if wf_sess:
@@ -1933,6 +1952,123 @@ def delete_discount_code(
     db.delete(disc)
     db.commit()
     return {"status": "success", "message": f"Discount code {disc.code} deleted."}
+
+
+# ==========================================
+# 🌐 EXTERNAL DATA SOURCES API (LIVE ECOM PULL)
+# ==========================================
+
+@app.get("/api/external-data-sources", response_model=List[schemas.ExternalDataSourceResponse])
+def list_external_data_sources(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Lists all configured external e-commerce REST API data sources."""
+    return db.query(models.ExternalDataSource).order_by(models.ExternalDataSource.id.asc()).all()
+
+
+@app.post("/api/external-data-sources", response_model=schemas.ExternalDataSourceResponse, status_code=status.HTTP_201_CREATED)
+def create_external_data_source(
+    payload: schemas.ExternalDataSourceCreate,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    """Registers a new external API endpoint for customer data lookup."""
+    src = models.ExternalDataSource(
+        name=payload.name.strip(),
+        endpoint_url=payload.endpoint_url.strip(),
+        auth_method=payload.auth_method or "api_key",
+        api_key=payload.api_key.strip() if payload.api_key else None,
+        header_name=payload.header_name.strip() if payload.header_name else "X-CRM-Token",
+        lookup_param=payload.lookup_param.strip() if payload.lookup_param else "phone",
+        is_active=payload.is_active if payload.is_active is not None else True
+    )
+    db.add(src)
+    db.commit()
+    db.refresh(src)
+    return src
+
+
+@app.patch("/api/external-data-sources/{source_id}", response_model=schemas.ExternalDataSourceResponse)
+def update_external_data_source(
+    source_id: int,
+    payload: schemas.ExternalDataSourceUpdate,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    """Updates external data source settings."""
+    src = db.query(models.ExternalDataSource).filter(models.ExternalDataSource.id == source_id).first()
+    if not src:
+        raise HTTPException(status_code=404, detail="Data source not found")
+    if payload.name is not None:
+        src.name = payload.name.strip()
+    if payload.endpoint_url is not None:
+        src.endpoint_url = payload.endpoint_url.strip()
+    if payload.auth_method is not None:
+        src.auth_method = payload.auth_method
+    if payload.api_key is not None:
+        src.api_key = payload.api_key.strip()
+    if payload.header_name is not None:
+        src.header_name = payload.header_name.strip()
+    if payload.lookup_param is not None:
+        src.lookup_param = payload.lookup_param.strip()
+    if payload.is_active is not None:
+        src.is_active = payload.is_active
+    db.commit()
+    db.refresh(src)
+    return src
+
+
+@app.delete("/api/external-data-sources/{source_id}")
+def delete_external_data_source(
+    source_id: int,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    """Deletes an external data source."""
+    src = db.query(models.ExternalDataSource).filter(models.ExternalDataSource.id == source_id).first()
+    if not src:
+        raise HTTPException(status_code=404, detail="Data source not found")
+    db.delete(src)
+    db.commit()
+    return {"status": "success", "message": f"External data source '{src.name}' removed."}
+
+
+@app.post("/api/external-data-sources/{source_id}/test")
+def test_external_data_source(
+    source_id: int,
+    test_phone: Optional[str] = "+919876543210",
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    """Tests connection to an external API endpoint with a sample phone number."""
+    src = db.query(models.ExternalDataSource).filter(models.ExternalDataSource.id == source_id).first()
+    if not src:
+        raise HTTPException(status_code=404, detail="Data source not found")
+
+    import httpx
+    headers = {}
+    if src.auth_method == "bearer" and src.api_key:
+        headers["Authorization"] = f"Bearer {src.api_key}"
+    elif src.api_key:
+        headers[src.header_name or "X-CRM-Token"] = src.api_key
+
+    params = {src.lookup_param or "phone": test_phone}
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            resp = client.get(src.endpoint_url, params=params, headers=headers)
+            return {
+                "status_code": resp.status_code,
+                "is_success": resp.status_code == 200,
+                "response_data": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text[:500]
+            }
+    except Exception as err:
+        return {
+            "status_code": 0,
+            "is_success": False,
+            "error": str(err)
+        }
+
 
 
 # ==========================================
