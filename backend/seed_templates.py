@@ -73,5 +73,5 @@ for name, cat, lang, hdr, body, ftr in templates_data:
 
 db.commit()
 total = db.query(models.Template).count()
-print(f"✅ Successfully seeded {total} templates across English, Gujarati & Hindi into PostgreSQL!")
+print(f"[SUCCESS] Successfully seeded {total} templates across English, Gujarati & Hindi into Database!")
 db.close()

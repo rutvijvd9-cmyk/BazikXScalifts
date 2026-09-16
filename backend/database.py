@@ -14,7 +14,7 @@ if DATABASE_URL.startswith("postgres://"):
 # Enable connection pooling and pre-ping to handle serverless/cloud DB reconnects gracefully
 engine_options = {"pool_pre_ping": True, "pool_recycle": 300}
 if DATABASE_URL.startswith("sqlite"):
-    engine_options["connect_args"] = {"check_same_thread": False}
+    engine_options = {"connect_args": {"check_same_thread": False}}
 engine = create_engine(DATABASE_URL, **engine_options)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
