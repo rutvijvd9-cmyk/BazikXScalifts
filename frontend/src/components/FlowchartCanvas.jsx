@@ -375,7 +375,7 @@ export default function FlowchartCanvas({
       </div>
 
       {/* ── CANVAS WORKSPACE WITH DOT GRID PATTERN ── */}
-      <div className="relative flex-1 overflow-auto bg-[#F8FAFC]">
+      <div className="relative flex-1 overflow-x-auto overflow-y-auto bg-[#F8FAFC] scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
         {/* SVG Dot Matrix Background */}
         <div
           className="absolute inset-0 pointer-events-none"
@@ -385,9 +385,9 @@ export default function FlowchartCanvas({
           }}
         />
 
-        {/* Canvas Scaled Content Container */}
+        {/* Canvas Scaled Content Container (w-max ensures tree can expand horizontally without limit) */}
         <div
-          className="min-h-full min-w-full p-12 flex flex-col items-center justify-start transition-transform origin-top"
+          className="min-h-full min-w-full w-max p-16 flex flex-col items-center justify-start transition-transform origin-top mx-auto"
           style={{ transform: `scale(${zoom})` }}
         >
           {(() => {
@@ -541,7 +541,7 @@ export default function FlowchartCanvas({
               const isCondition = lastNode.type === "condition";
 
               return (
-                <div className="flex flex-col items-center">
+                <div className="flex flex-col items-center w-max">
                   {chainNodes.map((node, idx) => {
                     const isLast = idx === chainNodes.length - 1;
                     const isNodeCondition = node.type === "condition";
@@ -568,13 +568,13 @@ export default function FlowchartCanvas({
                           const noLabel = isReadCondition ? "NO (Unread)" : "NO";
 
                           return (
-                            <div className="w-full flex flex-col items-center">
+                            <div className="flex flex-col items-center w-max">
                               {/* 
                                 Smooth SVG Bezier Branching Curve:
                                 Curves outward from top-center (x=50%, y=0) 
-                                smoothly to Left column (x=25%, y=100%) and Right column (x=75%, y=100%)
+                                smoothly to Left branch column (x=25%) and Right branch column (x=75%)
                               */}
-                              <div className="w-full min-w-full px-4 h-12 relative pointer-events-none">
+                              <div className="w-full h-12 relative pointer-events-none">
                                 <svg
                                   className="w-full h-full overflow-visible"
                                   viewBox="0 0 100 48"
@@ -601,10 +601,10 @@ export default function FlowchartCanvas({
                                 </svg>
                               </div>
 
-                              {/* Two Side-by-Side Tree Branches (Left = YES, Right = NO) */}
-                              <div className="w-full min-w-full grid grid-cols-2 gap-8 px-4">
+                              {/* Two Side-by-Side Tree Branches (Left = YES, Right = NO) with generous horizontal spacing */}
+                              <div className="flex items-start justify-center gap-16 px-4">
                                 {/* ── LEFT BRANCH: YES ── */}
-                                <div className="flex flex-col items-center w-full min-w-0">
+                                <div className="flex flex-col items-center min-w-[280px]">
                                   {/* Floating YES Pill Badge */}
                                   <div className="px-3 py-0.5 rounded-full bg-[#E6F4EA] text-[#137333] text-[11px] font-bold border border-[#CEEAD6] shadow-xs select-none">
                                     {yesLabel}
@@ -629,7 +629,7 @@ export default function FlowchartCanvas({
                                 </div>
 
                                 {/* ── RIGHT BRANCH: NO ── */}
-                                <div className="flex flex-col items-center w-full min-w-0">
+                                <div className="flex flex-col items-center min-w-[280px]">
                                   {/* Floating NO Pill Badge */}
                                   <div className="px-3 py-0.5 rounded-full bg-[#FEF7E0] text-[#B06000] text-[11px] font-bold border border-[#FEEFC3] shadow-xs select-none">
                                     {noLabel}
