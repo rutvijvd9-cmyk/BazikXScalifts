@@ -406,41 +406,6 @@ export default function FlowchartCanvas({
               return matched.length > 0 ? matched[0].target : null;
             };
 
-            // Collect all downstream nodes for a given branch
-            const getBranchNodes = (startNodeId) => {
-              const result = [];
-              const visited = new Set();
-              let curId = startNodeId;
-              while (curId && !visited.has(curId)) {
-                visited.add(curId);
-                const n = allNodes.find((x) => String(x.id) === String(curId));
-                if (!n) break;
-                result.push(n);
-                // Next node in this linear branch segment
-                const nextTarget = getEdgeTarget(curId);
-                curId = nextTarget;
-              }
-              return result;
-            };
-
-            // Identify condition nodes
-            const conditionNode = allNodes.find((n) => n.type === "condition");
-
-            // Branch roots
-            const yesRootId = conditionNode ? getEdgeTarget(conditionNode.id, "yes") : null;
-            const noRootId = conditionNode ? getEdgeTarget(conditionNode.id, "no") : null;
-
-            const yesBranchNodes = yesRootId ? getBranchNodes(yesRootId) : [];
-            const noBranchNodes = noRootId ? getBranchNodes(noRootId) : [];
-
-            const branchNodeIds = new Set([
-              ...yesBranchNodes.map((n) => String(n.id)),
-              ...noBranchNodes.map((n) => String(n.id))
-            ]);
-
-            // Main trunk nodes (excluding nodes that belong inside YES or NO branches)
-            const trunkNodes = allNodes.filter((n) => !branchNodeIds.has(String(n.id)));
-
             // Single Node Card Renderer
             const renderNodeCard = (node, isBranchChild = false) => {
               const isSelected = selectedNodeId === node.id;
@@ -650,182 +615,242 @@ export default function FlowchartCanvas({
               );
             };
 
-            // Branch Column Renderer for YES or NO
-            const renderBranchColumn = (branchType, branchNodes, parentConditionNode) => {
-              const isYes = branchType === "yes";
-              const lastBranchNode = branchNodes.length > 0 ? branchNodes[branchNodes.length - 1] : null;
+            // Recursive Flow Chain Renderer
+            // startNodeId: node id to begin rendering
+            // isBranchChild: true if inside a branch container
+            // depth: nesting level
+            const renderFlowChain = (startNodeId, isBranchChild = false, depth = 0) => {
+              const chainNodes = [];
+              const visited = new Set();
+              let curId = startNodeId;
+
+              while (curId && !visited.has(curId)) {
+                visited.add(curId);
+                const n = allNodes.find((x) => String(x.id) === String(curId));
+                if (!n) break;
+                chainNodes.push(n);
+
+                // If this node is a condition, its flow splits into YES & NO subtrees
+                if (n.type === "condition") {
+                  break;
+                }
+
+                // Follow linear edge to next node
+                curId = getEdgeTarget(curId);
+              }
+
+              if (chainNodes.length === 0) return null;
+
+              const lastNode = chainNodes[chainNodes.length - 1];
+              const endsWithCondition = lastNode.type === "condition";
 
               return (
-                <div
-                  className={`flex flex-col items-center p-4 rounded-3xl border-2 transition-all ${
-                    isYes
-                      ? "bg-emerald-50/40 border-emerald-300 shadow-sm"
-                      : "bg-amber-50/40 border-amber-300 shadow-sm"
-                  }`}
-                >
-                  {/* Branch Column Header Tag */}
-                  <div className="flex items-center justify-between w-full mb-3 pb-2 border-b border-gray-200/70">
-                    <div
-                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-xs ${
-                        isYes
-                          ? "bg-emerald-100 text-emerald-900 border-emerald-300"
-                          : "bg-amber-100 text-amber-900 border-amber-300"
-                      }`}
-                    >
-                      {isYes ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-700" />
-                      ) : (
-                        <Clock className="w-3.5 h-3.5 text-amber-700" />
-                      )}
-                      <span>{isYes ? "YES Branch" : "NO Branch"}</span>
-                    </div>
+                <div className="flex flex-col items-center space-y-4 w-full">
+                  {chainNodes.map((node, idx) => {
+                    const isConditionNode = node.type === "condition";
+                    const isLastInChain = idx === chainNodes.length - 1;
 
-                    <span className="text-[11px] font-semibold text-gray-500">
-                      {branchNodes.length} Step{branchNodes.length === 1 ? "" : "s"}
-                    </span>
-                  </div>
+                    return (
+                      <React.Fragment key={node.id}>
+                        {renderNodeCard(node, isBranchChild)}
 
-                  <p className="text-[11px] text-gray-600 text-center mb-4 leading-tight">
-                    {isYes
-                      ? "Condition verified! Send thank-you message, VIP reward tag or mark goal converted."
-                      : "Condition not met. Wait delay, check if message was read, or send 2nd recovery discount."}
-                  </p>
+                        {/* Connector down to next linear node */}
+                        {!isLastInChain && (
+                          <div className="flex flex-col items-center my-1 relative group">
+                            <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
+                            <button
+                              onClick={() => {
+                                setPickerTarget({ parentId: node.id });
+                                setIsPickerOpen(true);
+                              }}
+                              className="w-6 h-6 rounded-full bg-white border border-gray-300 group-hover:border-[#25D366] text-gray-500 group-hover:text-[#25D366] flex items-center justify-center shadow-xs transition hover:scale-110 -my-3 z-10"
+                              title="Add Step Here"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                            <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
+                            <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-400 group-hover:border-t-[#25D366] transition" />
+                          </div>
+                        )}
 
-                  {/* Render all nodes inside this branch sequentially */}
-                  <div className="flex flex-col items-center space-y-3 w-full">
-                    {branchNodes.map((bNode, bIdx) => (
-                      <React.Fragment key={bNode.id}>
-                        {renderNodeCard(bNode, true)}
+                        {/* If this node is a Condition, render its recursive YES and NO branch split */}
+                        {isConditionNode && (
+                          <div className="w-full my-3 flex flex-col items-center">
+                            {/* Stem down */}
+                            <div className="w-0.5 h-6 bg-purple-400" />
 
-                        {/* Connector down to next node in this branch */}
-                        {bIdx < branchNodes.length - 1 && (
-                          <div className="flex flex-col items-center my-0.5">
-                            <div className={`w-0.5 h-6 ${isYes ? "bg-emerald-300" : "bg-amber-300"}`} />
-                            <div
-                              className={`w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent ${
-                                isYes ? "border-t-emerald-500" : "border-t-amber-500"
-                              }`}
-                            />
+                            {/* Split Horizontal Bar */}
+                            <div className="w-4/5 h-0.5 bg-purple-300 relative">
+                              <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-white px-3 py-0.5 text-[10px] font-bold text-purple-700 rounded-full border border-purple-200 uppercase shadow-xs whitespace-nowrap">
+                                Branch Split #{depth + 1}
+                              </div>
+                            </div>
+
+                            {/* Two Side-by-Side Parallel Columns */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 w-full pt-4">
+                              {/* YES Column */}
+                              {(() => {
+                                const yesTargetId = getEdgeTarget(node.id, "yes");
+                                return (
+                                  <div className="flex flex-col items-center p-4 rounded-3xl border-2 bg-emerald-50/40 border-emerald-300 shadow-sm transition-all">
+                                    <div className="flex items-center justify-between w-full mb-3 pb-2 border-b border-gray-200/70">
+                                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-xs bg-emerald-100 text-emerald-900 border-emerald-300">
+                                        <Check className="w-3.5 h-3.5 text-emerald-700" />
+                                        <span>YES Branch</span>
+                                      </div>
+                                      <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">
+                                        Condition Met
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-600 text-center mb-3 leading-tight">
+                                      Criteria verified! Send thank-you message, VIP tag or conclude goal.
+                                    </p>
+
+                                    {/* Recursive downstream chain under YES */}
+                                    {yesTargetId ? (
+                                      renderFlowChain(yesTargetId, true, depth + 1)
+                                    ) : (
+                                      <div className="w-full py-4 border border-dashed border-emerald-200 rounded-2xl bg-white/70 flex flex-col items-center justify-center text-center px-4">
+                                        <span className="text-xs font-semibold text-emerald-800">Branch is empty</span>
+                                        <span className="text-[10px] text-gray-400 mt-0.5">Click below to add the first step on YES</span>
+                                      </div>
+                                    )}
+
+                                    {/* Add Step Button for YES */}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (yesTargetId) {
+                                          // Find tail of the yes branch
+                                          let tailId = yesTargetId;
+                                          const seen = new Set();
+                                          while (tailId && !seen.has(tailId)) {
+                                            seen.add(tailId);
+                                            const nxt = getEdgeTarget(tailId);
+                                            if (!nxt) break;
+                                            tailId = nxt;
+                                          }
+                                          setPickerTarget({ parentId: tailId, handle: null });
+                                        } else {
+                                          setPickerTarget({ parentId: node.id, handle: "yes" });
+                                        }
+                                        setIsPickerOpen(true);
+                                      }}
+                                      className="w-full mt-3 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-white border-2 border-emerald-400 text-emerald-800 hover:bg-emerald-500 hover:text-white rounded-xl text-xs font-bold transition shadow-xs hover:shadow-md cursor-pointer"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>Add Step under YES</span>
+                                    </button>
+                                  </div>
+                                );
+                              })()}
+
+                              {/* NO Column */}
+                              {(() => {
+                                const noTargetId = getEdgeTarget(node.id, "no");
+                                return (
+                                  <div className="flex flex-col items-center p-4 rounded-3xl border-2 bg-amber-50/40 border-amber-300 shadow-sm transition-all">
+                                    <div className="flex items-center justify-between w-full mb-3 pb-2 border-b border-gray-200/70">
+                                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-xs bg-amber-100 text-amber-900 border-amber-300">
+                                        <Clock className="w-3.5 h-3.5 text-amber-700" />
+                                        <span>NO Branch</span>
+                                      </div>
+                                      <span className="text-[10px] font-semibold text-amber-700 uppercase tracking-wider">
+                                        Condition Not Met
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-600 text-center mb-3 leading-tight">
+                                      Criteria not met. Check blue ticks, wait delay, or dispatch recovery message.
+                                    </p>
+
+                                    {/* Recursive downstream chain under NO */}
+                                    {noTargetId ? (
+                                      renderFlowChain(noTargetId, true, depth + 1)
+                                    ) : (
+                                      <div className="w-full py-4 border border-dashed border-amber-200 rounded-2xl bg-white/70 flex flex-col items-center justify-center text-center px-4">
+                                        <span className="text-xs font-semibold text-amber-800">Branch is empty</span>
+                                        <span className="text-[10px] text-gray-400 mt-0.5">Click below to add the first step on NO</span>
+                                      </div>
+                                    )}
+
+                                    {/* Add Step Button for NO */}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (noTargetId) {
+                                          // Find tail of the no branch
+                                          let tailId = noTargetId;
+                                          const seen = new Set();
+                                          while (tailId && !seen.has(tailId)) {
+                                            seen.add(tailId);
+                                            const nxt = getEdgeTarget(tailId);
+                                            if (!nxt) break;
+                                            tailId = nxt;
+                                          }
+                                          setPickerTarget({ parentId: tailId, handle: null });
+                                        } else {
+                                          setPickerTarget({ parentId: node.id, handle: "no" });
+                                        }
+                                        setIsPickerOpen(true);
+                                      }}
+                                      className="w-full mt-3 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-white border-2 border-amber-400 text-amber-900 hover:bg-amber-500 hover:text-white rounded-xl text-xs font-bold transition shadow-xs hover:shadow-md cursor-pointer"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>Add Step under NO</span>
+                                    </button>
+                                  </div>
+                                );
+                              })()}
+                            </div>
                           </div>
                         )}
                       </React.Fragment>
-                    ))}
-                  </div>
+                    );
+                  })}
 
-                  {/* Small spacer if nodes are present */}
-                  {branchNodes.length > 0 && (
-                    <div className="flex flex-col items-center my-2">
-                      <div className={`w-0.5 h-4 ${isYes ? "bg-emerald-300" : "bg-amber-300"}`} />
-                      <div
-                        className={`w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent ${
-                          isYes ? "border-t-emerald-500" : "border-t-amber-500"
-                        }`}
-                      />
+                  {/* If chain ends with a regular node and is the top trunk, allow adding next step to journey */}
+                  {!endsWithCondition && !isBranchChild && (
+                    <div className="pt-4 flex items-center justify-center">
+                      <button
+                        onClick={() => {
+                          setPickerTarget({ parentId: lastNode.id, handle: null });
+                          setIsPickerOpen(true);
+                        }}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-dashed border-gray-300 hover:border-[#25D366] text-gray-600 hover:text-[#25D366] rounded-2xl text-xs font-bold transition shadow-xs hover:shadow-sm cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Next Step to Journey
+                      </button>
                     </div>
                   )}
-
-                  {/* Add Step Button dedicated to this branch */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (lastBranchNode) {
-                        // Append to the last node of this branch
-                        setPickerTarget({ parentId: lastBranchNode.id, handle: null });
-                      } else {
-                        // First node of this branch from condition node
-                        setPickerTarget({ parentId: parentConditionNode.id, handle: branchType });
-                      }
-                      setIsPickerOpen(true);
-                    }}
-                    className={`w-full mt-2 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-white border-2 rounded-xl text-xs font-bold transition shadow-xs hover:shadow-md cursor-pointer ${
-                      isYes
-                        ? "border-emerald-400 text-emerald-800 hover:bg-emerald-500 hover:text-white"
-                        : "border-amber-400 text-amber-900 hover:bg-amber-500 hover:text-white"
-                    }`}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add Step under {isYes ? "YES" : "NO"}</span>
-                  </button>
                 </div>
               );
             };
 
-            return (
-              <div className="flex flex-col items-center space-y-4 max-w-4xl w-full">
-                {/* 1. Main Trunk Nodes */}
-                {trunkNodes.map((node, index) => {
-                  const isCondition = node.type === "condition";
+            // Find root trigger node (or first node) to begin recursive rendering
+            const rootNode = allNodes.find((n) => n.type === "trigger") || allNodes[0];
 
-                  return (
-                    <React.Fragment key={node.id}>
-                      {/* Step Card */}
-                      {renderNodeCard(node, false)}
+            if (!rootNode) {
+              return (
+                <div className="pt-8 flex flex-col items-center justify-center text-center">
+                  <p className="text-sm text-gray-500 mb-3">No steps in this automation yet</p>
+                  <button
+                    onClick={() => {
+                      setPickerTarget(null);
+                      setIsPickerOpen(true);
+                    }}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-[#25D366] text-white rounded-2xl text-xs font-bold hover:bg-[#1EBE5D] transition shadow-xs"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Trigger Step
+                  </button>
+                </div>
+              );
+            }
 
-                      {/* ── ⚖️ Condition Node: True Split into Parallel Columns ── */}
-                      {isCondition && (
-                        <div className="w-full my-3 flex flex-col items-center">
-                          {/* Stem down */}
-                          <div className="w-0.5 h-6 bg-purple-400" />
-
-                          {/* Split Horizontal Bar */}
-                          <div className="w-4/5 h-0.5 bg-purple-300 relative">
-                            <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-white px-3 py-0.5 text-[10px] font-bold text-purple-700 rounded-full border border-purple-200 uppercase shadow-xs">
-                              Independent Branch Split
-                            </div>
-                          </div>
-
-                          {/* Two Side-by-Side Parallel Columns */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full pt-4">
-                            {/* YES Column */}
-                            {renderBranchColumn("yes", yesBranchNodes, node)}
-
-                            {/* NO Column */}
-                            {renderBranchColumn("no", noBranchNodes, node)}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Standard connector down for non-condition trunk nodes */}
-                      {!isCondition && index < trunkNodes.length - 1 && (
-                        <div className="flex flex-col items-center my-1 relative group">
-                          <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
-                          <button
-                            onClick={() => {
-                              setPickerTarget({ parentId: node.id });
-                              setIsPickerOpen(true);
-                            }}
-                            className="w-6 h-6 rounded-full bg-white border border-gray-300 group-hover:border-[#25D366] text-gray-500 group-hover:text-[#25D366] flex items-center justify-center shadow-xs transition hover:scale-110 -my-3 z-10"
-                            title="Add Step Here"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
-                          <div className="w-0.5 h-8 bg-gray-300 group-hover:bg-[#25D366] transition" />
-                          <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-400 group-hover:border-t-[#25D366] transition" />
-                        </div>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-
-                {/* Bottom Add Step Button (only if no condition node or linear addition) */}
-                {!conditionNode && trunkNodes.length > 0 && (
-                  <div className="pt-4 flex items-center justify-center">
-                    <button
-                      onClick={() => {
-                        const lastNode = trunkNodes[trunkNodes.length - 1];
-                        setPickerTarget(lastNode ? { parentId: lastNode.id } : null);
-                        setIsPickerOpen(true);
-                      }}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-white border-2 border-dashed border-gray-300 hover:border-[#25D366] text-gray-600 hover:text-[#25D366] rounded-2xl text-xs font-bold transition shadow-xs hover:shadow-sm cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add Next Step to Journey
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
+            return renderFlowChain(rootNode.id, false, 0);
           })()}
         </div>
       </div>
