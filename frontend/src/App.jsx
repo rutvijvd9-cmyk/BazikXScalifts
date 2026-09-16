@@ -291,15 +291,13 @@ export default function App() {
   const [isNewJourneyModalOpen, setIsNewJourneyModalOpen] = useState(false);
   const [newJourneyForm, setNewJourneyForm] = useState({
     name: "",
-    trigger_type: "ABANDONED_CART",
-    trigger_config: { delay_minutes: 30 }
+    trigger_type: "ABANDONED_CART"
   });
 
   const handleOpenNewJourneyModal = () => {
     setNewJourneyForm({
       name: "",
-      trigger_type: "ABANDONED_CART",
-      trigger_config: { delay_minutes: 30 }
+      trigger_type: "ABANDONED_CART"
     });
     setIsNewJourneyModalOpen(true);
   };
@@ -321,7 +319,7 @@ export default function App() {
       name: defaultName,
       description: `Multi-step automated flowchart journey starting with ${tLabel}`,
       trigger_type: tType,
-      trigger_config: newJourneyForm.trigger_config || {},
+      trigger_config: {},
       is_active: true,
       nodes: [
         {
@@ -330,8 +328,7 @@ export default function App() {
           label: `${tLabel} Trigger`,
           position: { x: 280, y: 40 },
           data: {
-            trigger_type: tType,
-            ...newJourneyForm.trigger_config
+            trigger_type: tType
           }
         }
       ],
@@ -4215,14 +4212,14 @@ export default function App() {
                     {
                       id: "ABANDONED_CART",
                       title: "Abandoned Cart",
-                      desc: "Triggers when a visitor adds snacks to cart but doesn't check out within a timeframe.",
+                      desc: "Triggers when an abandoned cart webhook event is received from your e-commerce store.",
                       icon: ShoppingCart,
                       color: "text-amber-600 bg-amber-50 border-amber-200"
                     },
                     {
                       id: "INACTIVE_WINBACK",
                       title: "Customer Inactive Winback",
-                      desc: "Triggers when a past customer has made no orders for N days.",
+                      desc: "Triggers for past customers who have had no recent purchase activity.",
                       icon: Clock,
                       color: "text-blue-600 bg-blue-50 border-blue-200"
                     },
@@ -4279,51 +4276,6 @@ export default function App() {
                   })}
                 </div>
               </div>
-
-              {/* Specific Trigger Option Quick Config */}
-              {newJourneyForm.trigger_type === "ABANDONED_CART" && (
-                <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl flex items-center justify-between text-xs">
-                  <span className="font-semibold text-amber-900">Wait Delay Before Triggering:</span>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="number"
-                      min="5"
-                      max="1440"
-                      value={newJourneyForm.trigger_config?.delay_minutes || 30}
-                      onChange={(e) =>
-                        setNewJourneyForm({
-                          ...newJourneyForm,
-                          trigger_config: { ...newJourneyForm.trigger_config, delay_minutes: parseInt(e.target.value) || 30 }
-                        })
-                      }
-                      className="w-20 px-2.5 py-1 bg-white border border-amber-300 rounded font-bold text-center text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    />
-                    <span className="text-amber-800 font-medium">minutes</span>
-                  </div>
-                </div>
-              )}
-
-              {newJourneyForm.trigger_type === "INACTIVE_WINBACK" && (
-                <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl flex items-center justify-between text-xs">
-                  <span className="font-semibold text-blue-900">Customer Inactivity Period:</span>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="number"
-                      min="1"
-                      max="365"
-                      value={newJourneyForm.trigger_config?.inactive_days || 15}
-                      onChange={(e) =>
-                        setNewJourneyForm({
-                          ...newJourneyForm,
-                          trigger_config: { ...newJourneyForm.trigger_config, inactive_days: parseInt(e.target.value) || 15 }
-                        })
-                      }
-                      className="w-20 px-2.5 py-1 bg-white border border-blue-300 rounded font-bold text-center text-blue-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                    <span className="text-blue-800 font-medium">days</span>
-                  </div>
-                </div>
-              )}
 
               <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
                 <button
