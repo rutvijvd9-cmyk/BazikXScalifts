@@ -477,9 +477,24 @@ export default function FlowchartCanvas({
                             Duration:
                           </span>
                           <span className="font-mono font-bold text-amber-900 bg-white px-2 py-0.5 rounded border border-amber-200">
-                            {node.data?.delay_minutes >= 60
-                              ? `${node.data?.delay_minutes / 60} Hour(s)`
-                              : `${node.data?.delay_minutes || 30} Minutes`}
+                            {(() => {
+                              const mins = Number(node.data?.delay_minutes) || 30;
+                              if (mins >= 1440 && mins % 1440 === 0) {
+                                const d = mins / 1440;
+                                return `${d} Day${d > 1 ? "s" : ""}`;
+                              }
+                              if (mins >= 60 && mins % 60 === 0) {
+                                const h = mins / 60;
+                                return `${h} Hour${h > 1 ? "s" : ""}`;
+                              }
+                              if (mins >= 1440) {
+                                return `${(mins / 1440).toFixed(1)} Days (${mins}m)`;
+                              }
+                              if (mins >= 60) {
+                                return `${(mins / 60).toFixed(1)} Hours (${mins}m)`;
+                              }
+                              return `${mins} Minutes`;
+                            })()}
                           </span>
                         </div>
                       )}
@@ -658,52 +673,103 @@ export default function FlowchartCanvas({
             </div>
 
             {/* Delay Config */}
-            {selectedNode.type === "delay" && (
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="font-bold text-gray-700">
-                    Wait Duration (Minutes)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={selectedNode.data?.delay_minutes || 30}
-                    onChange={(e) =>
-                      updateSelectedNode("delay_minutes", Number(e.target.value))
-                    }
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl font-mono text-sm focus:border-amber-500 outline-none"
-                  />
-                </div>
+            {selectedNode.type === "delay" && (() => {
+              const currentTotalMinutes = Number(selectedNode.data?.delay_minutes) || 30;
+              // Determine best unit if not explicitly stored
+              let defaultUnit = "minutes";
+              let defaultVal = currentTotalMinutes;
+              if (currentTotalMinutes % 1440 === 0 && currentTotalMinutes >= 1440) {
+                defaultUnit = "days";
+                defaultVal = currentTotalMinutes / 1440;
+              } else if (currentTotalMinutes % 60 === 0 && currentTotalMinutes >= 60) {
+                defaultUnit = "hours";
+                defaultVal = currentTotalMinutes / 60;
+              }
 
-                <div className="space-y-1.5">
-                  <label className="font-bold text-gray-700">Quick Presets</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { label: "15 Mins", val: 15 },
-                      { label: "30 Mins", val: 30 },
-                      { label: "1 Hour", val: 60 },
-                      { label: "24 Hours", val: 1440 },
-                      { label: "48 Hours", val: 2880 },
-                      { label: "3 Days", val: 4320 }
-                    ].map((preset) => (
-                      <button
-                        key={preset.val}
-                        onClick={() =>
-                          updateSelectedNode("delay_minutes", preset.val)
-                        }
-                        className={`py-1.5 px-2 rounded-lg border text-[11px] font-bold transition ${
-                          selectedNode.data?.delay_minutes === preset.val
-                            ? "bg-amber-50 text-amber-800 border-amber-300"
-                            : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-white"
-                        }`}
+              const activeUnit = selectedNode.data?.delay_unit || defaultUnit;
+              const activeVal = selectedNode.data?.delay_value !== undefined 
+                ? selectedNode.data.delay_value 
+                : defaultVal;
+
+              const handleValueOrUnitChange = (val, unit) => {
+                const numericVal = Math.max(1, Number(val) || 1);
+                let multiplier = 1;
+                if (unit === "hours") multiplier = 60;
+                if (unit === "days") multiplier = 1440;
+                const totalMinutes = numericVal * multiplier;
+
+                // Auto-update node properties
+                updateSelectedNode("delay_minutes", totalMinutes);
+                updateSelectedNode("delay_unit", unit);
+                updateSelectedNode("delay_value", numericVal);
+
+                // Friendly auto-label if user hasn't heavily customized it
+                const unitLabel = unit === "days" ? (numericVal === 1 ? "1 Day" : `${numericVal} Days`)
+                  : unit === "hours" ? (numericVal === 1 ? "1 Hour" : `${numericVal} Hours`)
+                  : `${numericVal} Mins`;
+                if (!selectedNode.label || selectedNode.label.startsWith("Wait ")) {
+                  updateSelectedNodeLabel(`Wait ${unitLabel}`);
+                }
+              };
+
+              return (
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="font-bold text-gray-700">Wait Duration</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min="1"
+                        value={activeVal}
+                        onChange={(e) => handleValueOrUnitChange(e.target.value, activeUnit)}
+                        className="w-1/2 px-3 py-2 border border-gray-200 rounded-xl font-mono text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none bg-white font-bold text-gray-900"
+                      />
+                      <select
+                        value={activeUnit}
+                        onChange={(e) => handleValueOrUnitChange(activeVal, e.target.value)}
+                        className="w-1/2 px-3 py-2 border border-gray-200 rounded-xl font-semibold text-sm focus:border-amber-500 outline-none bg-white text-gray-700"
                       >
-                        {preset.label}
-                      </button>
-                    ))}
+                        <option value="minutes">Minutes</option>
+                        <option value="hours">Hours</option>
+                        <option value="days">Days</option>
+                      </select>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Total delay: <span className="font-mono font-bold text-amber-900">{currentTotalMinutes.toLocaleString()} minutes</span>
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="font-bold text-gray-700">Quick Presets</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: "15 Mins", val: 15, unit: "minutes", dispVal: 15 },
+                        { label: "30 Mins", val: 30, unit: "minutes", dispVal: 30 },
+                        { label: "1 Hour", val: 60, unit: "hours", dispVal: 1 },
+                        { label: "1 Day", val: 1440, unit: "days", dispVal: 1 },
+                        { label: "2 Days", val: 2880, unit: "days", dispVal: 2 },
+                        { label: "3 Days", val: 4320, unit: "days", dispVal: 3 },
+                        { label: "7 Days", val: 10080, unit: "days", dispVal: 7 },
+                        { label: "15 Days", val: 21600, unit: "days", dispVal: 15 },
+                        { label: "30 Days", val: 43200, unit: "days", dispVal: 30 }
+                      ].map((preset) => (
+                        <button
+                          key={preset.val}
+                          onClick={() => handleValueOrUnitChange(preset.dispVal, preset.unit)}
+                          className={`py-1.5 px-2 rounded-lg border text-[11px] font-bold transition ${
+                            currentTotalMinutes === preset.val
+                              ? "bg-amber-50 text-amber-800 border-amber-400 ring-1 ring-amber-400 shadow-xs"
+                              : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-white"
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* WhatsApp Message Config */}
             {(selectedNode.type === "whatsapp_message" ||
