@@ -504,7 +504,7 @@ export default function FlowchartCanvas({
                           {/* Message Bubble Preview */}
                           <div className="bg-[#E7F8EE] border border-[#25D366]/30 rounded-xl p-3 text-xs text-gray-800 space-y-1 relative">
                             <div className="text-[10px] font-bold text-emerald-800 flex items-center gap-1">
-                              <span>💬 WhatsApp Message Preview:</span>
+                              <span>WhatsApp Message Preview:</span>
                             </div>
                             <p className="text-[11px] text-gray-700 italic">
                               "Hi <span className="text-emerald-700 font-bold bg-white px-1 rounded border border-emerald-200">{"{{customer_name}}"}</span>, you left items in your cart! Use code <span className="text-[#D35400] font-bold bg-white px-1 rounded border border-amber-200">{node.data?.coupon_code || "BAZIK7"}</span> to complete your order today."
@@ -560,7 +560,7 @@ export default function FlowchartCanvas({
                           <span>Outcome:</span>
                           <span>
                             {node.data?.outcome === "GOAL_MET"
-                              ? "🎉 Conversion Goal Met (+Revenue Recovered)"
+                              ? "Conversion Goal Met (Revenue Recovered)"
                               : "Standard Journey Dropout"}
                           </span>
                         </div>

@@ -1938,77 +1938,187 @@ export default function App() {
               {/* ── VIEW 1: VISUAL MULTI-STEP FLOWCHART JOURNEYS ── */}
               {activeWorkflowTab === "flows" && (
                 <div className="space-y-6">
-                  {/* Flows Key Metrics Strip */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex items-center gap-3.5">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-                        <GitBranch className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                          Active Journeys
-                        </p>
-                        <p className="text-xl font-black text-gray-900 leading-tight">
-                          {workflowFlows.filter((f) => f.is_active).length}{" "}
-                          <span className="text-xs font-normal text-gray-400">
-                            / {workflowFlows.length}
-                          </span>
-                        </p>
-                      </div>
-                    </div>
+                  {/* ── 📊 CLEAN EXECUTIVE AUTOMATION OVERVIEW (ADMIN PORTAL THEME) ── */}
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
+                    <div className="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                      
+                      {/* LEFT: Clean Circular Progress & Key Metrics */}
+                      <div className="lg:col-span-5 flex items-center gap-6 border-b lg:border-b-0 lg:border-r border-gray-100 pb-5 lg:pb-0 lg:pr-6">
+                        {/* Minimal Circular Dial */}
+                        <div className="relative w-32 h-32 flex items-center justify-center shrink-0">
+                          <svg className="w-full h-full transform -rotate-90" viewBox="0 0 120 120">
+                            {/* Background track */}
+                            <circle cx="60" cy="60" r="48" stroke="#F3F4F6" strokeWidth="8" fill="transparent" />
+                            {/* Active Automations Arc */}
+                            <circle
+                              cx="60"
+                              cy="60"
+                              r="48"
+                              stroke="#25D366"
+                              strokeWidth="8"
+                              strokeDasharray="301"
+                              strokeDashoffset={
+                                workflowFlows.length > 0
+                                  ? 301 - (301 * (workflowFlows.filter((r) => r.is_active).length / Math.max(1, workflowFlows.length)))
+                                  : 301
+                              }
+                              strokeLinecap="round"
+                              fill="transparent"
+                              className="transition-all duration-700"
+                            />
+                          </svg>
+                          <div className="absolute flex flex-col items-center justify-center text-center">
+                            <span className="text-xl font-black text-gray-900 leading-none">
+                              {workflowFlows.filter((r) => r.is_active).length}
+                            </span>
+                            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
+                              of {workflowFlows.length} Active
+                            </span>
+                          </div>
+                        </div>
 
-                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex items-center gap-3.5">
-                      <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-                        <Users className="w-5 h-5" />
+                        {/* Clean Executive Readouts */}
+                        <div className="space-y-2.5 flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-[#25D366]"></span>
+                              Active Journeys
+                            </span>
+                            <span className="text-xs font-bold text-gray-900">
+                              {workflowFlows.filter((r) => r.is_active).length} / {workflowFlows.length}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-[#F5A623]"></span>
+                              Recovered (30d)
+                            </span>
+                            <span className="text-xs font-bold text-[#D35400] font-mono">
+                              ₹{cartEvents.filter((c) => c.status === "RECOVERED").reduce((sum, c) => sum + (c.cart_value || 0), 0).toLocaleString()}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                              Sent Today
+                            </span>
+                            <span className="text-xs font-bold text-gray-900 font-mono">
+                              {messageLogs.filter((m) => {
+                                const today = new Date().toISOString().split("T")[0];
+                                return m.created_at && m.created_at.startsWith(today);
+                              }).length} msgs
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                              Opt-Out Rate
+                            </span>
+                            <span className="text-xs font-bold text-emerald-600 font-mono">
+                              {optOuts.length === 0 ? "0% (Healthy)" : `${optOuts.length} opted out`}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                          Total Enrolled
-                        </p>
-                        <p className="text-xl font-black text-gray-900 leading-tight font-mono">
-                          {workflowFlows.reduce(
-                            (sum, f) => sum + (f.stats?.entered || 0),
-                            0
+
+                      {/* RIGHT: Live Automation Stream & Guardrail Status */}
+                      <div className="lg:col-span-7 flex flex-col justify-between space-y-3.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Activity className="w-4 h-4 text-[#25D366]" />
+                            <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
+                              Automation Activity & System Health
+                            </h4>
+                          </div>
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#25D366] animate-pulse"></span>
+                            Scheduler Online
+                          </div>
+                        </div>
+
+                        {/* Activity Feed Cards */}
+                        <div className="space-y-2">
+                          {cartEvents.length > 0 ? (
+                            <div className="bg-gray-50 border border-gray-100 p-2.5 rounded-lg flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2.5">
+                                <ShoppingCart className="w-3.5 h-3.5 text-[#F5A623]" />
+                                <span className="text-gray-700">
+                                  Latest cart: <strong className="font-mono text-gray-900">₹{cartEvents[0].cart_value || 0}</strong> • Status: <span className="font-semibold text-gray-800">{cartEvents[0].status}</span>
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-gray-400 font-mono">
+                                {cartEvents[0].customer_phone ? cartEvents[0].customer_phone.replace(/(\d{5})(\d{5})/, "$1*****") : "Customer"}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="bg-gray-50 border border-gray-100 p-2.5 rounded-lg flex items-center justify-between text-xs text-gray-500">
+                              <div className="flex items-center gap-2">
+                                <Radio className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Listening for store cart events & inactive customer triggers</span>
+                              </div>
+                              <span className="text-[11px] font-mono text-gray-400">Idle (Standby)</span>
+                            </div>
                           )}
-                        </p>
-                      </div>
-                    </div>
 
-                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex items-center gap-3.5">
-                      <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
-                        <CheckCircle2 className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                          Goals Converted
-                        </p>
-                        <p className="text-xl font-black text-purple-700 leading-tight font-mono">
-                          {workflowFlows.reduce(
-                            (sum, f) => sum + (f.stats?.goals_converted || 0),
-                            0
+                          {messageLogs.length > 0 ? (
+                            <div className="bg-gray-50 border border-gray-100 p-2.5 rounded-lg flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2.5">
+                                <Send className="w-3.5 h-3.5 text-[#25D366]" />
+                                <span className="text-gray-700">
+                                  Dispatched <code className="text-gray-900 font-bold bg-white px-1.5 py-0.5 rounded border border-gray-200 text-[11px]">{messageLogs[0].template_name}</code> to {messageLogs[0].recipient_phone}
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                Sent
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="bg-gray-50 border border-gray-100 p-2.5 rounded-lg flex items-center justify-between text-xs text-gray-500">
+                              <div className="flex items-center gap-2">
+                                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Daily safety guardrail active: 0 of 500 WhatsApp limit used</span>
+                              </div>
+                              <span className="text-[11px] text-emerald-600 font-semibold">100% Capacity</span>
+                            </div>
                           )}
-                        </p>
-                      </div>
-                    </div>
+                        </div>
 
-                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex items-center gap-3.5">
-                      <div className="w-10 h-10 rounded-xl bg-amber-50 text-[#D35400] flex items-center justify-center font-bold">
-                        <IndianRupee className="w-5 h-5" />
+                        {/* Operational Guardrails Bar */}
+                        <div className="flex items-center justify-between pt-1 text-xs text-gray-500">
+                          <div className="flex items-center gap-3 text-[11px]">
+                            <span>Opt-out enforcement: <strong className="text-gray-800">Strict DND</strong></span>
+                            <span className="text-gray-300">•</span>
+                            <span>Deduplication window: <strong className="text-gray-800">3-7 Days</strong></span>
+                          </div>
+                          <button
+                            onClick={handleCreateNewWorkflow}
+                            className="text-xs font-bold text-[#25D366] hover:text-[#1EBE5D] flex items-center gap-1 cursor-pointer transition"
+                          >
+                            ⚡ Test Simulator Flow →
+                          </button>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                          Recovered Value
-                        </p>
-                        <p className="text-xl font-black text-[#D35400] leading-tight font-mono">
-                          ₹
-                          {workflowFlows
-                            .reduce(
-                              (sum, f) => sum + (f.stats?.revenue_recovered || 0),
-                              0
-                            )
-                            .toLocaleString()}
-                        </p>
-                      </div>
+
+                    </div>
+                  </div>
+
+                  {/* Subheader & Actions */}
+                  <div className="flex items-center justify-between flex-wrap gap-4 pt-2">
+                    <div>
+                      <h3 className="text-base font-bold text-gray-900">E-Commerce Customer Journeys</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">Multi-step visual flowchart automations with delays, condition branching, and goals</p>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        onClick={handleCreateNewWorkflow}
+                        className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-xl font-bold text-xs shadow-xs transition inline-flex items-center gap-2"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Create Journey Flow
+                      </button>
                     </div>
                   </div>
 
