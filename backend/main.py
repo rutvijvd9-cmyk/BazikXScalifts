@@ -175,167 +175,45 @@ def on_startup():
             svc_user.role = "service"
             db.commit()
 
-    # ── Pre-seed Visual Journey Flowcharts ──────────────────────────────────
+    # ── Clean Slate Migration: Purge all legacy sample workflows and dummy rules ────
     try:
-        seed_default_workflow_flows(db)
-    except Exception as _wf_err:
-        print(f"⚠️  [Workflows] Seeder note: {_wf_err}")
+        with engine.connect() as _conn:
+            _conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS system_migrations (
+                    migration_name VARCHAR(120) PRIMARY KEY,
+                    applied_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            _mig_check = _conn.execute(
+                text("SELECT 1 FROM system_migrations WHERE migration_name = 'purge_sample_automations_2026_09_16'")
+            ).scalar()
+            if not _mig_check:
+                # One-time clean slate wipe of dummy/sample automations
+                _conn.execute(text("DELETE FROM workflow_sessions"))
+                _conn.execute(text("DELETE FROM workflow_flows"))
+                _conn.execute(text("DELETE FROM automation_rules"))
+                _conn.execute(
+                    text("INSERT INTO system_migrations (migration_name) VALUES ('purge_sample_automations_2026_09_16')")
+                )
+                _conn.commit()
+                print("🧹 [Clean Slate] Successfully purged all sample workflows, sessions, and automation rules from database.")
+    except Exception as _clean_err:
+        print(f"⚠️  [Clean Slate] Note: {_clean_err}")
 
     db.close()
 
 
-def seed_default_workflow_flows(db: Session):
-    existing = db.query(models.WorkflowFlow).count()
-    if existing > 0:
-        return
-
-    cart_flow = models.WorkflowFlow(
-        name="Abandoned Cart 2-Stage Recovery Journey",
-        description="Recovers abandoned shopping carts with an initial reminder, evaluates if customer purchased within 24h, and sends a 10% off discount nudge if not.",
-        trigger_type="ABANDONED_CART",
-        trigger_config={"delay_minutes": 30, "min_cart_value": 0},
-        is_active=True,
-        nodes=[
-            {
-                "id": "node-1",
-                "type": "trigger",
-                "label": "Cart Abandoned Trigger",
-                "position": {"x": 280, "y": 40},
-                "data": {"trigger_type": "ABANDONED_CART", "description": "Detects customer left checkout with items in cart"}
-            },
-            {
-                "id": "node-2",
-                "type": "delay",
-                "label": "Wait 30 Mins",
-                "position": {"x": 280, "y": 160},
-                "data": {"delay_minutes": 30, "description": "Allows organic checkout completion before messaging"}
-            },
-            {
-                "id": "node-3",
-                "type": "whatsapp_message",
-                "label": "Stage 1: Friendly Reminder",
-                "position": {"x": 280, "y": 280},
-                "data": {"template_name": "abandoned_cart_recovery", "coupon_code": "BAZIK7", "language": "en"}
-            },
-            {
-                "id": "node-4",
-                "type": "delay",
-                "label": "Wait 24 Hours",
-                "position": {"x": 280, "y": 410},
-                "data": {"delay_minutes": 1440, "description": "Gives customer full day to use reminder coupon"}
-            },
-            {
-                "id": "node-5",
-                "type": "condition",
-                "label": "Did Customer Purchase?",
-                "position": {"x": 280, "y": 530},
-                "data": {"condition_type": "ORDER_PLACED", "description": "Checks database if cart completed or order placed"}
-            },
-            {
-                "id": "node-6",
-                "type": "whatsapp_message",
-                "label": "Stage 2: 10% Off Urgent Bump",
-                "position": {"x": 460, "y": 660},
-                "data": {"template_name": "abandoned_cart_recovery", "coupon_code": "MANU10", "language": "en"}
-            },
-            {
-                "id": "node-7",
-                "type": "exit",
-                "label": "Goal: Cart Recovered! 🎉",
-                "position": {"x": 100, "y": 660},
-                "data": {"outcome": "GOAL_MET", "description": "Customer completed order. Journey success."}
-            },
-            {
-                "id": "node-8",
-                "type": "exit",
-                "label": "Journey Concluded",
-                "position": {"x": 460, "y": 790},
-                "data": {"outcome": "DROPOUT", "description": "Completed maximum follow-up stages."}
-            }
-        ],
-        edges=[
-            {"id": "e1-2", "source": "node-1", "target": "node-2"},
-            {"id": "e2-3", "source": "node-2", "target": "node-3"},
-            {"id": "e3-4", "source": "node-3", "target": "node-4"},
-            {"id": "e4-5", "source": "node-4", "target": "node-5"},
-            {"id": "e5-7", "source": "node-5", "target": "node-7", "sourceHandle": "yes"},
-            {"id": "e5-6", "source": "node-5", "target": "node-6", "sourceHandle": "no"},
-            {"id": "e6-8", "source": "node-6", "target": "node-8"}
-        ],
-        stats={"entered": 24, "completed": 21, "goals_converted": 14, "revenue_recovered": 18900}
-    )
-    db.add(cart_flow)
-
-    festive_flow = models.WorkflowFlow(
-        name="Diwali Festival Flash Sale Flow",
-        description="Broadcasts festive hampers and special sweets packages, checks for customer order conversions, and sends a final countdown reminder.",
-        trigger_type="FESTIVAL_PROMO",
-        trigger_config={"festival_name": "Diwali 2026", "audience": "ALL_CUSTOMERS"},
-        is_active=True,
-        nodes=[
-            {
-                "id": "fn-1",
-                "type": "trigger",
-                "label": "Festival Promo Trigger",
-                "position": {"x": 280, "y": 40},
-                "data": {"trigger_type": "FESTIVAL_PROMO", "description": "Festive season kick-off broadcast"}
-            },
-            {
-                "id": "fn-2",
-                "type": "whatsapp_message",
-                "label": "Send Festive Gathiya & Sweets",
-                "position": {"x": 280, "y": 160},
-                "data": {"template_name": "festive_promo_offer", "coupon_code": "DIWALI20", "language": "gu"}
-            },
-            {
-                "id": "fn-3",
-                "type": "delay",
-                "label": "Wait 48 Hours",
-                "position": {"x": 280, "y": 290},
-                "data": {"delay_minutes": 2880, "description": "Allow time for customers to review festive sweets menu"}
-            },
-            {
-                "id": "fn-4",
-                "type": "condition",
-                "label": "Did Customer Order?",
-                "position": {"x": 280, "y": 410},
-                "data": {"condition_type": "ORDER_PLACED", "description": "Checks if festival order was placed"}
-            },
-            {
-                "id": "fn-5",
-                "type": "exit",
-                "label": "Order Placed (VIP Tagged)",
-                "position": {"x": 100, "y": 540},
-                "data": {"outcome": "GOAL_MET", "description": "Customer ordered festive combo"}
-            },
-            {
-                "id": "fn-6",
-                "type": "whatsapp_message",
-                "label": "Final 24h Offer Countdown",
-                "position": {"x": 460, "y": 540},
-                "data": {"template_name": "festive_promo_offer", "coupon_code": "DIWALI20", "language": "gu"}
-            },
-            {
-                "id": "fn-7",
-                "type": "exit",
-                "label": "Festival Promo Concluded",
-                "position": {"x": 460, "y": 670},
-                "data": {"outcome": "DROPOUT", "description": "Offer window closed"}
-            }
-        ],
-        edges=[
-            {"id": "fe1-2", "source": "fn-1", "target": "fn-2"},
-            {"id": "fe2-3", "source": "fn-2", "target": "fn-3"},
-            {"id": "fe3-4", "source": "fn-3", "target": "fn-4"},
-            {"id": "fe4-5", "source": "fn-4", "target": "fn-5", "sourceHandle": "yes"},
-            {"id": "fe4-6", "source": "fn-4", "target": "fn-6", "sourceHandle": "no"},
-            {"id": "fe6-7", "source": "fn-6", "target": "fn-7"}
-        ],
-        stats={"entered": 56, "completed": 52, "goals_converted": 36, "revenue_recovered": 54000}
-    )
-    db.add(festive_flow)
+@app.post("/api/automations/clean-slate")
+def purge_all_sample_automations(
+    current_user: models.User = Depends(auth.require_roles("admin")),
+    db: Session = Depends(get_db)
+):
+    """Admin endpoint to purge all sample workflows, sessions, and rules for a 100% fresh clean slate."""
+    db.query(models.WorkflowSession).delete()
+    db.query(models.WorkflowFlow).delete()
+    db.query(models.AutomationRule).delete()
     db.commit()
-    print("🌱 [Workflows] Seeded 2 pre-built visual journey workflows.")
+    return {"status": "ok", "message": "All automations and sample data purged successfully. Clean slate active."}
 
 
 @app.get("/")

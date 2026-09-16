@@ -58,8 +58,21 @@ def test_simulate_workflow(client, auth_headers, db):
     # Fetch existing or created workflow
     flows_res = client.get("/api/workflows", headers=auth_headers)
     flows = flows_res.json()
-    assert len(flows) > 0
-    flow_id = flows[0]["id"]
+    if not flows:
+        new_flow_payload = {
+            "name": "Simulate Test Flow",
+            "trigger_type": "ABANDONED_CART",
+            "is_active": True,
+            "nodes": [
+                {"id": "t1", "type": "trigger", "label": "Trigger", "position": {"x": 100, "y": 100}, "data": {}},
+                {"id": "e1", "type": "exit", "label": "Exit", "position": {"x": 100, "y": 200}, "data": {"outcome": "GOAL_MET"}}
+            ],
+            "edges": [{"id": "e1", "source": "t1", "target": "e1"}]
+        }
+        create_res = client.post("/api/workflows", json=new_flow_payload, headers=auth_headers)
+        flow_id = create_res.json()["id"]
+    else:
+        flow_id = flows[0]["id"]
 
     sim_payload = {
         "customer_phone": "+919876543210",
@@ -172,6 +185,26 @@ def test_cart_event_webhook_enrolls_workflow(client, db):
 
     svc_token = auth.create_access_token(data={"sub": "ecom_service", "role": "service"})
     headers = {"Authorization": f"Bearer {svc_token}"}
+
+    # Ensure an active ABANDONED_CART workflow exists
+    active_wf = db.query(models.WorkflowFlow).filter(
+        models.WorkflowFlow.trigger_type == "ABANDONED_CART",
+        models.WorkflowFlow.is_active == True
+    ).first()
+    if not active_wf:
+        active_wf = models.WorkflowFlow(
+            name="Active Cart Recovery Flow",
+            trigger_type="ABANDONED_CART",
+            is_active=True,
+            nodes=[
+                {"id": "t1", "type": "trigger", "label": "Trigger", "data": {}},
+                {"id": "e1", "type": "exit", "label": "Exit", "data": {"outcome": "GOAL_MET"}}
+            ],
+            edges=[{"id": "e1", "source": "t1", "target": "e1"}],
+            stats={"entered": 0, "completed": 0, "goals_converted": 0, "revenue_recovered": 0}
+        )
+        db.add(active_wf)
+        db.commit()
 
     cart_payload = {
         "cart_token": f"cart_wf_test_{int(datetime.utcnow().timestamp())}",

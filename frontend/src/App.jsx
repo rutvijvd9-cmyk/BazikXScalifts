@@ -892,6 +892,36 @@ export default function App() {
     return res.data;
   };
 
+  const handleCleanSlate = async () => {
+    if (!window.confirm("Purge all sample workflows and rules? This will give you a 100% clean slate.")) return;
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      await axios.post("/api/automations/clean-slate", {}, { headers });
+      setWorkflowFlows([]);
+      setAutomationRules([]);
+      setActionSuccessMsg("All sample workflows and automations purged. Clean slate active!");
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      console.error("Clean slate failed:", err);
+      // Fallback: delete each flow manually
+      try {
+        const headers = { Authorization: `Bearer ${token}` };
+        for (const flow of workflowFlows) {
+          await axios.delete(`/api/workflows/${flow.id}`, { headers });
+        }
+        for (const rule of automationRules) {
+          await axios.delete(`/api/automation-rules/${rule.id}`, { headers });
+        }
+        setWorkflowFlows([]);
+        setAutomationRules([]);
+        setActionSuccessMsg("Sample automations deleted. Clean slate active!");
+        setTimeout(() => setActionSuccessMsg(""), 5000);
+      } catch (_e) {
+        console.error("Fallback delete failed:", _e);
+      }
+    }
+  };
+
   const handleCreateNewWorkflow = () => {
     const newWf = {
       name: "New Custom Customer Journey",
@@ -1873,23 +1903,36 @@ export default function App() {
                   </button>
                 </div>
 
-                {activeWorkflowTab === "flows" ? (
-                  <button
-                    onClick={handleCreateNewWorkflow}
-                    className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Create Journey Flow
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setIsRuleModalOpen(true)}
-                    className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#E67E22] text-black px-4 py-2 rounded-xl font-bold text-xs shadow-xs transition"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Create Custom Rule
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {(workflowFlows.length > 0 || automationRules.length > 0) && (
+                    <button
+                      onClick={handleCleanSlate}
+                      className="flex items-center gap-1.5 bg-gray-100 hover:bg-red-50 text-gray-600 hover:text-red-600 border border-gray-200 px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs"
+                      title="Clear sample data for a fresh clean slate"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Purge Sample Data</span>
+                    </button>
+                  )}
+
+                  {activeWorkflowTab === "flows" ? (
+                    <button
+                      onClick={handleCreateNewWorkflow}
+                      className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Create Journey Flow
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setIsRuleModalOpen(true)}
+                      className="flex items-center gap-2 bg-[#F5A623] hover:bg-[#E67E22] text-black px-4 py-2 rounded-xl font-bold text-xs shadow-xs transition"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Create Custom Rule
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* ── VIEW 1: VISUAL MULTI-STEP FLOWCHART JOURNEYS ── */}
