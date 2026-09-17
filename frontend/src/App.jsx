@@ -4361,8 +4361,8 @@ export default function App() {
                         : "All abandoned carts (₹0+)"}
                     </span>
                   </div>
-                  <div className="relative">
-                    <span className="absolute left-3 top-2.5 text-amber-700 font-bold">₹</span>
+                  <div className="relative flex items-center">
+                    <span className="absolute left-3.5 text-amber-700 font-bold text-sm pointer-events-none select-none">₹</span>
                     <input
                       type="number"
                       min="0"
@@ -4374,7 +4374,7 @@ export default function App() {
                         })
                       }
                       placeholder="0 (Trigger for all abandoned carts)"
-                      className="w-full pl-7 pr-3 py-2 border border-amber-300 rounded-lg text-sm bg-white font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      className="w-full pl-9 pr-3 py-2 border border-amber-300 rounded-lg text-sm bg-white font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
                     />
                   </div>
                   <div className="flex gap-1.5 pt-1">

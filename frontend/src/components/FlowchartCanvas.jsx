@@ -873,8 +873,8 @@ export default function FlowchartCanvas({
                   selectedNode.label?.toLowerCase().includes("cart")) && (
                   <div className="space-y-1.5">
                     <label className="font-bold text-gray-700">Minimum Cart Value (₹)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2 text-gray-400 font-bold">₹</span>
+                    <div className="relative flex items-center">
+                      <span className="absolute left-3.5 text-gray-400 font-bold text-sm pointer-events-none select-none">₹</span>
                       <input
                         type="number"
                         min="0"
@@ -888,7 +888,7 @@ export default function FlowchartCanvas({
                           updateSelectedNode("min_cart_value", val);
                         }}
                         placeholder="0 (Enter all abandoned carts)"
-                        className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-xl font-mono text-sm focus:border-[#25D366] focus:ring-1 focus:ring-[#25D366] outline-none font-bold text-gray-900"
+                        className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl font-mono text-sm focus:border-[#25D366] focus:ring-1 focus:ring-[#25D366] outline-none font-bold text-gray-900"
                       />
                     </div>
                     <p className="text-[11px] text-gray-500 leading-relaxed">
@@ -1208,8 +1208,8 @@ export default function FlowchartCanvas({
                   <div className="space-y-2">
                     <div className="space-y-1.5">
                       <label className="font-bold text-gray-700">Threshold Cart Value (₹)</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-2 text-purple-600 font-bold">₹</span>
+                      <div className="relative flex items-center">
+                        <span className="absolute left-3.5 text-purple-600 font-bold text-sm pointer-events-none select-none">₹</span>
                         <input
                           type="number"
                           min="0"
@@ -1234,7 +1234,7 @@ export default function FlowchartCanvas({
                               })
                             }));
                           }}
-                          className="w-full pl-7 pr-3 py-2 border border-purple-200 rounded-xl font-mono text-sm font-bold text-purple-900 focus:border-purple-500 focus:ring-1 focus:ring-purple-400 outline-none"
+                          className="w-full pl-9 pr-3 py-2 border border-purple-200 rounded-xl font-mono text-sm font-bold text-purple-900 focus:border-purple-500 focus:ring-1 focus:ring-purple-400 outline-none"
                         />
                       </div>
                       <p className="text-[11px] text-gray-500">
