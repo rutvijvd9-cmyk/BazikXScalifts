@@ -86,6 +86,22 @@ export function formatToIST(dateStr) {
   }) + " IST";
 }
 
+export function formatToISTTime(dateStr) {
+  if (!dateStr) return "";
+  let s = String(dateStr).trim();
+  if (!s.endsWith("Z") && !s.includes("+") && !s.slice(10).includes("-")) {
+    s += "Z";
+  }
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return String(dateStr);
+  return d.toLocaleTimeString("en-US", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true
+  });
+}
+
 export default function App() {
   const [serverUrl, setServerUrl] = useState(INITIAL_API_BASE_URL);
   const [showServerModal, setShowServerModal] = useState(false);
@@ -3908,10 +3924,7 @@ export default function App() {
                                 </h4>
                                 {conv.last_message_time && (
                                   <span className="text-[10px] text-gray-400 whitespace-nowrap ml-1 font-mono">
-                                    {new Date(conv.last_message_time).toLocaleTimeString([], {
-                                      hour: "2-digit",
-                                      minute: "2-digit"
-                                    })}
+                                    {formatToISTTime(conv.last_message_time)}
                                   </span>
                                 )}
                               </div>
@@ -4086,10 +4099,7 @@ export default function App() {
                                   }`}
                                 >
                                   <span>
-                                    {new Date(msg.created_at).toLocaleTimeString([], {
-                                      hour: "2-digit",
-                                      minute: "2-digit"
-                                    })}
+                                    {formatToISTTime(msg.created_at)}
                                   </span>
                                   {isAgent && (
                                     <span>
