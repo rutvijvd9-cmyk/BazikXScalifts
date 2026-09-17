@@ -65,6 +65,27 @@ import FlowchartCanvas from "./components/FlowchartCanvas";
 const INITIAL_API_BASE_URL = getApiBaseUrl();
 setApiBaseUrl(INITIAL_API_BASE_URL);
 
+export function formatToIST(dateStr) {
+  if (!dateStr) return "-";
+  let s = String(dateStr).trim();
+  // If no timezone indicator is present, assume UTC as stored by backend
+  if (!s.endsWith("Z") && !s.includes("+") && !s.slice(10).includes("-")) {
+    s += "Z";
+  }
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return String(dateStr);
+  return d.toLocaleString("en-US", {
+    timeZone: "Asia/Kolkata",
+    month: "numeric",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true
+  }) + " IST";
+}
+
 export default function App() {
   const [serverUrl, setServerUrl] = useState(INITIAL_API_BASE_URL);
   const [showServerModal, setShowServerModal] = useState(false);
@@ -3661,8 +3682,8 @@ export default function App() {
                         <td className="px-6 py-4 font-semibold text-gray-900">{log.recipient_phone}</td>
                         <td className="px-6 py-4 font-mono text-xs">{log.template_name}</td>
                         <td className="px-6 py-4 font-mono text-xs text-gray-500">{log.meta_message_id}</td>
-                        <td className="px-6 py-4 text-xs text-gray-500">
-                          {new Date(log.created_at).toLocaleString()}
+                        <td className="px-6 py-4 text-xs font-mono text-gray-500">
+                          {formatToIST(log.created_at)}
                         </td>
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
@@ -3721,8 +3742,8 @@ export default function App() {
                         <td className="px-6 py-4 text-xs font-mono text-red-600 bg-red-50/50 rounded inline-block my-2 px-2 py-1">
                           {opt.reason}
                         </td>
-                        <td className="px-6 py-4 text-xs text-gray-500">
-                          {new Date(opt.created_at).toLocaleString()}
+                        <td className="px-6 py-4 text-xs font-mono text-gray-500">
+                          {formatToIST(opt.created_at)}
                         </td>
                         <td className="px-6 py-4">
                           <button
