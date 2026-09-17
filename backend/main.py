@@ -2578,14 +2578,30 @@ def get_analytics_overview(
     total_replied = len(inbound_replies)
     replied_phone_set = {c.customer_phone for c in inbound_replies}
 
-    # 🚀 REPLIES-TO-READ CORRELATION:
-    # A customer who replies has conclusively read the message. If the message log is still
-    # at 'SENT' or 'DELIVERED' (e.g. because recipient disabled blue ticks in WhatsApp privacy settings),
-    # count it as READ so analytics reflect real-world engagement accurately.
+    # 🚀 ACCURATE DELIVERY & READ COMPUTATION:
+    # 1. FAILED messages can NEVER be delivered or read.
+    # 2. Delivered can NEVER exceed Sent.
+    # 3. Read can NEVER exceed Delivered.
+    # 4. Only successfully sent/delivered messages to a contact who replied are counted as read.
     total_sent = sum(1 for m in logs if m.status in ("SENT", "DELIVERED", "READ"))
-    total_delivered = sum(1 for m in logs if m.status in ("DELIVERED", "READ") or m.recipient_phone in replied_phone_set)
-    total_read = sum(1 for m in logs if m.status == "READ" or m.recipient_phone in replied_phone_set)
     total_failed = sum(1 for m in logs if m.status == "FAILED")
+
+    # A message is delivered if Meta marked it DELIVERED/READ, or if the recipient replied (proving receipt)
+    # BUT only if it wasn't a FAILED send.
+    total_delivered = sum(
+        1 for m in logs
+        if m.status in ("DELIVERED", "READ") or (m.status == "SENT" and m.recipient_phone in replied_phone_set)
+    )
+    # Delivered can never exceed sent
+    total_delivered = min(total_delivered, total_sent)
+
+    # A message is read if Meta marked it READ, or if the recipient replied after a valid send
+    total_read = sum(
+        1 for m in logs
+        if m.status == "READ" or (m.status in ("SENT", "DELIVERED") and m.recipient_phone in replied_phone_set)
+    )
+    # Read can never exceed delivered
+    total_read = min(total_read, total_delivered)
 
     # Interactive button clicks / CTA taps
     total_clicks = sum(
@@ -2622,23 +2638,29 @@ def get_analytics_overview(
         if tname not in tmpl_map:
             tmpl_map[tname] = {"sent": 0, "delivered": 0, "read": 0, "failed": 0}
         has_reply = m.recipient_phone in replied_phone_set
+        # Failed message can NEVER be delivered or read
+        if m.status == "FAILED":
+            tmpl_map[tname]["failed"] += 1
+            continue
+
         if m.status in ("SENT", "DELIVERED", "READ"):
             tmpl_map[tname]["sent"] += 1
         if m.status in ("DELIVERED", "READ") or has_reply:
             tmpl_map[tname]["delivered"] += 1
         if m.status == "READ" or has_reply:
             tmpl_map[tname]["read"] += 1
-        if m.status == "FAILED":
-            tmpl_map[tname]["failed"] += 1
 
     template_performance = []
     for tname, tdata in tmpl_map.items():
-        t_del = tdata["delivered"]
-        t_read = tdata["read"]
+        t_sent = tdata["sent"]
+        # Delivered can never exceed Sent
+        t_del = min(tdata["delivered"], t_sent)
+        # Read can never exceed Delivered
+        t_read = min(tdata["read"], t_del)
         t_rate = round((t_read / t_del * 100), 1) if t_del > 0 else 0.0
         template_performance.append({
             "template_name": tname,
-            "sent": tdata["sent"],
+            "sent": t_sent,
             "delivered": t_del,
             "read": t_read,
             "read_rate": t_rate,
@@ -2655,11 +2677,14 @@ def get_analytics_overview(
         day_logs = [m for m in logs if m.created_at and m.created_at.date() == day_date]
         day_replies = [c for c in inbound_replies if c.created_at and c.created_at.date() == day_date]
         day_replied_phones = {c.customer_phone for c in day_replies}
+        d_sent = sum(1 for m in day_logs if m.status in ("SENT", "DELIVERED", "READ"))
+        d_del = min(d_sent, sum(1 for m in day_logs if m.status in ("DELIVERED", "READ") or (m.status == "SENT" and m.recipient_phone in day_replied_phones)))
+        d_read = min(d_del, sum(1 for m in day_logs if m.status == "READ" or (m.status in ("SENT", "DELIVERED") and m.recipient_phone in day_replied_phones)))
         daily_trends.append({
             "date": day_str,
-            "sent": sum(1 for m in day_logs if m.status in ("SENT", "DELIVERED", "READ")),
-            "delivered": sum(1 for m in day_logs if m.status in ("DELIVERED", "READ") or m.recipient_phone in day_replied_phones),
-            "read": sum(1 for m in day_logs if m.status == "READ" or m.recipient_phone in day_replied_phones),
+            "sent": d_sent,
+            "delivered": d_del,
+            "read": d_read,
             "replied": len(day_replies)
         })
 
