@@ -296,13 +296,15 @@ export default function App() {
   const [isNewJourneyModalOpen, setIsNewJourneyModalOpen] = useState(false);
   const [newJourneyForm, setNewJourneyForm] = useState({
     name: "",
-    trigger_type: "ABANDONED_CART"
+    trigger_type: "ABANDONED_CART",
+    min_cart_value: 0
   });
 
   const handleOpenNewJourneyModal = () => {
     setNewJourneyForm({
       name: "",
-      trigger_type: "ABANDONED_CART"
+      trigger_type: "ABANDONED_CART",
+      min_cart_value: 0
     });
     setIsNewJourneyModalOpen(true);
   };
@@ -319,12 +321,15 @@ export default function App() {
     const tType = newJourneyForm.trigger_type || "ABANDONED_CART";
     const tLabel = triggerLabels[tType] || "Trigger";
     const defaultName = newJourneyForm.name.trim() || `${tLabel} Flow`;
+    const minCartVal = Number(newJourneyForm.min_cart_value) || 0;
 
     const newWf = {
       name: defaultName,
       description: `Multi-step automated flowchart journey starting with ${tLabel}`,
       trigger_type: tType,
-      trigger_config: {},
+      trigger_config: {
+        ...(tType === "ABANDONED_CART" ? { min_cart_value: minCartVal } : {})
+      },
       is_active: true,
       nodes: [
         {
@@ -333,7 +338,9 @@ export default function App() {
           label: `${tLabel} Trigger`,
           position: { x: 280, y: 40 },
           data: {
-            trigger_type: tType
+            trigger_type: tType,
+            min_cart_value: minCartVal,
+            description: minCartVal > 0 ? `Min Cart: ≥ ₹${minCartVal}` : "All Cart Events"
           }
         }
       ],
@@ -4341,6 +4348,53 @@ export default function App() {
                   })}
                 </div>
               </div>
+
+              {newJourneyForm.trigger_type === "ABANDONED_CART" && (
+                <div className="bg-amber-50/50 border border-amber-200/80 rounded-xl p-3.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold uppercase text-amber-900">
+                      Minimum Cart Amount Filter (₹)
+                    </label>
+                    <span className="text-[11px] text-amber-700 font-semibold">
+                      {Number(newJourneyForm.min_cart_value) > 0
+                        ? `Only carts ≥ ₹${newJourneyForm.min_cart_value}`
+                        : "All abandoned carts (₹0+)"}
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-amber-700 font-bold">₹</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={newJourneyForm.min_cart_value !== undefined ? newJourneyForm.min_cart_value : 0}
+                      onChange={(e) =>
+                        setNewJourneyForm({
+                          ...newJourneyForm,
+                          min_cart_value: e.target.value === "" ? 0 : Number(e.target.value)
+                        })
+                      }
+                      placeholder="0 (Trigger for all abandoned carts)"
+                      className="w-full pl-7 pr-3 py-2 border border-amber-300 rounded-lg text-sm bg-white font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                  <div className="flex gap-1.5 pt-1">
+                    {[0, 299, 499, 999, 1499].map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setNewJourneyForm({ ...newJourneyForm, min_cart_value: val })}
+                        className={`px-2 py-1 rounded-md border text-[10px] font-bold transition ${
+                          (Number(newJourneyForm.min_cart_value) || 0) === val
+                            ? "bg-amber-500 text-white border-amber-600 shadow-xs"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-amber-100"
+                        }`}
+                      >
+                        {val === 0 ? "All (₹0)" : `≥ ₹${val}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
                 <button

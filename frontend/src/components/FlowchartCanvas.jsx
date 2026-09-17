@@ -283,6 +283,21 @@ export default function FlowchartCanvas({
       }
     },
     {
+      id: "condition_cart_value",
+      type: "condition",
+      category: "condition",
+      title: "Check: Cart Value > ₹X",
+      desc: "Branches into YES if cart value exceeds specified amount (e.g. ₹500 or ₹1,000).",
+      icon: ShoppingCart,
+      color: "text-purple-600 bg-purple-50 border-purple-200",
+      defaultLabel: "Cart Value > ₹500",
+      defaultData: {
+        condition_type: "CART_VALUE_ABOVE",
+        threshold: 500,
+        description: "Evaluates total cart value"
+      }
+    },
+    {
       id: "tag_contact",
       type: "tag",
       category: "action",
@@ -574,7 +589,19 @@ export default function FlowchartCanvas({
                       <h4 className="font-bold text-gray-900 text-xs truncate leading-snug">
                         {node.label}
                       </h4>
-                      {node.data?.template_name && (
+                      {isTrigger && (
+                        <p className="text-[10px] text-blue-600 font-medium truncate mt-0.5">
+                          {node.data?.min_cart_value > 0
+                            ? `Min Cart: ≥ ₹${node.data.min_cart_value}`
+                            : node.data?.description || "All Cart Events"}
+                        </p>
+                      )}
+                      {!isTrigger && node.data?.description && (
+                        <p className="text-[10px] text-gray-400 font-medium truncate mt-0.5">
+                          {node.data.description}
+                        </p>
+                      )}
+                      {!isTrigger && !node.data?.description && node.data?.template_name && (
                         <p className="text-[10px] text-gray-400 font-medium truncate mt-0.5">
                           {node.data.template_name}
                         </p>
@@ -819,6 +846,74 @@ export default function FlowchartCanvas({
                 className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:border-[#25D366] focus:ring-1 focus:ring-[#25D366] outline-none text-gray-600"
               />
             </div>
+
+            {/* Trigger Config */}
+            {selectedNode.type === "trigger" && (
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="font-bold text-gray-700">Trigger Event Type</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={
+                      selectedNode.data?.trigger_type === "ABANDONED_CART"
+                        ? "Abandoned Cart"
+                        : selectedNode.data?.trigger_type === "INACTIVE_WINBACK"
+                        ? "Customer Inactive Winback"
+                        : selectedNode.data?.trigger_type === "ORDER_COMPLETED"
+                        ? "Post-Purchase Order Completed"
+                        : selectedNode.data?.trigger_type || "Event Trigger"
+                    }
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 text-gray-700 font-medium outline-none cursor-not-allowed"
+                  />
+                </div>
+
+                {(selectedNode.data?.trigger_type === "ABANDONED_CART" ||
+                  flow.trigger_type === "ABANDONED_CART" ||
+                  selectedNode.label?.toLowerCase().includes("cart")) && (
+                  <div className="space-y-1.5">
+                    <label className="font-bold text-gray-700">Minimum Cart Value (₹)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 text-gray-400 font-bold">₹</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={
+                          selectedNode.data?.min_cart_value !== undefined
+                            ? selectedNode.data.min_cart_value
+                            : ""
+                        }
+                        onChange={(e) => {
+                          const val = e.target.value === "" ? 0 : Number(e.target.value);
+                          updateSelectedNode("min_cart_value", val);
+                        }}
+                        placeholder="0 (Enter all abandoned carts)"
+                        className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-xl font-mono text-sm focus:border-[#25D366] focus:ring-1 focus:ring-[#25D366] outline-none font-bold text-gray-900"
+                      />
+                    </div>
+                    <p className="text-[11px] text-gray-500 leading-relaxed">
+                      Only abandoned carts with total value equal to or greater than ₹{selectedNode.data?.min_cart_value || 0} will enter this recovery journey.
+                    </p>
+                    <div className="flex gap-2 pt-1">
+                      {[0, 299, 499, 999, 1499].map((amt) => (
+                        <button
+                          key={amt}
+                          type="button"
+                          onClick={() => updateSelectedNode("min_cart_value", amt)}
+                          className={`px-2 py-1 rounded-lg border text-[10px] font-bold transition ${
+                            (selectedNode.data?.min_cart_value || 0) === amt
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-300 ring-1 ring-emerald-300"
+                              : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-white"
+                          }`}
+                        >
+                          {amt === 0 ? "Any (₹0)" : `≥ ₹${amt}`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Delay Config */}
             {selectedNode.type === "delay" && (() => {
@@ -1110,16 +1205,77 @@ export default function FlowchartCanvas({
                 </div>
 
                 {selectedNode.data?.condition_type === "CART_VALUE_ABOVE" && (
-                  <div className="space-y-1.5">
-                    <label className="font-bold text-gray-700">Threshold Amount (₹)</label>
-                    <input
-                      type="number"
-                      value={selectedNode.data?.threshold || 500}
-                      onChange={(e) =>
-                        updateSelectedNode("threshold", Number(e.target.value))
-                      }
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl font-mono text-sm focus:border-purple-500 outline-none"
-                    />
+                  <div className="space-y-2">
+                    <div className="space-y-1.5">
+                      <label className="font-bold text-gray-700">Threshold Cart Value (₹)</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2 text-purple-600 font-bold">₹</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={selectedNode.data?.threshold !== undefined ? selectedNode.data.threshold : 500}
+                          onChange={(e) => {
+                            const newThresh = Number(e.target.value) || 0;
+                            setFlow((prev) => ({
+                              ...prev,
+                              nodes: prev.nodes.map((n) => {
+                                if (n.id === selectedNodeId) {
+                                  const isGeneric = !n.label || n.label.startsWith("Cart Value > ₹");
+                                  return {
+                                    ...n,
+                                    label: isGeneric ? `Cart Value > ₹${newThresh}` : n.label,
+                                    data: {
+                                      ...n.data,
+                                      threshold: newThresh
+                                    }
+                                  };
+                                }
+                                return n;
+                              })
+                            }));
+                          }}
+                          className="w-full pl-7 pr-3 py-2 border border-purple-200 rounded-xl font-mono text-sm font-bold text-purple-900 focus:border-purple-500 focus:ring-1 focus:ring-purple-400 outline-none"
+                        />
+                      </div>
+                      <p className="text-[11px] text-gray-500">
+                        Carts with value ≥ ₹{selectedNode.data?.threshold || 500} will branch into <strong className="text-emerald-700">YES</strong>. Carts below will branch into <strong className="text-rose-700">NO</strong>.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {[300, 500, 750, 1000, 1500, 2000].map((presetAmt) => (
+                        <button
+                          key={presetAmt}
+                          type="button"
+                          onClick={() => {
+                            setFlow((prev) => ({
+                              ...prev,
+                              nodes: prev.nodes.map((n) => {
+                                if (n.id === selectedNodeId) {
+                                  const isGeneric = !n.label || n.label.startsWith("Cart Value > ₹");
+                                  return {
+                                    ...n,
+                                    label: isGeneric ? `Cart Value > ₹${presetAmt}` : n.label,
+                                    data: {
+                                      ...n.data,
+                                      threshold: presetAmt
+                                    }
+                                  };
+                                }
+                                return n;
+                              })
+                            }));
+                          }}
+                          className={`px-2 py-1 rounded-lg border text-[10px] font-bold transition ${
+                            (selectedNode.data?.threshold || 500) === presetAmt
+                              ? "bg-purple-100 text-purple-800 border-purple-300 ring-1 ring-purple-300"
+                              : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-white"
+                          }`}
+                        >
+                          ₹{presetAmt}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
