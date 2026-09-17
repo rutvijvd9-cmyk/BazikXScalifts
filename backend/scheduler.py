@@ -951,8 +951,19 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
 
             # Look up contact info
             contact = db.query(models.Contact).filter(models.Contact.phone == session.customer_phone).first()
-            customer_name = contact.name if contact and contact.name else session.state_data.get("customer_name", "Valued Customer")
-            cart_val_str = str(session.state_data.get("cart_value", "450"))
+            state_dict = session.state_data if isinstance(session.state_data, dict) else {}
+            extra_dict = state_dict.get("extra_data") if isinstance(state_dict.get("extra_data"), dict) else {}
+            customer_name = (
+                state_dict.get("customer_name")
+                or state_dict.get("first_name")
+                or extra_dict.get("first_name")
+                or (contact.name if contact and contact.name else "Valued Customer")
+            )
+            raw_cart_val = session.state_data.get("cart_value", "450")
+            if isinstance(raw_cart_val, (int, float)):
+                cart_val_str = str(int(raw_cart_val)) if raw_cart_val == int(raw_cart_val) else f"{raw_cart_val:.2f}"
+            else:
+                cart_val_str = str(raw_cart_val).replace("₹", "").strip()
             items_summary = session.state_data.get("items_summary", "Special Vanela Gathiya & Bhavnagari Gathiya")
 
             # Resolve dynamic column / parameter mappings
@@ -993,14 +1004,13 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                             val_str = items_summary
                     elif m_type == "event_field":
                         # Look up from session.state_data or extra_data dict
-                        state_dict = session.state_data if isinstance(session.state_data, dict) else {}
-                        extra_dict = state_dict.get("extra_data") if isinstance(state_dict.get("extra_data"), dict) else {}
                         if m_val == "firstname" or m_val == "first_name":
                             val_str = state_dict.get("first_name") or extra_dict.get("first_name") or customer_name
                         elif m_val == "products" or m_val == "products_summary" or m_val == "items":
                             val_str = state_dict.get("products_summary") or extra_dict.get("products_summary") or items_summary
                         elif m_val == "amount" or m_val == "cart_value":
-                            val_str = str(state_dict.get("amount") or extra_dict.get("amount") or f"₹{cart_val_str}")
+                            # Note: template body often already contains '₹{{3}}' so do not prepend extra '₹'
+                            val_str = str(state_dict.get("amount") or extra_dict.get("amount") or cart_val_str).replace("₹", "").strip()
                         elif m_val == "delivery_address" or m_val == "address":
                             val_str = state_dict.get("delivery_address") or extra_dict.get("delivery_address") or (contact.city if contact else "")
                         else:
