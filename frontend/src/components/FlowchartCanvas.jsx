@@ -497,7 +497,15 @@ export default function FlowchartCanvas({
                   node.label === "Check Condition";
 
                 const displayTitle = isGenericTitle ? defaultConditionLabel : node.label;
-                const displayDesc = node.data?.description || defaultConditionDesc;
+                
+                // Description strictly reflects the selected condition_type unless user gave custom description
+                const isGenericDesc =
+                  !node.data?.description ||
+                  node.data.description === "Checks if order was placed" ||
+                  node.data.description === "Checks blue tick status" ||
+                  node.data.description === "Evaluates total cart value";
+
+                const displayDesc = isGenericDesc ? defaultConditionDesc : node.data.description;
 
                 return (
                   <div
@@ -787,7 +795,28 @@ export default function FlowchartCanvas({
                 type="text"
                 value={selectedNode.label}
                 onChange={(e) => updateSelectedNodeLabel(e.target.value)}
+                placeholder="e.g. Was Message Read?"
                 className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:border-[#25D366] focus:ring-1 focus:ring-[#25D366] outline-none"
+              />
+            </div>
+
+            {/* Subtitle / Description Input */}
+            <div className="space-y-1.5">
+              <label className="font-bold text-gray-700">Subtitle / Card Description</label>
+              <input
+                type="text"
+                value={
+                  selectedNode.data?.description !== undefined
+                    ? selectedNode.data.description
+                    : selectedNode.type === "condition"
+                    ? selectedNode.data?.condition_type === "MESSAGE_READ"
+                      ? "Checks blue tick status"
+                      : "Checks if order was placed"
+                    : ""
+                }
+                onChange={(e) => updateSelectedNode("description", e.target.value)}
+                placeholder="Short description shown on card"
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:border-[#25D366] focus:ring-1 focus:ring-[#25D366] outline-none text-gray-600"
               />
             </div>
 
