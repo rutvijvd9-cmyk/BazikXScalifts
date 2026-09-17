@@ -647,46 +647,21 @@ export default function FlowchartCanvas({
 
                           return (
                             <div className="flex flex-col items-center w-max">
-                              {/* 
-                                Smooth SVG Bezier Branching Curve:
-                                Curves outward from top-center (x=50%, y=0) 
-                                smoothly to Left branch column (x=25%) and Right branch column (x=75%)
-                              */}
-                              <div className="w-full h-12 relative pointer-events-none">
-                                <svg
-                                  className="w-full h-full overflow-visible"
-                                  viewBox="0 0 100 48"
-                                  preserveAspectRatio="none"
-                                >
-                                  {/* Left Branch Curve to YES */}
-                                  <path
-                                    d="M 50,0 C 50,24 25,24 25,48"
-                                    fill="none"
-                                    stroke="#94A3B8"
-                                    strokeWidth="1.5"
-                                    strokeLinecap="round"
-                                    vectorEffect="non-scaling-stroke"
-                                  />
-                                  {/* Right Branch Curve to NO */}
-                                  <path
-                                    d="M 50,0 C 50,24 75,24 75,48"
-                                    fill="none"
-                                    stroke="#94A3B8"
-                                    strokeWidth="1.5"
-                                    strokeLinecap="round"
-                                    vectorEffect="non-scaling-stroke"
-                                  />
-                                </svg>
-                              </div>
-
-                              {/* Two Side-by-Side Tree Branches (Left = YES, Right = NO) with generous horizontal spacing */}
-                              <div className="flex items-start justify-center gap-16 px-4">
+                              {/* Two Side-by-Side Tree Branches (Left = YES, Right = NO) with robust connected tree lines */}
+                              <div className="flex items-start justify-center px-4 pt-0">
                                 {/* ── LEFT BRANCH: YES ── */}
                                 <div className="flex flex-col items-center min-w-[280px]">
+                                  {/* Tree Fork Line: Right-half border-t and border-r forming the left arm connected from parent center */}
+                                  <div className="w-full flex h-8">
+                                    <div className="w-1/2" />
+                                    <div className="w-1/2 border-t-2 border-l-2 border-gray-400 rounded-tl-xl" />
+                                  </div>
+
                                   {/* Floating YES Pill Badge */}
-                                  <div className="px-3 py-0.5 rounded-full bg-[#E6F4EA] text-[#137333] text-[11px] font-bold border border-[#CEEAD6] shadow-xs select-none">
+                                  <div className="px-3 py-0.5 rounded-full bg-[#E6F4EA] text-[#137333] text-[11px] font-bold border border-[#CEEAD6] shadow-xs select-none z-10">
                                     {yesLabel}
                                   </div>
+
                                   {/* Straight connector down to child node with arrow */}
                                   <div className="w-0.5 h-4 bg-gray-400" />
                                   <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-500 mb-2" />
@@ -708,10 +683,17 @@ export default function FlowchartCanvas({
 
                                 {/* ── RIGHT BRANCH: NO ── */}
                                 <div className="flex flex-col items-center min-w-[280px]">
+                                  {/* Tree Fork Line: Left-half border-t and border-r forming the right arm connected from parent center */}
+                                  <div className="w-full flex h-8">
+                                    <div className="w-1/2 border-t-2 border-r-2 border-gray-400 rounded-tr-xl" />
+                                    <div className="w-1/2" />
+                                  </div>
+
                                   {/* Floating NO Pill Badge */}
-                                  <div className="px-3 py-0.5 rounded-full bg-[#FEF7E0] text-[#B06000] text-[11px] font-bold border border-[#FEEFC3] shadow-xs select-none">
+                                  <div className="px-3 py-0.5 rounded-full bg-[#FEF7E0] text-[#B06000] text-[11px] font-bold border border-[#FEEFC3] shadow-xs select-none z-10">
                                     {noLabel}
                                   </div>
+
                                   {/* Straight connector down to child node with arrow */}
                                   <div className="w-0.5 h-4 bg-gray-400" />
                                   <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-500 mb-2" />
