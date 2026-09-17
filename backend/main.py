@@ -1080,41 +1080,64 @@ async def receive_cart_webhook(
     ).first()
 
     workflow_session_id = None
+    skipped_due_to_min_cart = False
     if active_cart_flow:
-        items_summary = ", ".join([item.get("item", "Namkeen Item") for item in (payload.items or [])]) if payload.items else "Special Vanela Gathiya & Bhavnagari Gathiya"
-        state_data = {
-            "cart_token": payload.cart_token,
-            "cart_value": payload.cart_value,
-            "customer_name": resolved_cust_name,
-            "items_summary": items_summary,
-            "extra_data": extra_payload
-        }
-        # Flatten extra_payload directly into state_data for direct access
-        for k, v in extra_payload.items():
-            state_data.setdefault(k, str(v))
+        # Check if flow has a minimum cart value threshold configured on trigger
+        flow_nodes = active_cart_flow.nodes or []
+        trigger_n = next((n for n in flow_nodes if n.get("type") == "trigger"), None)
+        min_thresh = None
+        if trigger_n and isinstance(trigger_n.get("data"), dict):
+            min_thresh = trigger_n["data"].get("min_cart_value")
+        if min_thresh is None and isinstance(active_cart_flow.trigger_config, dict):
+            min_thresh = active_cart_flow.trigger_config.get("min_cart_value")
 
-        from scheduler import start_workflow_session
-        wf_sess = start_workflow_session(flow_id=active_cart_flow.id, customer_phone=payload.customer_phone, state_data=state_data, db=db)
-        if wf_sess:
-            workflow_session_id = wf_sess.id
+        if min_thresh is not None:
+            try:
+                if float(payload.cart_value) < float(min_thresh):
+                    skipped_due_to_min_cart = True
+            except (ValueError, TypeError):
+                pass
+
+        if not skipped_due_to_min_cart:
+            items_summary = ", ".join([item.get("item", "Namkeen Item") for item in (payload.items or [])]) if payload.items else "Special Vanela Gathiya & Bhavnagari Gathiya"
+            state_data = {
+                "cart_token": payload.cart_token,
+                "cart_value": payload.cart_value,
+                "customer_name": resolved_cust_name,
+                "items_summary": items_summary,
+                "extra_data": extra_payload
+            }
+            # Flatten extra_payload directly into state_data for direct access
+            for k, v in extra_payload.items():
+                state_data.setdefault(k, str(v))
+
+            from scheduler import start_workflow_session
+            wf_sess = start_workflow_session(flow_id=active_cart_flow.id, customer_phone=payload.customer_phone, state_data=state_data, db=db)
+            if wf_sess:
+                workflow_session_id = wf_sess.id
 
     # Fallback / Dual safety: if no active visual flow exists, schedule classic single-step rule
     eff_delay = delay_seconds if delay_seconds is not None else 0
-    if not active_cart_flow:
+    if not active_cart_flow and not skipped_due_to_min_cart:
         schedule_cart_recovery(cart_event_id=cart_record.id, delay_seconds=eff_delay)
 
-    msg_detail = (
-        f"Multi-step journey enrolled (Session #{workflow_session_id})"
-        if workflow_session_id
-        else ("WhatsApp message dispatched immediately" if eff_delay <= 0 else f"WhatsApp message scheduled in {eff_delay}s")
-    )
+    if skipped_due_to_min_cart:
+        msg_detail = f"Cart event recorded, but recovery workflow skipped: cart value (₹{payload.cart_value}) is below minimum threshold (₹{min_thresh})."
+    elif workflow_session_id:
+        msg_detail = f"Multi-step journey enrolled (Session #{workflow_session_id})"
+    elif eff_delay <= 0:
+        msg_detail = "WhatsApp message dispatched immediately"
+    else:
+        msg_detail = f"WhatsApp message scheduled in {eff_delay}s"
+
     return {
         "status": "received",
         "cart_event_id": cart_record.id,
         "workflow_session_id": workflow_session_id,
+        "skipped_min_cart": skipped_due_to_min_cart,
         "scheduled_in_seconds": eff_delay,
         "authenticated_as": current_user.username,
-        "message": f"Cart abandonment event recorded. {msg_detail}."
+        "message": msg_detail
     }
 
 

@@ -795,6 +795,27 @@ def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, 
 
         # Find entry node: node with type 'trigger' or the first node
         trigger_node = next((n for n in nodes if n.get("type") == "trigger"), nodes[0])
+        trigger_data = trigger_node.get("data", {}) if isinstance(trigger_node, dict) else {}
+
+        # ── Guardrail: Minimum Cart Value Trigger Threshold ──
+        if trigger_data.get("trigger_type") == "ABANDONED_CART" or flow.trigger_type == "ABANDONED_CART":
+            min_cart_val = trigger_data.get("min_cart_value")
+            if min_cart_val is None:
+                # Also check flow trigger_config
+                flow_cfg = flow.trigger_config if isinstance(flow.trigger_config, dict) else {}
+                min_cart_val = flow_cfg.get("min_cart_value")
+            
+            if min_cart_val is not None:
+                try:
+                    min_cart_float = float(min_cart_val)
+                    actual_cart_float = float((state_data or {}).get("cart_value", 0))
+                    if actual_cart_float < min_cart_float:
+                        logger.info(
+                            f"🛑 [Workflow Trigger Blocked] Cart value (₹{actual_cart_float}) is below minimum threshold (₹{min_cart_float}) for flow '{flow.name}'. Workflow session skipped."
+                        )
+                        return None
+                except (ValueError, TypeError) as val_err:
+                    logger.warning(f"Error parsing min_cart_value for workflow #{flow.id}: {val_err}")
 
         session = models.WorkflowSession(
             flow_id=flow.id,
