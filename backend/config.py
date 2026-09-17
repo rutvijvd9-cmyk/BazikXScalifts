@@ -12,6 +12,7 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 APP_NAME = os.getenv("APP_NAME", "WhatsApp CRM")
 BRAND_NAME = os.getenv("BRAND_NAME", "Manubhai Gathiyawala")
 DEFAULT_LOCALE = os.getenv("DEFAULT_LOCALE", "en")
+TIMEZONE = os.getenv("TIMEZONE", "Asia/Kolkata")
 ALLOWED_ORIGINS_RAW = os.getenv("ALLOWED_ORIGINS", "")
 
 # ── Security & Authentication ──

@@ -102,6 +102,33 @@ export function formatToISTTime(dateStr) {
   });
 }
 
+export function formatToISTDate(dateStr) {
+  if (!dateStr) return "-";
+  let s = String(dateStr).trim();
+  if (!s.endsWith("Z") && !s.includes("+") && !s.slice(10).includes("-")) {
+    s += "Z";
+  }
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return String(dateStr);
+  return d.toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+export function getTodayISTDateString() {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  return formatter.format(now); // "YYYY-MM-DD"
+}
+
 export default function App() {
   const [serverUrl, setServerUrl] = useState(INITIAL_API_BASE_URL);
   const [showServerModal, setShowServerModal] = useState(false);
@@ -1925,8 +1952,18 @@ export default function App() {
                             </span>
                             <span className="text-xs font-bold text-gray-900 font-mono">
                               {messageLogs.filter((m) => {
-                                const today = new Date().toISOString().split("T")[0];
-                                return m.created_at && m.created_at.startsWith(today);
+                                const todayIST = getTodayISTDateString();
+                                const msgDate = m.created_at ? formatToISTDate(m.created_at) : "";
+                                // Check if log was created today in IST
+                                let s = String(m.created_at || "").trim();
+                                if (!s.endsWith("Z") && !s.includes("+") && !s.slice(10).includes("-")) s += "Z";
+                                const logISTStr = new Intl.DateTimeFormat("en-CA", {
+                                  timeZone: "Asia/Kolkata",
+                                  year: "numeric",
+                                  month: "2-digit",
+                                  day: "2-digit"
+                                }).format(new Date(s));
+                                return logISTStr === todayIST;
                               }).length} msgs
                             </span>
                           </div>
@@ -3436,11 +3473,7 @@ export default function App() {
                                       <div className="flex items-center gap-1.5">
                                         <Calendar className="w-3.5 h-3.5 text-gray-400" />
                                         <span>
-                                          {new Date(c.last_order_date).toLocaleDateString("en-IN", {
-                                            day: "numeric",
-                                            month: "short",
-                                            year: "numeric"
-                                          })}
+                                          {formatToISTDate(c.last_order_date)}
                                         </span>
                                       </div>
                                     ) : (

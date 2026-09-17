@@ -2574,14 +2574,17 @@ def get_analytics_overview(
     Computes comprehensive WhatsApp CRM funnel metrics, delivery & read rates,
     click engagement, customer replies, recovered cart revenue, and template breakdown.
     """
-    now = datetime.utcnow()
+    now_utc = datetime.utcnow()
     start_date = None
     if time_range == "today":
-        start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        # IST is UTC+05:30. Compute midnight of today in IST, then convert back to UTC
+        now_ist = now_utc + timedelta(hours=5, minutes=30)
+        start_of_day_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_date = start_of_day_ist - timedelta(hours=5, minutes=30)
     elif time_range == "7d":
-        start_date = now - timedelta(days=7)
+        start_date = now_utc - timedelta(days=7)
     elif time_range == "30d":
-        start_date = now - timedelta(days=30)
+        start_date = now_utc - timedelta(days=30)
 
     # 1. Outbound Message Funnel (MessageLog)
     msg_q = db.query(models.MessageLog)
