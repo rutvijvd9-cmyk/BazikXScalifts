@@ -549,9 +549,9 @@ export default function App() {
   };
 
   // Fetch all data
-  const fetchData = async () => {
+  const fetchData = async (silent = false) => {
     if (!token) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes, discRes, meRes, convRes, wfRes, extRes] = await Promise.all([
@@ -591,7 +591,7 @@ export default function App() {
         handleLogout();
       }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -884,7 +884,7 @@ export default function App() {
     }
   }, [token, activeTab, analyticsTimeRange]);
 
-  // Periodic polling for Live Two-Way Chat (polls conversations every 6s, and active chat messages every 4s)
+  // Periodic polling for Live Two-Way Chat (polls conversations every 4.5s, and active chat messages)
   useEffect(() => {
     if (!token) return;
     const interval = setInterval(() => {
@@ -895,6 +895,18 @@ export default function App() {
     }, 4500);
     return () => clearInterval(interval);
   }, [token, selectedChatPhone, activeTab]);
+
+  // Periodic automatic silent background refresh for Automations, Cart Recovery, and Logs
+  useEffect(() => {
+    if (!token) return;
+    // Auto-refresh every 4 seconds when user is on automations, cart_recovery, logs, or dashboard
+    const interval = setInterval(() => {
+      if (["automations", "cart_recovery", "logs", "dashboard"].includes(activeTab)) {
+        fetchData(true);
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [token, activeTab]);
 
   const handleSyncMetaTemplates = async () => {
     setLoading(true);
