@@ -90,3 +90,36 @@ def test_analytics_overview_calculations(client, auth_headers, db):
     # Check template breakdown has cart_reminder_discount_v1
     tmpl_names = [t["template_name"] for t in data["template_performance"]]
     assert "cart_reminder_discount_v1" in tmpl_names
+
+
+def test_analytics_customer_reply_counted_as_read(client, auth_headers, db):
+    now = datetime.utcnow()
+    phone = "+919876543299"
+
+    # Outbound log is only DELIVERED
+    log = models.MessageLog(
+        recipient_phone=phone,
+        template_name="reengagement_test_reply",
+        status="DELIVERED",
+        created_at=now - timedelta(hours=1)
+    )
+    db.add(log)
+
+    # Customer replies back
+    reply = models.ChatMessage(
+        customer_phone=phone,
+        sender_type="CUSTOMER",
+        text="Yes I want this offer!",
+        created_at=now - timedelta(minutes=30)
+    )
+    db.add(reply)
+    db.commit()
+
+    res = client.get("/api/analytics/overview?time_range=today", headers=auth_headers)
+    assert res.status_code == status.HTTP_200_OK
+    data = res.json()
+
+    # The customer reply should be reflected in read count & read rate
+    assert data["funnel"]["total_read"] >= 1
+    assert data["funnel"]["total_replied"] >= 1
+    assert data["rates"]["read_rate"] > 0

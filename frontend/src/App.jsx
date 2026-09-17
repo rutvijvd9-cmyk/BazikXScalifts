@@ -2661,6 +2661,18 @@ export default function App() {
                     </button>
                   ))}
                   <button
+                    onClick={async () => {
+                      await handleSyncMetaTemplates();
+                      fetchAnalytics(analyticsTimeRange);
+                    }}
+                    disabled={loading || analyticsLoading}
+                    title="Sync templates and read metrics from Meta WhatsApp Manager"
+                    className="flex items-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs transition"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                    Sync from Meta
+                  </button>
+                  <button
                     onClick={() => fetchAnalytics(analyticsTimeRange)}
                     disabled={analyticsLoading}
                     title="Refresh analytics"
