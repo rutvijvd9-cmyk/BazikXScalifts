@@ -53,6 +53,12 @@ def send_whatsapp_template(
     """
     db = SessionLocal()
     try:
+        # Resolve exact approved template language from DB if not explicitly non-default
+        if not language or language == "en":
+            tmpl_record = db.query(models.Template).filter(models.Template.template_name == template_name).first()
+            if tmpl_record and tmpl_record.language:
+                language = tmpl_record.language
+
         # Guardrail 1: Check if recipient is in DND/Opt-Out list
         is_opted_out = db.query(models.OptOut).filter(models.OptOut.phone == recipient_phone).first()
         if is_opted_out:

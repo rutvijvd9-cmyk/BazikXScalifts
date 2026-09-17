@@ -934,7 +934,20 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
 
             template_name = node_data.get("template_name", "cart_recovery_v1")
             coupon_code = node_data.get("coupon_code", config.DEFAULT_COUPON_CODE)
-            language = node_data.get("language", "en")
+
+            # Look up template record for language and default mappings
+            template_record = db.query(models.Template).filter(
+                models.Template.template_name == template_name
+            ).first()
+
+            language = node_data.get("language")
+            if not language or language == "en":
+                if template_record and template_record.language:
+                    language = template_record.language
+                elif template_name == "cart_recovery_v1":
+                    language = "en_IN"
+                else:
+                    language = "en"
 
             # Look up contact info
             contact = db.query(models.Contact).filter(models.Contact.phone == session.customer_phone).first()
@@ -947,10 +960,6 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             user_mappings = node_data.get("variable_mappings")
             if not user_mappings:
                 # Inherit from the template itself (Configure-Once-Use-Everywhere pattern)
-                tmpl_name_for_lookup = node_data.get("template_name", template_name)
-                template_record = db.query(models.Template).filter(
-                    models.Template.template_name == tmpl_name_for_lookup
-                ).first()
                 if template_record and template_record.variable_mappings:
                     user_mappings = template_record.variable_mappings
                 else:
