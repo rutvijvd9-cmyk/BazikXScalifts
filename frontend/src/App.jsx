@@ -2687,11 +2687,8 @@ export default function App() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 {/* 1. Delivery Rate */}
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex flex-col justify-between">
-                  <div className="flex items-center justify-between">
+                  <div>
                     <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Delivery Rate</span>
-                    <div className="w-8 h-8 rounded-lg bg-green-50 text-[#10B981] flex items-center justify-center">
-                      <CheckCheck className="w-4 h-4" />
-                    </div>
                   </div>
                   <div className="mt-3">
                     <span className="text-2xl font-black text-gray-900">
@@ -2705,14 +2702,11 @@ export default function App() {
 
                 {/* 2. Read / Open Rate */}
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex flex-col justify-between">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">Read / Open Rate</span>
-                    <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                      <Eye className="w-4 h-4" />
-                    </div>
+                  <div>
+                    <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Read / Open Rate</span>
                   </div>
                   <div className="mt-3">
-                    <span className="text-2xl font-black text-blue-600">
+                    <span className="text-2xl font-black text-gray-900">
                       {analyticsData?.rates?.read_rate ?? 0}%
                     </span>
                     <p className="text-[11px] text-gray-500 mt-1">
@@ -2723,14 +2717,11 @@ export default function App() {
 
                 {/* 3. Click-Through Rate (CTR) */}
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex flex-col justify-between">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider">Button CTR</span>
-                    <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                      <MousePointerClick className="w-4 h-4" />
-                    </div>
+                  <div>
+                    <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Button CTR</span>
                   </div>
                   <div className="mt-3">
-                    <span className="text-2xl font-black text-indigo-600">
+                    <span className="text-2xl font-black text-gray-900">
                       {analyticsData?.rates?.click_rate ?? 0}%
                     </span>
                     <p className="text-[11px] text-gray-500 mt-1">
@@ -2741,14 +2732,11 @@ export default function App() {
 
                 {/* 4. Customer Reply Rate */}
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex flex-col justify-between">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">Reply Rate</span>
-                    <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-                      <MessageSquare className="w-4 h-4" />
-                    </div>
+                  <div>
+                    <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Reply Rate</span>
                   </div>
                   <div className="mt-3">
-                    <span className="text-2xl font-black text-purple-600">
+                    <span className="text-2xl font-black text-gray-900">
                       {analyticsData?.rates?.reply_rate ?? 0}%
                     </span>
                     <p className="text-[11px] text-gray-500 mt-1">
@@ -2758,30 +2746,24 @@ export default function App() {
                 </div>
 
                 {/* 5. Revenue Recovered */}
-                <div className="bg-white p-4 rounded-xl border-2 border-[#F5A623]/30 shadow-xs flex flex-col justify-between">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider">Recovered Rev</span>
-                    <div className="w-8 h-8 rounded-lg bg-amber-50 text-[#F5A623] flex items-center justify-center">
-                      <IndianRupee className="w-4 h-4" />
-                    </div>
+                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex flex-col justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Recovered Rev</span>
                   </div>
                   <div className="mt-3">
                     <span className="text-2xl font-black text-gray-900">
                       ₹{Number(analyticsData?.funnel?.revenue_recovered || 0).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                     </span>
                     <p className="text-[11px] text-gray-500 mt-1">
-                      <span className="font-semibold text-[#F5A623]">{analyticsData?.funnel?.recovered_carts ?? 0}</span> carts converted
+                      <span className="font-semibold text-gray-700">{analyticsData?.funnel?.recovered_carts ?? 0}</span> carts converted
                     </p>
                   </div>
                 </div>
 
                 {/* 6. Meta Quality Rating */}
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex flex-col justify-between">
-                  <div className="flex items-center justify-between">
+                  <div>
                     <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Meta Quality</span>
-                    <div className="w-8 h-8 rounded-lg bg-emerald-50 text-[#10B981] flex items-center justify-center">
-                      <Activity className="w-4 h-4" />
-                    </div>
                   </div>
                   <div className="mt-3">
                     <div className="flex items-center gap-1.5">
@@ -2815,7 +2797,6 @@ export default function App() {
                     <div>
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">1. Dispatched</span>
-                        <Send className="w-3.5 h-3.5 text-gray-400" />
                       </div>
                       <p className="text-2xl font-black text-gray-900 mt-2">{analyticsData?.funnel?.total_sent ?? 0}</p>
                     </div>
@@ -2825,61 +2806,57 @@ export default function App() {
                   </div>
 
                   {/* Stage 2: Delivered */}
-                  <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200/60 flex flex-col justify-between">
+                  <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-blue-700">2. Delivered</span>
-                        <CheckCheck className="w-3.5 h-3.5 text-blue-500" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">2. Delivered</span>
                       </div>
-                      <p className="text-2xl font-black text-blue-900 mt-2">{analyticsData?.funnel?.total_delivered ?? 0}</p>
+                      <p className="text-2xl font-black text-gray-900 mt-2">{analyticsData?.funnel?.total_delivered ?? 0}</p>
                     </div>
-                    <div className="mt-3 pt-2 border-t border-blue-200/60 text-[11px] font-semibold text-blue-700">
+                    <div className="mt-3 pt-2 border-t border-gray-200/60 text-[11px] font-semibold text-gray-700">
                       {analyticsData?.rates?.delivery_rate ?? 0}% delivery rate
                     </div>
                   </div>
 
                   {/* Stage 3: Read */}
-                  <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200/60 flex flex-col justify-between">
+                  <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">3. Opened / Read</span>
-                        <Eye className="w-3.5 h-3.5 text-emerald-500" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">3. Opened / Read</span>
                       </div>
-                      <p className="text-2xl font-black text-emerald-900 mt-2">{analyticsData?.funnel?.total_read ?? 0}</p>
+                      <p className="text-2xl font-black text-gray-900 mt-2">{analyticsData?.funnel?.total_read ?? 0}</p>
                     </div>
-                    <div className="mt-3 pt-2 border-t border-emerald-200/60 text-[11px] font-semibold text-[#10B981]">
+                    <div className="mt-3 pt-2 border-t border-gray-200/60 text-[11px] font-semibold text-gray-700">
                       {analyticsData?.rates?.read_rate ?? 0}% read rate
                     </div>
                   </div>
 
                   {/* Stage 4: Engaged (Clicks + Replies) */}
-                  <div className="p-4 rounded-xl bg-purple-50/60 border border-purple-200/60 flex flex-col justify-between">
+                  <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-purple-700">4. Engaged / Clicks</span>
-                        <MousePointerClick className="w-3.5 h-3.5 text-purple-500" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">4. Engaged / Clicks</span>
                       </div>
-                      <p className="text-2xl font-black text-purple-900 mt-2">
+                      <p className="text-2xl font-black text-gray-900 mt-2">
                         {(analyticsData?.funnel?.total_clicks ?? 0) + (analyticsData?.funnel?.total_replied ?? 0)}
                       </p>
                     </div>
-                    <div className="mt-3 pt-2 border-t border-purple-200/60 text-[11px] font-semibold text-purple-700">
+                    <div className="mt-3 pt-2 border-t border-gray-200/60 text-[11px] font-semibold text-gray-700">
                       {analyticsData?.funnel?.total_clicks ?? 0} clicks · {analyticsData?.funnel?.total_replied ?? 0} replies
                     </div>
                   </div>
 
                   {/* Stage 5: Converted */}
-                  <div className="p-4 rounded-xl bg-amber-50/80 border border-amber-300/80 flex flex-col justify-between">
+                  <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">5. Converted</span>
-                        <IndianRupee className="w-3.5 h-3.5 text-[#F5A623]" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">5. Converted</span>
                       </div>
-                      <p className="text-2xl font-black text-amber-900 mt-2">
+                      <p className="text-2xl font-black text-gray-900 mt-2">
                         ₹{Number(analyticsData?.funnel?.revenue_recovered || 0).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                       </p>
                     </div>
-                    <div className="mt-3 pt-2 border-t border-amber-300/60 text-[11px] font-bold text-amber-800">
+                    <div className="mt-3 pt-2 border-t border-gray-200/60 text-[11px] font-semibold text-gray-700">
                       {analyticsData?.funnel?.recovered_carts ?? 0} carts converted
                     </div>
                   </div>
