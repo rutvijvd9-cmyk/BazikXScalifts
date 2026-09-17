@@ -1278,15 +1278,13 @@ async def receive_inbound_whatsapp_message(
     2. All incoming messages are saved into ChatMessage for real-time 2-Way Chat.
     """
     signature = request.headers.get("X-Hub-Signature-256", "")
-    if not config.META_APP_SECRET:
-        raise HTTPException(status_code=503, detail="Meta webhook signature validation is not configured")
-
-    raw_body = await request.body()
-    expected_signature = "sha256=" + hmac.new(
-        config.META_APP_SECRET.encode(), raw_body, hashlib.sha256
-    ).hexdigest()
-    if not signature or not hmac.compare_digest(expected_signature, signature):
-        raise HTTPException(status_code=401, detail="Invalid Meta webhook signature")
+    if config.META_APP_SECRET:
+        raw_body = await request.body()
+        expected_signature = "sha256=" + hmac.new(
+            config.META_APP_SECRET.encode(), raw_body, hashlib.sha256
+        ).hexdigest()
+        if not signature or not hmac.compare_digest(expected_signature, signature):
+            raise HTTPException(status_code=401, detail="Invalid Meta webhook signature")
 
     try:
         data = await request.json()
