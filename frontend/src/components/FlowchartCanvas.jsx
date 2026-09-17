@@ -89,7 +89,7 @@ export default function FlowchartCanvas({
     });
   };
 
-  // Add node from picker
+  // Add node from picker with automatic edge splicing
   const handleAddNode = (stepTemplate) => {
     const newNodeId = `node_${Date.now()}`;
     const newNode = {
@@ -105,14 +105,50 @@ export default function FlowchartCanvas({
       let updatedEdges = [...prev.edges];
 
       if (pickerTarget) {
-        // Connect parent to new node
-        const newEdge = {
-          id: `e_${pickerTarget.parentId}_${newNodeId}`,
-          source: pickerTarget.parentId,
-          target: newNodeId,
-          ...(pickerTarget.handle ? { sourceHandle: pickerTarget.handle } : {})
-        };
-        updatedEdges.push(newEdge);
+        const pId = String(pickerTarget.parentId);
+        const pHandle = pickerTarget.handle ? String(pickerTarget.handle).toLowerCase() : null;
+
+        // Check if there was already an edge going out from this parent (and handle if condition branch)
+        const existingEdgeIndex = updatedEdges.findIndex((e) => {
+          if (String(e.source) !== pId) return false;
+          if (pHandle) {
+            return String(e.sourceHandle || "").toLowerCase() === pHandle;
+          }
+          return true;
+        });
+
+        if (existingEdgeIndex !== -1) {
+          // SPLICE: Parent -> NewNode -> OldTarget
+          const oldEdge = updatedEdges[existingEdgeIndex];
+          const oldTargetId = oldEdge.target;
+
+          // Replace old edge with Parent -> NewNode
+          updatedEdges[existingEdgeIndex] = {
+            id: `e_${pId}_${newNodeId}`,
+            source: pickerTarget.parentId,
+            target: newNodeId,
+            ...(pickerTarget.handle ? { sourceHandle: pickerTarget.handle } : {})
+          };
+
+          // If the new node is NOT a condition or exit, connect NewNode -> OldTarget
+          // (If new node is a condition, user will choose whether oldTarget connects to YES or NO)
+          if (newNode.type !== "condition" && !newNode.type?.includes("exit")) {
+            updatedEdges.push({
+              id: `e_${newNodeId}_${oldTargetId}`,
+              source: newNodeId,
+              target: oldTargetId
+            });
+          }
+        } else {
+          // Simple append: connect parent to new node
+          const newEdge = {
+            id: `e_${pId}_${newNodeId}`,
+            source: pickerTarget.parentId,
+            target: newNodeId,
+            ...(pickerTarget.handle ? { sourceHandle: pickerTarget.handle } : {})
+          };
+          updatedEdges.push(newEdge);
+        }
       }
 
       return {
@@ -127,14 +163,33 @@ export default function FlowchartCanvas({
     setSelectedNodeId(newNodeId);
   };
 
-  // Delete node and associated edges
+  // Delete node and bridge associated edges so the chain doesn't break
   const handleDeleteNode = (nodeId) => {
     if (!nodeId) return;
     setFlow((prev) => {
+      const incomingEdges = prev.edges.filter((e) => String(e.target) === String(nodeId));
+      const outgoingEdges = prev.edges.filter((e) => String(e.source) === String(nodeId));
+
+      let remainingEdges = prev.edges.filter(
+        (e) => String(e.source) !== String(nodeId) && String(e.target) !== String(nodeId)
+      );
+
+      // If single incoming and single outgoing linear edge, bridge them (A -> deleted -> B becomes A -> B)
+      if (incomingEdges.length === 1 && outgoingEdges.length === 1) {
+        const inEdge = incomingEdges[0];
+        const outEdge = outgoingEdges[0];
+        remainingEdges.push({
+          id: `e_${inEdge.source}_${outEdge.target}`,
+          source: inEdge.source,
+          target: outEdge.target,
+          ...(inEdge.sourceHandle ? { sourceHandle: inEdge.sourceHandle } : {})
+        });
+      }
+
       return {
         ...prev,
         nodes: prev.nodes.filter((n) => n.id !== nodeId),
-        edges: prev.edges.filter((e) => e.source !== nodeId && e.target !== nodeId)
+        edges: remainingEdges
       };
     });
     if (selectedNodeId === nodeId) {
@@ -421,6 +476,29 @@ export default function FlowchartCanvas({
 
               // Special exact styling for Condition Cards matching user's design
               if (isCondition) {
+                const conditionType = node.data?.condition_type || "ORDER_PLACED";
+                let defaultConditionLabel = "Did Customer Purchase?";
+                let defaultConditionDesc = "Checks if order was placed";
+
+                if (conditionType === "MESSAGE_READ") {
+                  defaultConditionLabel = "Was Message Read?";
+                  defaultConditionDesc = "Checks blue tick status";
+                } else if (conditionType === "CART_VALUE_ABOVE") {
+                  defaultConditionLabel = `Cart Value > ₹${node.data?.threshold || 500}`;
+                  defaultConditionDesc = "Evaluates total cart value";
+                }
+
+                // If user didn't write a custom title (or it matches one of the defaults), use the dynamic label
+                const isGenericTitle =
+                  !node.label ||
+                  node.label === "Did Customer Purchase?" ||
+                  node.label === "Was Message Read?" ||
+                  node.label?.startsWith("Cart Value > ₹") ||
+                  node.label === "Check Condition";
+
+                const displayTitle = isGenericTitle ? defaultConditionLabel : node.label;
+                const displayDesc = node.data?.description || defaultConditionDesc;
+
                 return (
                   <div
                     key={node.id}
@@ -437,11 +515,11 @@ export default function FlowchartCanvas({
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="font-bold text-white text-sm truncate leading-snug">
-                          {node.label}
+                          {displayTitle}
                         </h4>
-                        {node.data?.description && (
+                        {displayDesc && (
                           <p className="text-[10px] text-purple-200 truncate mt-0.5 font-medium">
-                            {node.data.description}
+                            {displayDesc}
                           </p>
                         )}
                       </div>
@@ -982,9 +1060,36 @@ export default function FlowchartCanvas({
                   <label className="font-bold text-gray-700">Decision Condition</label>
                   <select
                     value={selectedNode.data?.condition_type || "ORDER_PLACED"}
-                    onChange={(e) =>
-                      updateSelectedNode("condition_type", e.target.value)
-                    }
+                    onChange={(e) => {
+                      const newType = e.target.value;
+                      let newLabel = "Did Customer Purchase?";
+                      let newDesc = "Checks if order was placed";
+                      if (newType === "MESSAGE_READ") {
+                        newLabel = "Was Message Read?";
+                        newDesc = "Checks blue tick status";
+                      } else if (newType === "CART_VALUE_ABOVE") {
+                        newLabel = `Cart Value > ₹${selectedNode.data?.threshold || 500}`;
+                        newDesc = "Evaluates total cart value";
+                      }
+
+                      setFlow((prev) => ({
+                        ...prev,
+                        nodes: prev.nodes.map((node) => {
+                          if (node.id === selectedNodeId) {
+                            return {
+                              ...node,
+                              label: newLabel,
+                              data: {
+                                ...node.data,
+                                condition_type: newType,
+                                description: newDesc
+                              }
+                            };
+                          }
+                          return node;
+                        })
+                      }));
+                    }}
                     className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-white focus:border-purple-500 outline-none font-medium"
                   >
                     <option value="ORDER_PLACED">Did Customer Purchase / Order?</option>
