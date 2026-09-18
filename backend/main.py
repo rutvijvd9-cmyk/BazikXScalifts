@@ -695,6 +695,47 @@ def admin_toggle_user_2fa(
     }
 
 
+@app.delete("/api/users/{user_id}")
+def delete_user_account(
+    user_id: int,
+    current_user: models.User = Depends(auth.require_roles("admin")),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a team member or service account (Admin only).
+    Safety rules:
+    - Admins CANNOT delete other Admin accounts.
+    - Admins CANNOT delete their own account.
+    """
+    target_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    # Safety Guard 1: Cannot delete self
+    if target_user.id == current_user.id:
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot delete your own admin account. Please ask another administrator if you wish to remove your account."
+        )
+
+    # Safety Guard 2: Cannot delete another Admin
+    if target_user.role == "admin":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Security Policy: Admins cannot delete other Admin accounts ({target_user.username}). To delete, demote them to a Team Member first."
+        )
+
+    target_username = target_user.username
+    db.delete(target_user)
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"User account '{target_username}' was deleted successfully."
+    }
+
+
+
 # ==========================================
 # 🔒 PROTECTED CRM ENDPOINTS (Require JWT)
 # ==========================================

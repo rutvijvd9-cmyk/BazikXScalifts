@@ -363,14 +363,24 @@ export default function App() {
   const [newJourneyForm, setNewJourneyForm] = useState({
     name: "",
     trigger_type: "ABANDONED_CART",
-    min_cart_value: 0
+    min_cart_value: 0,
+    inactive_days: 30,
+    weather_condition: "RAINY",
+    city: "Ahmedabad",
+    welcome_coupon: "WELCOME10",
+    product_name: "Nylon Fafda Special"
   });
 
   const handleOpenNewJourneyModal = () => {
     setNewJourneyForm({
       name: "",
       trigger_type: "ABANDONED_CART",
-      min_cart_value: 0
+      min_cart_value: 0,
+      inactive_days: 30,
+      weather_condition: "RAINY",
+      city: "Ahmedabad",
+      welcome_coupon: "WELCOME10",
+      product_name: "Nylon Fafda Special"
     });
     setIsNewJourneyModalOpen(true);
   };
@@ -380,6 +390,9 @@ export default function App() {
     const triggerLabels = {
       ABANDONED_CART: "Abandoned Cart",
       INACTIVE_WINBACK: "Customer Inactive Winback",
+      WEATHER_TRIGGER: "Weather Trigger",
+      NEW_CUSTOMER_WELCOME: "New Customer Welcome",
+      BACK_IN_STOCK: "Back In Stock Alert",
       FESTIVAL_OFFER: "Festival / Promotional Event",
       ORDER_COMPLETED: "Post-Purchase Order Completed",
       CONTACT_TAGGED: "Customer Tagged / VIP"
@@ -388,14 +401,45 @@ export default function App() {
     const tLabel = triggerLabels[tType] || "Trigger";
     const defaultName = newJourneyForm.name.trim() || `${tLabel} Flow`;
     const minCartVal = Number(newJourneyForm.min_cart_value) || 0;
+    const inactiveDaysVal = Number(newJourneyForm.inactive_days) || 30;
+
+    let triggerConfig = {};
+    let nodeData = { trigger_type: tType };
+
+    if (tType === "ABANDONED_CART") {
+      triggerConfig = { min_cart_value: minCartVal };
+      nodeData.min_cart_value = minCartVal;
+      nodeData.description = minCartVal > 0 ? `Min Cart: ≥ ₹${minCartVal}` : "All Cart Events";
+    } else if (tType === "INACTIVE_WINBACK") {
+      triggerConfig = { inactive_days: inactiveDaysVal };
+      nodeData.inactive_days = inactiveDaysVal;
+      nodeData.description = `Inactive ≥ ${inactiveDaysVal} Days`;
+    } else if (tType === "WEATHER_TRIGGER") {
+      const wCond = newJourneyForm.weather_condition || "RAINY";
+      const wCity = newJourneyForm.city || "Ahmedabad";
+      triggerConfig = { weather_condition: wCond, city: wCity };
+      nodeData.weather_condition = wCond;
+      nodeData.city = wCity;
+      nodeData.description = `${wCond} in ${wCity}`;
+    } else if (tType === "NEW_CUSTOMER_WELCOME") {
+      const coupon = (newJourneyForm.welcome_coupon || "WELCOME10").toUpperCase();
+      triggerConfig = { welcome_coupon: coupon };
+      nodeData.welcome_coupon = coupon;
+      nodeData.description = `New Customer • Code: ${coupon}`;
+    } else if (tType === "BACK_IN_STOCK") {
+      const pName = newJourneyForm.product_name || "Nylon Fafda Special";
+      triggerConfig = { product_name: pName };
+      nodeData.product_name = pName;
+      nodeData.description = `Restocked: ${pName}`;
+    } else {
+      nodeData.description = "Starting Trigger";
+    }
 
     const newWf = {
       name: defaultName,
       description: `Multi-step automated flowchart journey starting with ${tLabel}`,
       trigger_type: tType,
-      trigger_config: {
-        ...(tType === "ABANDONED_CART" ? { min_cart_value: minCartVal } : {})
-      },
+      trigger_config: triggerConfig,
       is_active: true,
       nodes: [
         {
@@ -403,11 +447,7 @@ export default function App() {
           type: "trigger",
           label: `${tLabel} Trigger`,
           position: { x: 280, y: 40 },
-          data: {
-            trigger_type: tType,
-            min_cart_value: minCartVal,
-            description: minCartVal > 0 ? `Min Cart: ≥ ₹${minCartVal}` : "All Cart Events"
-          }
+          data: nodeData
         }
       ],
       edges: [],
@@ -573,6 +613,39 @@ export default function App() {
       fetchData(true);
     } finally {
       setAdmin2faUpdatingId(null);
+    }
+  };
+
+  // User Deletion Handler (Admin only; cannot delete other Admins or self)
+  const [userDeletingId, setUserDeletingId] = useState(null);
+  const [isRoleInfoModalOpen, setIsRoleInfoModalOpen] = useState(false);
+
+  const handleDeleteUser = async (targetUser) => {
+    if (targetUser.role === "admin") {
+      alert("Admins cannot be deleted. If you wish to delete this account, demote it to a Team Member first.");
+      return;
+    }
+    if (targetUser.username === username) {
+      alert("You cannot delete your own account.");
+      return;
+    }
+    if (!window.confirm(`⚠️ Are you sure you want to permanently delete user "${targetUser.username}" (${targetUser.email})? This action cannot be undone.`)) {
+      return;
+    }
+    setUserDeletingId(targetUser.id);
+    try {
+      await axios.delete(`/api/users/${targetUser.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSystemUsers((prev) => prev.filter((u) => u.id !== targetUser.id));
+      setActionSuccessMsg(`🗑️ User "${targetUser.username}" was deleted successfully.`);
+      fetchData(true);
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert("Failed to delete user: " + (err.response?.data?.detail || err.message));
+      fetchData(true);
+    } finally {
+      setUserDeletingId(null);
     }
   };
 
@@ -2484,6 +2557,14 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsRoleInfoModalOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 transition cursor-pointer border border-gray-300"
+                    >
+                      <BookOpen className="w-3.5 h-3.5 text-gray-500" />
+                      Role Permissions Guide
+                    </button>
                     <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
                       systemUsers.length >= 5 ? "bg-red-50 text-red-700 border border-red-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"
                     }`}>
@@ -2506,16 +2587,28 @@ export default function App() {
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600">
+                  <table className="w-full min-w-[920px] table-fixed text-left text-sm text-gray-600">
                     <thead className="bg-gray-50 text-xs uppercase font-semibold text-gray-500 border-b border-gray-200">
                       <tr>
-                        <th className="px-4 py-3">ID</th>
-                        <th className="px-4 py-3">Username</th>
-                        <th className="px-4 py-3">Email Address</th>
-                        <th className="px-4 py-3">2FA Security</th>
-                        <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3">Access Level</th>
-                        <th className="px-4 py-3 text-right">Actions</th>
+                        <th className="w-16 px-4 py-3">ID</th>
+                        <th className="w-48 px-4 py-3">Username</th>
+                        <th className="w-56 px-4 py-3">Email Address</th>
+                        <th className="w-40 px-4 py-3">2FA Security</th>
+                        <th className="w-24 px-4 py-3">Status</th>
+                        <th className="w-48 px-4 py-3">
+                          <div className="flex items-center gap-1">
+                            <span>Access Level</span>
+                            <button
+                              type="button"
+                              onClick={() => setIsRoleInfoModalOpen(true)}
+                              className="text-gray-400 hover:text-gray-600 transition"
+                              title="Click to view role access permissions"
+                            >
+                              <BookOpen className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </th>
+                        <th className="w-72 px-4 py-3 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -2523,179 +2616,206 @@ export default function App() {
                         const isCallerAdmin = currentUserProfile?.role === "admin" || (username && username.toLowerCase().includes("admin"));
                         return systemUsers.map((u) => (
                           <tr key={u.id} className="hover:bg-gray-50/80 transition">
-                            <td className="px-4 py-3.5 font-mono text-xs text-gray-400">#{u.id}</td>
-                            <td className="px-4 py-3.5 font-bold text-gray-900 flex items-center gap-2">
-                              <span className="w-2 h-2 rounded-full bg-[#25D366]"></span>
-                              {u.username}
-                              {u.username === username && (
-                                <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded font-mono font-normal">You</span>
+                            <td className="w-16 px-4 py-3.5 font-mono text-xs text-gray-400 whitespace-nowrap">#{u.id}</td>
+                            <td className="w-48 px-4 py-3.5 font-bold text-gray-900 whitespace-nowrap">
+                              <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-[#25D366] shrink-0"></span>
+                                <span className="truncate">{u.username}</span>
+                                {u.username === username && (
+                                  <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded font-mono font-normal shrink-0">You</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="w-56 px-4 py-3.5 text-xs text-gray-600 font-mono truncate" title={u.email}>{u.email}</td>
+                            <td className="w-40 px-4 py-3.5 whitespace-nowrap">
+                              {u.is_2fa_enabled ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-[#10B981] border border-emerald-200">
+                                  <ShieldCheck className="w-3 h-3" /> Enabled (TOTP)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 border border-gray-200">
+                                  Disabled
+                                </span>
                               )}
                             </td>
-                          <td className="px-4 py-3.5 text-xs text-gray-600 font-mono">{u.email}</td>
-                          <td className="px-4 py-3.5">
-                            {u.is_2fa_enabled ? (
+                            <td className="w-24 px-4 py-3.5 whitespace-nowrap">
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-[#10B981] border border-emerald-200">
-                                <ShieldCheck className="w-3 h-3" /> Enabled (TOTP)
+                                Active
                               </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 border border-gray-200">
-                                Disabled
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-[#10B981] border border-emerald-200">
-                              Active
-                            </span>
-                          </td>
-                          <td className="px-4 py-3.5 font-semibold text-xs text-gray-700">
-                            {u.role === "admin" ? (
-                              <span className="bg-amber-100 text-amber-900 px-2.5 py-1 rounded-md font-bold inline-flex items-center gap-1 border border-amber-300">
-                                <ShieldCheck className="w-3 h-3 text-amber-700" /> Admin (Full Access)
-                              </span>
-                            ) : u.role === "service" ? (
-                              <span className="bg-purple-50 text-purple-800 px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1 border border-purple-200">
-                                Service Account
-                              </span>
-                            ) : (
-                              <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-md font-medium inline-flex items-center gap-1 border border-blue-200">
-                                Team Member
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3.5 text-right">
-                            <div className="flex items-center justify-end gap-2 flex-wrap">
-                              {/* 1. Admin Role Management: Promote / Demote */}
-                              {isCallerAdmin && (
-                                <>
-                                  {u.role === "admin" ? (
-                                    <button
-                                      type="button"
-                                      disabled={userRoleUpdatingId === u.id || (u.id === 1 && u.username === username && systemUsers.filter((x) => x.role === "admin").length <= 1)}
-                                      onClick={() => handleUpdateUserRole(u, "agent")}
-                                      className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                                      title="Demote to Team Member"
-                                    >
-                                      {userRoleUpdatingId === u.id ? (
-                                        <RefreshCw className="w-3 h-3 animate-spin" />
-                                      ) : (
-                                        <ShieldAlert className="w-3 h-3 text-amber-600" />
-                                      )}
-                                      Demote to Member
-                                    </button>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      disabled={userRoleUpdatingId === u.id}
-                                      onClick={() => handleUpdateUserRole(u, "admin")}
-                                      className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                                      title="Promote to Admin"
-                                    >
-                                      {userRoleUpdatingId === u.id ? (
-                                        <RefreshCw className="w-3 h-3 animate-spin" />
-                                      ) : (
-                                        <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                                      )}
-                                      Promote to Admin
-                                    </button>
-                                  )}
-
-                                  {/* 2. Admin Password Override Button */}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setAdminPasswordModal({
-                                        isOpen: true,
-                                        user: u,
-                                        newPassword: "",
-                                        confirmPassword: "",
-                                        loading: false,
-                                        error: ""
-                                      });
-                                    }}
-                                    className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer"
-                                    title={`Reset Password for ${u.username}`}
-                                  >
-                                    <Key className="w-3 h-3 text-indigo-600" />
-                                    Reset Password
-                                  </button>
-
-                                  {/* 3. Admin 2FA Override (if user is locked out) */}
-                                  {u.username !== username && (
-                                    u.is_2fa_enabled ? (
+                            </td>
+                            <td className="w-48 px-4 py-3.5 font-semibold text-xs text-gray-700 whitespace-nowrap">
+                              {u.role === "admin" ? (
+                                <span className="bg-amber-100 text-amber-900 px-2.5 py-1 rounded-md font-bold inline-flex items-center gap-1 border border-amber-300">
+                                  <ShieldCheck className="w-3 h-3 text-amber-700" /> Admin (Full Access)
+                                </span>
+                              ) : u.role === "service" ? (
+                                <span className="bg-purple-50 text-purple-800 px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1 border border-purple-200">
+                                  Service Account
+                                </span>
+                              ) : (
+                                <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-md font-medium inline-flex items-center gap-1 border border-blue-200">
+                                  Team Member
+                                </span>
+                              )}
+                            </td>
+                            <td className="w-72 px-4 py-3.5 text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                {/* 1. Admin Role Management: Promote / Demote */}
+                                {isCallerAdmin && (
+                                  <>
+                                    {u.role === "admin" ? (
                                       <button
                                         type="button"
-                                        disabled={admin2faUpdatingId === u.id}
-                                        onClick={() => handleAdminToggle2FA(u, false)}
-                                        className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition disabled:opacity-40 cursor-pointer"
-                                        title={`Turn OFF 2FA requirement for ${u.username}`}
+                                        disabled={userRoleUpdatingId === u.id || (u.id === 1 && u.username === username && systemUsers.filter((x) => x.role === "admin").length <= 1)}
+                                        onClick={() => handleUpdateUserRole(u, "agent")}
+                                        className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                        title="Demote to Team Member"
                                       >
-                                        {admin2faUpdatingId === u.id ? (
+                                        {userRoleUpdatingId === u.id ? (
                                           <RefreshCw className="w-3 h-3 animate-spin" />
                                         ) : (
-                                          <ShieldAlert className="w-3 h-3 text-rose-600" />
+                                          <ShieldAlert className="w-3 h-3 text-amber-600" />
                                         )}
-                                        Disable 2FA
+                                        Demote
                                       </button>
                                     ) : (
                                       <button
                                         type="button"
-                                        disabled={admin2faUpdatingId === u.id}
-                                        onClick={() => handleAdminToggle2FA(u, true)}
-                                        className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200 transition disabled:opacity-40 cursor-pointer"
-                                        title={`Turn ON 2FA requirement for ${u.username}`}
+                                        disabled={userRoleUpdatingId === u.id}
+                                        onClick={() => handleUpdateUserRole(u, "admin")}
+                                        className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                        title="Promote to Admin"
                                       >
-                                        {admin2faUpdatingId === u.id ? (
+                                        {userRoleUpdatingId === u.id ? (
                                           <RefreshCw className="w-3 h-3 animate-spin" />
                                         ) : (
-                                          <ShieldCheck className="w-3 h-3 text-gray-600" />
+                                          <ShieldCheck className="w-3 h-3 text-emerald-600" />
                                         )}
-                                        Enable 2FA
+                                        Make Admin
                                       </button>
-                                    )
-                                  )}
-                                </>
-                              )}
+                                    )}
 
-                              {/* Self 2FA Toggle for logged-in user */}
-                              {u.username === username && (
-                                u.is_2fa_enabled ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setDisablePassword("");
-                                      setIsDisable2faModalOpen(true);
-                                    }}
-                                    className="text-xs text-red-600 hover:text-red-800 font-semibold hover:underline cursor-pointer"
-                                  >
-                                    Disable My 2FA
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      setSetupVerifyError("");
-                                      setSetupVerifyCode("");
-                                      try {
-                                        const res = await axios.get("/api/auth/2fa/setup", {
-                                          headers: { Authorization: `Bearer ${token}` }
+                                    {/* 2. Admin Password Override Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setAdminPasswordModal({
+                                          isOpen: true,
+                                          user: u,
+                                          newPassword: "",
+                                          confirmPassword: "",
+                                          loading: false,
+                                          error: ""
                                         });
-                                        setTwoFactorSetupData(res.data);
-                                        setIs2faModalOpen(true);
-                                      } catch (err) {
-                                        alert("Failed to initiate 2FA setup: " + (err.response?.data?.detail || err.message));
-                                      }
-                                    }}
-                                    className="text-xs bg-[#25D366] hover:bg-[#1EBE5D] text-white px-2.5 py-1 rounded-md font-bold transition inline-flex items-center gap-1 shadow-xs cursor-pointer"
-                                  >
-                                    <ShieldCheck className="w-3 h-3" />
-                                    Enable 2FA
-                                  </button>
-                                )
-                              )}
-                            </div>
-                          </td>
-                        </tr>
+                                      }}
+                                      className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer"
+                                      title={`Reset Password for ${u.username}`}
+                                    >
+                                      <Key className="w-3 h-3 text-indigo-600" />
+                                      Reset Pass
+                                    </button>
+
+                                    {/* 3. Admin 2FA Override */}
+                                    {u.username !== username && (
+                                      u.is_2fa_enabled ? (
+                                        <button
+                                          type="button"
+                                          disabled={admin2faUpdatingId === u.id}
+                                          onClick={() => handleAdminToggle2FA(u, false)}
+                                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition disabled:opacity-40 cursor-pointer"
+                                          title={`Turn OFF 2FA requirement for ${u.username}`}
+                                        >
+                                          {admin2faUpdatingId === u.id ? (
+                                            <RefreshCw className="w-3 h-3 animate-spin" />
+                                          ) : (
+                                            <ShieldAlert className="w-3 h-3 text-rose-600" />
+                                          )}
+                                          2FA Off
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          disabled={admin2faUpdatingId === u.id}
+                                          onClick={() => handleAdminToggle2FA(u, true)}
+                                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200 transition disabled:opacity-40 cursor-pointer"
+                                          title={`Turn ON 2FA requirement for ${u.username}`}
+                                        >
+                                          {admin2faUpdatingId === u.id ? (
+                                            <RefreshCw className="w-3 h-3 animate-spin" />
+                                          ) : (
+                                            <ShieldCheck className="w-3 h-3 text-gray-600" />
+                                          )}
+                                          2FA On
+                                        </button>
+                                      )
+                                    )}
+
+                                    {/* 4. Delete User Button (Admins cannot delete other Admins or Self) */}
+                                    {u.role !== "admin" && u.username !== username ? (
+                                      <button
+                                        type="button"
+                                        disabled={userDeletingId === u.id}
+                                        onClick={() => handleDeleteUser(u)}
+                                        className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 transition disabled:opacity-40 cursor-pointer"
+                                        title={`Delete user account ${u.username}`}
+                                      >
+                                        {userDeletingId === u.id ? (
+                                          <RefreshCw className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Trash2 className="w-3 h-3 text-red-600" />
+                                        )}
+                                        Delete
+                                      </button>
+                                    ) : u.role === "admin" && u.username !== username ? (
+                                      <span
+                                        className="text-[10px] text-gray-400 italic px-1 cursor-help"
+                                        title="Security rule: Admins cannot delete other Admins. Demote them first."
+                                      >
+                                        Admin Lock
+                                      </span>
+                                    ) : null}
+                                  </>
+                                )}
+
+                                {/* Self 2FA Toggle for logged-in user */}
+                                {u.username === username && (
+                                  u.is_2fa_enabled ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDisablePassword("");
+                                        setIsDisable2faModalOpen(true);
+                                      }}
+                                      className="text-xs text-red-600 hover:text-red-800 font-semibold hover:underline cursor-pointer ml-1"
+                                    >
+                                      Disable My 2FA
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        setSetupVerifyError("");
+                                        setSetupVerifyCode("");
+                                        try {
+                                          const res = await axios.get("/api/auth/2fa/setup", {
+                                            headers: { Authorization: `Bearer ${token}` }
+                                          });
+                                          setTwoFactorSetupData(res.data);
+                                          setIs2faModalOpen(true);
+                                        } catch (err) {
+                                          alert("Failed to initiate 2FA setup: " + (err.response?.data?.detail || err.message));
+                                        }
+                                      }}
+                                      className="text-xs bg-[#25D366] hover:bg-[#1EBE5D] text-white px-2.5 py-1 rounded-md font-bold transition inline-flex items-center gap-1 shadow-xs cursor-pointer ml-1"
+                                    >
+                                      <ShieldCheck className="w-3 h-3" />
+                                      Enable 2FA
+                                    </button>
+                                  )
+                                )}
+                              </div>
+                            </td>
+                          </tr>
                         ));
                       })()}
                     </tbody>
@@ -4876,16 +4996,37 @@ export default function App() {
                     {
                       id: "INACTIVE_WINBACK",
                       title: "Customer Inactive Winback",
-                      desc: "Triggers for past customers who have had no recent purchase activity.",
+                      desc: "Target past customers who have had no order activity for a custom number of days.",
                       icon: Clock,
                       color: "text-blue-600 bg-blue-50 border-blue-200"
+                    },
+                    {
+                      id: "WEATHER_TRIGGER",
+                      title: "Weather Trigger (Rain/Winter Snack)",
+                      desc: "Send weather-targeted snack cravings (e.g. Rainy day hot Gathiya in Ahmedabad).",
+                      icon: CloudRain,
+                      color: "text-sky-600 bg-sky-50 border-sky-200"
+                    },
+                    {
+                      id: "NEW_CUSTOMER_WELCOME",
+                      title: "New Customer Welcome",
+                      desc: "Engage first-time visitors or new account creations with a welcome greeting & coupon.",
+                      icon: UserPlus,
+                      color: "text-emerald-600 bg-emerald-50 border-emerald-200"
+                    },
+                    {
+                      id: "BACK_IN_STOCK",
+                      title: "Back In Stock Alert",
+                      desc: "Alert hungry customers the instant a bestselling snack item is restocked.",
+                      icon: Package,
+                      color: "text-purple-600 bg-purple-50 border-purple-200"
                     },
                     {
                       id: "ORDER_COMPLETED",
                       title: "Post-Purchase / Order Completed",
                       desc: "Triggers right after an order is placed/delivered for feedback or cross-sell snacks.",
                       icon: Package,
-                      color: "text-purple-600 bg-purple-50 border-purple-200"
+                      color: "text-indigo-600 bg-indigo-50 border-indigo-200"
                     },
                     {
                       id: "FESTIVAL_OFFER",
@@ -4899,7 +5040,7 @@ export default function App() {
                       title: "Contact Tagged / VIP Milestone",
                       desc: "Triggers when a customer receives a specific tag or joins VIP segment.",
                       icon: Tag,
-                      color: "text-emerald-600 bg-emerald-50 border-emerald-200"
+                      color: "text-teal-600 bg-teal-50 border-teal-200"
                     }
                   ].map((trig) => {
                     const isSelected = (newJourneyForm.trigger_type || "ABANDONED_CART") === trig.id;
@@ -4934,6 +5075,7 @@ export default function App() {
                 </div>
               </div>
 
+              {/* 1. Abandoned Cart Options */}
               {newJourneyForm.trigger_type === "ABANDONED_CART" && (
                 <div className="bg-amber-50/50 border border-amber-200/80 rounded-xl p-3.5 space-y-2">
                   <div className="flex items-center justify-between">
@@ -4978,6 +5120,130 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* 2. Customer Inactive Winback Options */}
+              {newJourneyForm.trigger_type === "INACTIVE_WINBACK" && (
+                <div className="bg-blue-50/60 border border-blue-200/80 rounded-xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold uppercase text-blue-950">
+                      Inactivity Threshold (Days without Order)
+                    </label>
+                    <span className="text-[11px] text-blue-700 font-semibold font-mono">
+                      Target: ≥ {newJourneyForm.inactive_days || 30} days inactive
+                    </span>
+                  </div>
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      min="1"
+                      value={newJourneyForm.inactive_days !== undefined ? newJourneyForm.inactive_days : 30}
+                      onChange={(e) =>
+                        setNewJourneyForm({
+                          ...newJourneyForm,
+                          inactive_days: e.target.value === "" ? 1 : Math.max(1, Number(e.target.value))
+                        })
+                      }
+                      placeholder="e.g. 30, 45, 60, 90"
+                      className="w-full px-3.5 py-2 border border-blue-300 rounded-lg text-sm bg-white font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="absolute right-3.5 text-xs text-gray-400 font-semibold pointer-events-none select-none">Days</span>
+                  </div>
+                  <p className="text-[11px] text-gray-500">
+                    Customers who haven't placed an order in at least {newJourneyForm.inactive_days || 30} days will be enrolled in this flow.
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {[30, 45, 60, 90, 120].map((days) => (
+                      <button
+                        key={days}
+                        type="button"
+                        onClick={() => setNewJourneyForm({ ...newJourneyForm, inactive_days: days })}
+                        className={`px-2.5 py-1 rounded-md border text-xs font-bold transition ${
+                          (Number(newJourneyForm.inactive_days) || 30) === days
+                            ? "bg-blue-600 text-white border-blue-700 shadow-xs"
+                            : "bg-white text-gray-700 border-gray-200 hover:bg-blue-100"
+                        }`}
+                      >
+                        {days} Days
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 3. Weather Trigger Options */}
+              {newJourneyForm.trigger_type === "WEATHER_TRIGGER" && (
+                <div className="bg-sky-50/60 border border-sky-200/80 rounded-xl p-3.5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold uppercase text-sky-950">
+                      Weather Condition & City
+                    </label>
+                    <span className="text-[11px] text-sky-700 font-semibold">Ahmedabad & Gujarat</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Condition</label>
+                      <select
+                        value={newJourneyForm.weather_condition || "RAINY"}
+                        onChange={(e) => setNewJourneyForm({ ...newJourneyForm, weather_condition: e.target.value })}
+                        className="w-full px-3 py-2 border border-sky-300 rounded-lg text-xs font-semibold bg-white text-gray-800"
+                      >
+                        <option value="RAINY">🌧️ Rainy / Monsoon</option>
+                        <option value="CLOUDY">⛅ Cloudy & Overcast</option>
+                        <option value="CHILLY_WINTER">❄️ Chilly Winter Morning</option>
+                        <option value="HOT_SUMMER">☀️ Hot Afternoon</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Target City</label>
+                      <input
+                        type="text"
+                        value={newJourneyForm.city || "Ahmedabad"}
+                        onChange={(e) => setNewJourneyForm({ ...newJourneyForm, city: e.target.value })}
+                        placeholder="e.g. Ahmedabad"
+                        className="w-full px-3 py-2 border border-sky-300 rounded-lg text-xs font-semibold bg-white text-gray-800"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 4. New Customer Welcome Options */}
+              {newJourneyForm.trigger_type === "NEW_CUSTOMER_WELCOME" && (
+                <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-xl p-3.5 space-y-2">
+                  <label className="block text-xs font-bold uppercase text-emerald-950">
+                    Welcome Gift Coupon Code
+                  </label>
+                  <input
+                    type="text"
+                    value={newJourneyForm.welcome_coupon || "WELCOME10"}
+                    onChange={(e) => setNewJourneyForm({ ...newJourneyForm, welcome_coupon: e.target.value.toUpperCase() })}
+                    placeholder="e.g. WELCOME10"
+                    className="w-full px-3.5 py-2 border border-emerald-300 rounded-lg text-xs font-mono font-bold bg-white text-gray-900 uppercase"
+                  />
+                  <p className="text-[11px] text-emerald-700">
+                    Will be included in the automated welcome message to encourage their first order.
+                  </p>
+                </div>
+              )}
+
+              {/* 5. Back In Stock Alert Options */}
+              {newJourneyForm.trigger_type === "BACK_IN_STOCK" && (
+                <div className="bg-purple-50/60 border border-purple-200/80 rounded-xl p-3.5 space-y-2">
+                  <label className="block text-xs font-bold uppercase text-purple-950">
+                    Restocked Snack Product Name
+                  </label>
+                  <input
+                    type="text"
+                    value={newJourneyForm.product_name || "Nylon Fafda Special"}
+                    onChange={(e) => setNewJourneyForm({ ...newJourneyForm, product_name: e.target.value })}
+                    placeholder="e.g. Nylon Fafda Special, Vanela Gathiya"
+                    className="w-full px-3.5 py-2 border border-purple-300 rounded-lg text-xs font-semibold bg-white text-gray-900"
+                  />
+                  <p className="text-[11px] text-purple-700">
+                    Sends automated notifications to customers who viewed or wishlisted this item.
+                  </p>
                 </div>
               )}
 
@@ -6204,6 +6470,95 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Role Permissions Guide Modal ── */}
+      {isRoleInfoModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-200">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-[#F5A623] flex items-center justify-center font-bold">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-gray-900">System Role & Access Privileges</h3>
+                  <p className="text-xs text-gray-500">Overview of what each account type is permitted to do</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsRoleInfoModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 font-bold text-xl cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3.5 text-sm">
+              {/* Admin Card */}
+              <div className="p-3.5 rounded-xl border border-amber-200 bg-amber-50/50">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                    <ShieldCheck className="w-3.5 h-3.5 text-amber-700" />
+                    Admin (Full System & Security Control)
+                  </span>
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-200/60 px-2 py-0.5 rounded">Highest Clearance</span>
+                </div>
+                <ul className="text-xs text-amber-950 space-y-1 list-disc pl-4 mt-2">
+                  <li>Can create, edit, approve, and send all WhatsApp campaigns.</li>
+                  <li>Can build and activate multi-step automation journeys & visual flows.</li>
+                  <li>Can register team accounts, promote/demote members, and delete non-admin users.</li>
+                  <li>Can reset passwords and enable/disable 2FA for locked-out accounts.</li>
+                  <li>Full financial access (Meta budget thresholds, spend guardrails, webhook secrets).</li>
+                </ul>
+              </div>
+
+              {/* Team Member Card */}
+              <div className="p-3.5 rounded-xl border border-blue-200 bg-blue-50/50">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-bold bg-blue-100 text-blue-900 border border-blue-300">
+                    <Users className="w-3.5 h-3.5 text-blue-700" />
+                    Team Member (Customer Operations)
+                  </span>
+                  <span className="text-[10px] font-bold text-blue-800 bg-blue-200/60 px-2 py-0.5 rounded">Operational Access</span>
+                </div>
+                <ul className="text-xs text-blue-950 space-y-1 list-disc pl-4 mt-2">
+                  <li>2-way live chat with customers in the WhatsApp Live Inbox.</li>
+                  <li>View customer directory, order history, tags, and conversation transcripts.</li>
+                  <li>Inspect approved WhatsApp templates and verify campaign delivery logs.</li>
+                  <li>Manage their own account 2FA security.</li>
+                  <li className="text-blue-800 italic">Restricted: Cannot delete users, modify platform spend limits, or view server secrets.</li>
+                </ul>
+              </div>
+
+              {/* Service Account Card */}
+              <div className="p-3.5 rounded-xl border border-purple-200 bg-purple-50/50">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-bold bg-purple-100 text-purple-900 border border-purple-300">
+                    <Zap className="w-3.5 h-3.5 text-purple-700" />
+                    Service Account (Automated API System)
+                  </span>
+                  <span className="text-[10px] font-bold text-purple-800 bg-purple-200/60 px-2 py-0.5 rounded">Machine & Webhooks</span>
+                </div>
+                <ul className="text-xs text-purple-950 space-y-1 list-disc pl-4 mt-2">
+                  <li>Machine-to-machine account for e-commerce website webhooks.</li>
+                  <li>Automated synchronization for abandoned carts, placed orders, and contact sync.</li>
+                  <li>Does not require human interactive logins.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="pt-4 mt-4 border-t border-gray-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsRoleInfoModalOpen(false)}
+                className="px-4 py-2 bg-gray-900 hover:bg-black text-white text-xs font-bold rounded-lg transition cursor-pointer"
+              >
+                Got it
+              </button>
+            </div>
           </div>
         </div>
       )}

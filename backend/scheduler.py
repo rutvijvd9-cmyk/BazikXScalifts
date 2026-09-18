@@ -801,7 +801,6 @@ def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, 
         if trigger_data.get("trigger_type") == "ABANDONED_CART" or flow.trigger_type == "ABANDONED_CART":
             min_cart_val = trigger_data.get("min_cart_value")
             if min_cart_val is None:
-                # Also check flow trigger_config
                 flow_cfg = flow.trigger_config if isinstance(flow.trigger_config, dict) else {}
                 min_cart_val = flow_cfg.get("min_cart_value")
             
@@ -816,6 +815,26 @@ def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, 
                         return None
                 except (ValueError, TypeError) as val_err:
                     logger.warning(f"Error parsing min_cart_value for workflow #{flow.id}: {val_err}")
+
+        # ── Guardrail: Inactive Customer Days Threshold ──
+        if trigger_data.get("trigger_type") == "INACTIVE_WINBACK" or flow.trigger_type == "INACTIVE_WINBACK":
+            inactive_days = trigger_data.get("inactive_days")
+            if inactive_days is None:
+                flow_cfg = flow.trigger_config if isinstance(flow.trigger_config, dict) else {}
+                inactive_days = flow_cfg.get("inactive_days", 30)
+            
+            try:
+                days_int = int(inactive_days)
+                contact = db.query(models.Contact).filter(models.Contact.phone == customer_phone).first()
+                if contact and contact.last_order_date:
+                    days_since_last_order = (datetime.utcnow() - contact.last_order_date).days
+                    if days_since_last_order < days_int:
+                        logger.info(
+                            f"🛑 [Workflow Trigger Blocked] Customer {customer_phone} was active {days_since_last_order} days ago (minimum inactive threshold: {days_int} days) for flow '{flow.name}'. Workflow session skipped."
+                        )
+                        return None
+            except Exception as e:
+                logger.warning(f"Error checking inactive days for workflow #{flow.id}: {e}")
 
         session = models.WorkflowSession(
             flow_id=flow.id,

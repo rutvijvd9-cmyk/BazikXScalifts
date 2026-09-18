@@ -27,7 +27,10 @@ import {
   AlertTriangle,
   Gift,
   Eye,
-  Calendar
+  Calendar,
+  CloudRain,
+  UserPlus,
+  Package
 } from "lucide-react";
 
 export default function FlowchartCanvas({
@@ -552,8 +555,15 @@ export default function FlowchartCanvas({
               }
 
               // Distinct theme colors per node type (Action & Trigger Cards)
+              const triggerType = node.data?.trigger_type || flow.trigger_type;
               const theme = isTrigger
-                ? { bg: "bg-white", border: "border-gray-200", iconBg: "bg-blue-600 text-white", tag: "TRIGGER", tagColor: "text-blue-700 bg-blue-50" }
+                ? triggerType === "WEATHER_TRIGGER"
+                  ? { bg: "bg-white", border: "border-gray-200", iconBg: "bg-sky-500 text-white", tag: "WEATHER", tagColor: "text-sky-700 bg-sky-50" }
+                  : triggerType === "NEW_CUSTOMER_WELCOME"
+                  ? { bg: "bg-white", border: "border-gray-200", iconBg: "bg-emerald-600 text-white", tag: "WELCOME", tagColor: "text-emerald-700 bg-emerald-50" }
+                  : triggerType === "BACK_IN_STOCK"
+                  ? { bg: "bg-white", border: "border-gray-200", iconBg: "bg-purple-600 text-white", tag: "STOCK", tagColor: "text-purple-700 bg-purple-50" }
+                  : { bg: "bg-white", border: "border-gray-200", iconBg: "bg-blue-600 text-white", tag: "TRIGGER", tagColor: "text-blue-700 bg-blue-50" }
                 : isDelay
                 ? { bg: "bg-white", border: "border-gray-200", iconBg: "bg-gray-100 text-gray-700", tag: "DELAY", tagColor: "text-amber-800 bg-amber-50" }
                 : isWhatsApp
@@ -577,7 +587,12 @@ export default function FlowchartCanvas({
                   <div className="p-3.5 flex items-center gap-3">
                     {/* Leading Rounded Icon Box */}
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${theme.iconBg}`}>
-                      {isTrigger && <Zap className="w-4 h-4 fill-white" />}
+                      {isTrigger && (
+                        triggerType === "WEATHER_TRIGGER" ? <CloudRain className="w-4 h-4" /> :
+                        triggerType === "NEW_CUSTOMER_WELCOME" ? <UserPlus className="w-4 h-4" /> :
+                        triggerType === "BACK_IN_STOCK" ? <Package className="w-4 h-4" /> :
+                        <Zap className="w-4 h-4 fill-white" />
+                      )}
                       {isDelay && <Clock className="w-4 h-4" />}
                       {isWhatsApp && <Send className="w-4 h-4" />}
                       {isTag && <Tag className="w-4 h-4" />}
@@ -593,7 +608,9 @@ export default function FlowchartCanvas({
                         <p className="text-[10px] text-blue-600 font-medium truncate mt-0.5">
                           {node.data?.min_cart_value > 0
                             ? `Min Cart: ≥ ₹${node.data.min_cart_value}`
-                            : node.data?.description || "All Cart Events"}
+                            : node.data?.inactive_days > 0
+                            ? `Inactive: ≥ ${node.data.inactive_days} Days`
+                            : node.data?.description || "Starting Trigger"}
                         </p>
                       )}
                       {!isTrigger && node.data?.description && (
@@ -862,12 +879,23 @@ export default function FlowchartCanvas({
                         ? "Customer Inactive Winback"
                         : selectedNode.data?.trigger_type === "ORDER_COMPLETED"
                         ? "Post-Purchase Order Completed"
+                        : selectedNode.data?.trigger_type === "WEATHER_TRIGGER"
+                        ? "Weather Trigger (Rain/Winter Snack)"
+                        : selectedNode.data?.trigger_type === "NEW_CUSTOMER_WELCOME"
+                        ? "New Customer Welcome"
+                        : selectedNode.data?.trigger_type === "BACK_IN_STOCK"
+                        ? "Back In Stock Alert"
+                        : selectedNode.data?.trigger_type === "FESTIVAL_OFFER"
+                        ? "Festival / Promotional Event"
+                        : selectedNode.data?.trigger_type === "CONTACT_TAGGED"
+                        ? "Customer Tagged / VIP"
                         : selectedNode.data?.trigger_type || "Event Trigger"
                     }
                     className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 text-gray-700 font-medium outline-none cursor-not-allowed"
                   />
                 </div>
 
+                {/* 1. Abandoned Cart Config */}
                 {(selectedNode.data?.trigger_type === "ABANDONED_CART" ||
                   flow.trigger_type === "ABANDONED_CART" ||
                   selectedNode.label?.toLowerCase().includes("cart")) && (
@@ -886,6 +914,7 @@ export default function FlowchartCanvas({
                         onChange={(e) => {
                           const val = e.target.value === "" ? 0 : Number(e.target.value);
                           updateSelectedNode("min_cart_value", val);
+                          updateSelectedNode("description", val > 0 ? `Min Cart: ≥ ₹${val}` : "All Cart Events");
                         }}
                         placeholder="0 (Enter all abandoned carts)"
                         className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl font-mono text-sm focus:border-[#25D366] focus:ring-1 focus:ring-[#25D366] outline-none font-bold text-gray-900"
@@ -899,7 +928,10 @@ export default function FlowchartCanvas({
                         <button
                           key={amt}
                           type="button"
-                          onClick={() => updateSelectedNode("min_cart_value", amt)}
+                          onClick={() => {
+                            updateSelectedNode("min_cart_value", amt);
+                            updateSelectedNode("description", amt > 0 ? `Min Cart: ≥ ₹${amt}` : "All Cart Events");
+                          }}
                           className={`px-2 py-1 rounded-lg border text-[10px] font-bold transition ${
                             (selectedNode.data?.min_cart_value || 0) === amt
                               ? "bg-emerald-50 text-emerald-700 border-emerald-300 ring-1 ring-emerald-300"
@@ -909,6 +941,128 @@ export default function FlowchartCanvas({
                           {amt === 0 ? "Any (₹0)" : `≥ ₹${amt}`}
                         </button>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. Customer Inactive Winback Config */}
+                {(selectedNode.data?.trigger_type === "INACTIVE_WINBACK" ||
+                  flow.trigger_type === "INACTIVE_WINBACK" ||
+                  selectedNode.label?.toLowerCase().includes("inactive")) && (
+                  <div className="space-y-1.5">
+                    <label className="font-bold text-gray-700">Days of Inactivity Threshold</label>
+                    <div className="relative flex items-center">
+                      <input
+                        type="number"
+                        min="1"
+                        value={selectedNode.data?.inactive_days !== undefined ? selectedNode.data.inactive_days : 30}
+                        onChange={(e) => {
+                          const days = Math.max(1, Number(e.target.value) || 1);
+                          updateSelectedNode("inactive_days", days);
+                          updateSelectedNode("description", `Inactive ≥ ${days} Days`);
+                        }}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-xl font-mono text-sm focus:border-[#25D366] focus:ring-1 focus:ring-[#25D366] outline-none font-bold text-gray-900"
+                      />
+                      <span className="absolute right-3 text-xs text-gray-400 font-semibold pointer-events-none select-none">Days</span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 leading-relaxed">
+                      Target customers whose last order was placed at least {selectedNode.data?.inactive_days || 30} days ago.
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {[30, 45, 60, 90, 120].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => {
+                            updateSelectedNode("inactive_days", d);
+                            updateSelectedNode("description", `Inactive ≥ ${d} Days`);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg border text-xs font-bold transition ${
+                            (Number(selectedNode.data?.inactive_days) || 30) === d
+                              ? "bg-blue-50 text-blue-700 border-blue-300 ring-1 ring-blue-300"
+                              : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-white"
+                          }`}
+                        >
+                          {d} Days
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. Weather Trigger Config */}
+                {(selectedNode.data?.trigger_type === "WEATHER_TRIGGER" || flow.trigger_type === "WEATHER_TRIGGER") && (
+                  <div className="space-y-3 bg-sky-50/60 p-3.5 rounded-xl border border-sky-200/80">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-sky-950 uppercase">Weather Condition</label>
+                      <select
+                        value={selectedNode.data?.weather_condition || "RAINY"}
+                        onChange={(e) => {
+                          const wCond = e.target.value;
+                          updateSelectedNode("weather_condition", wCond);
+                          const city = selectedNode.data?.city || "Ahmedabad";
+                          updateSelectedNode("description", `${wCond} in ${city}`);
+                        }}
+                        className="w-full px-3 py-2 border border-sky-300 rounded-lg text-xs font-semibold bg-white text-gray-800"
+                      >
+                        <option value="RAINY">🌧️ Rainy / Monsoon Weather</option>
+                        <option value="CLOUDY">⛅ Cloudy & Overcast</option>
+                        <option value="CHILLY_WINTER">❄️ Chilly Winter Morning</option>
+                        <option value="HOT_SUMMER">☀️ Hot Summer Afternoon</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-sky-950 uppercase">Target City / Region</label>
+                      <input
+                        type="text"
+                        value={selectedNode.data?.city || "Ahmedabad"}
+                        onChange={(e) => {
+                          const city = e.target.value;
+                          updateSelectedNode("city", city);
+                          const wCond = selectedNode.data?.weather_condition || "RAINY";
+                          updateSelectedNode("description", `${wCond} in ${city}`);
+                        }}
+                        placeholder="e.g. Ahmedabad, Surat, Rajkot"
+                        className="w-full px-3 py-2 border border-sky-300 rounded-lg text-xs font-semibold bg-white text-gray-800"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. New Customer Welcome Config */}
+                {(selectedNode.data?.trigger_type === "NEW_CUSTOMER_WELCOME" || flow.trigger_type === "NEW_CUSTOMER_WELCOME") && (
+                  <div className="space-y-3 bg-emerald-50/60 p-3.5 rounded-xl border border-emerald-200/80">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-emerald-950 uppercase">Welcome Incentive Coupon</label>
+                      <input
+                        type="text"
+                        value={selectedNode.data?.welcome_coupon || "WELCOME10"}
+                        onChange={(e) => {
+                          updateSelectedNode("welcome_coupon", e.target.value.toUpperCase());
+                          updateSelectedNode("description", `New Customer • Code: ${e.target.value.toUpperCase()}`);
+                        }}
+                        placeholder="e.g. WELCOME10"
+                        className="w-full px-3 py-2 border border-emerald-300 rounded-lg text-xs font-mono font-bold bg-white text-gray-800 uppercase"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 5. Back In Stock Alert Config */}
+                {(selectedNode.data?.trigger_type === "BACK_IN_STOCK" || flow.trigger_type === "BACK_IN_STOCK") && (
+                  <div className="space-y-3 bg-purple-50/60 p-3.5 rounded-xl border border-purple-200/80">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-purple-950 uppercase">Restocked Snack Item Name</label>
+                      <input
+                        type="text"
+                        value={selectedNode.data?.product_name || "Nylon Fafda Special"}
+                        onChange={(e) => {
+                          updateSelectedNode("product_name", e.target.value);
+                          updateSelectedNode("description", `Restocked: ${e.target.value}`);
+                        }}
+                        placeholder="e.g. Vanela Gathiya, Nylon Fafda, Papdi"
+                        className="w-full px-3 py-2 border border-purple-300 rounded-lg text-xs font-semibold bg-white text-gray-800"
+                      />
                     </div>
                   </div>
                 )}
