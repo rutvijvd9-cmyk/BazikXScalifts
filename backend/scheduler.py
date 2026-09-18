@@ -388,6 +388,19 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
             if campaign.target_filter == "ALL":
                 contacts = db.query(models.Contact).filter(models.Contact.is_active == True).all()
                 phones = [c.phone for c in contacts]
+            elif campaign.target_filter == "INACTIVE_30_DAYS":
+                cutoff_date = datetime.utcnow() - timedelta(days=30)
+                contacts = db.query(models.Contact).filter(
+                    models.Contact.is_active == True,
+                    (models.Contact.last_order_date <= cutoff_date) | (models.Contact.last_order_date == None)
+                ).all()
+                phones = [c.phone for c in contacts]
+
+        # 🛑 Honor Per Day Message Limit: Cap list to per_day_limit if specified
+        if campaign.per_day_limit and campaign.per_day_limit > 0:
+            original_count = len(phones)
+            phones = phones[:campaign.per_day_limit]
+            logger.info(f"🎯 [Campaign {campaign_id}] Per-Day limit applied: capped from {original_count} to {len(phones)} messages")
 
         campaign.total_recipients = len(phones)
         db.commit()

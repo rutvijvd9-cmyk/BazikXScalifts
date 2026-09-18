@@ -300,6 +300,7 @@ export default function App() {
     template_name: "",
     language: "en",
     target_filter: "ALL",
+    per_day_limit: "",
     scheduled_for: ""
   });
 
@@ -310,6 +311,7 @@ export default function App() {
       template_name: approvedTmpl ? approvedTmpl.template_name : "",
       language: approvedTmpl ? (approvedTmpl.language || "en") : "en",
       target_filter: "ALL",
+      per_day_limit: "",
       scheduled_for: ""
     });
     setIsModalOpen(true);
@@ -1337,11 +1339,16 @@ export default function App() {
     e.preventDefault();
     if (!newCampaign.title || !token) return;
 
-    // Calculate approximate recipient count for confirmation
-    const estCount =
+    // Calculate approximate recipient count for confirmation (capped by per_day_limit if set)
+    let estCount =
       newCampaign.target_filter === "INACTIVE_30_DAYS"
         ? contacts.filter((c) => !c.last_order_date).length || 5
         : contacts.length;
+
+    const parsedLimit = newCampaign.per_day_limit ? parseInt(newCampaign.per_day_limit, 10) : null;
+    if (parsedLimit && parsedLimit > 0) {
+      estCount = Math.min(estCount, parsedLimit);
+    }
 
     // Intercept: open 2FA security verification modal before dispatching!
     setSecurityActionModal({
@@ -1349,7 +1356,10 @@ export default function App() {
       actionType: "CAMPAIGN",
       title: `Confirm WhatsApp Broadcast: "${newCampaign.title}"`,
       recipientCount: estCount,
-      payloadData: { ...newCampaign },
+      payloadData: {
+        ...newCampaign,
+        per_day_limit: parsedLimit && parsedLimit > 0 ? parsedLimit : null
+      },
       password: "",
       twoFactorCode: "",
       error: "",
@@ -1388,6 +1398,7 @@ export default function App() {
           template_name: approvedTmpl ? approvedTmpl.template_name : "",
           language: approvedTmpl ? (approvedTmpl.language || "en") : "en",
           target_filter: "ALL",
+          per_day_limit: "",
           scheduled_for: ""
         });
         fetchData();
@@ -3097,7 +3108,14 @@ export default function App() {
                         <td className="px-6 py-4 font-mono text-xs">{c.template_name}</td>
                         <td className="px-6 py-4 uppercase font-semibold text-xs">{c.language}</td>
                         <td className="px-6 py-4 text-xs">{c.target_filter}</td>
-                        <td className="px-6 py-4 font-bold text-gray-900">{c.successful_sends} / {c.total_recipients}</td>
+                        <td className="px-6 py-4 font-bold text-gray-900">
+                          <div>{c.successful_sends} / {c.total_recipients}</div>
+                          {c.per_day_limit && (
+                            <span className="text-[10px] font-medium text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                              Limit: {c.per_day_limit}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-6 py-4">
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-50 text-[#10B981] border border-green-200">
                             {c.status}
@@ -5381,18 +5399,40 @@ export default function App() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-700 mb-1 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-gray-500" />
-                  Schedule for Later (Optional)
-                </label>
-                <input
-                  type="datetime-local"
-                  value={newCampaign.scheduled_for}
-                  onChange={(e) => setNewCampaign({ ...newCampaign, scheduled_for: e.target.value })}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
-                />
-                <p className="text-[11px] text-gray-400 mt-1">Leave empty to send broadcast immediately</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1 flex items-center justify-between">
+                    <span>Per-Day Message Limit</span>
+                    <span className="text-[10px] text-emerald-600 font-semibold lowercase">optional</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="e.g. 500, 1000"
+                    value={newCampaign.per_day_limit}
+                    onChange={(e) => setNewCampaign({ ...newCampaign, per_day_limit: e.target.value })}
+                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    {newCampaign.per_day_limit 
+                      ? `Sends only first ${newCampaign.per_day_limit} contacts` 
+                      : "Leave empty to send all contacts"}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-gray-500" />
+                    Schedule for Later (Optional)
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={newCampaign.scheduled_for}
+                    onChange={(e) => setNewCampaign({ ...newCampaign, scheduled_for: e.target.value })}
+                    className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-0.5">Leave empty to send immediately</p>
+                </div>
               </div>
 
               <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">

@@ -92,6 +92,7 @@ class Campaign(Base):
     total_recipients = Column(Integer, default=0)
     successful_sends = Column(Integer, default=0)
     failed_sends = Column(Integer, default=0)
+    per_day_limit = Column(Integer, nullable=True)     # Cap on max messages to send for this campaign per day/run
     scheduled_for = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

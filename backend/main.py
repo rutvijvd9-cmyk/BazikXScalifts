@@ -43,6 +43,7 @@ try:
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code VARCHAR(10);"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code_expires TIMESTAMP;"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'agent';"))
+        conn.execute(text("ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS per_day_limit INTEGER;"))
         conn.commit()
 except Exception as col_err:
     logger.warning(f"Note on 2FA column sync: {col_err}")
@@ -1062,6 +1063,7 @@ def create_and_trigger_campaign(
             template_name=payload.template_name,
             language=payload.language or "en",
             target_filter=payload.target_filter or "ALL",
+            per_day_limit=payload.per_day_limit,
             status="SCHEDULED" if scheduled_dt and scheduled_dt > datetime.utcnow() else "IN_PROGRESS",
             scheduled_for=scheduled_dt
         )
