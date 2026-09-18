@@ -34,21 +34,27 @@ import config
 # Ensure tables exist
 Base.metadata.create_all(bind=engine)
 
-# Ensure 2FA columns exist in users table (non-destructive migration for existing tables)
-try:
-    with engine.connect() as conn:
-        from sqlalchemy import text
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_2fa_enabled BOOLEAN DEFAULT FALSE;"))
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64);"))
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code VARCHAR(10);"))
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code_expires TIMESTAMP;"))
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'agent';"))
-        conn.execute(text("ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS per_day_limit INTEGER;"))
-        conn.execute(text("ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP;"))
-        conn.execute(text("ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
-        conn.commit()
-except Exception as col_err:
-    logger.warning(f"Note on 2FA column sync: {col_err}")
+from fastapi.exceptions import ResponseValidationError
+from fastapi.responses import JSONResponse
+
+# Non-destructive column sync for existing tables
+migration_statements = [
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_2fa_enabled BOOLEAN DEFAULT FALSE;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64);",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code VARCHAR(10);",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code_expires TIMESTAMP;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'agent';",
+    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS per_day_limit INTEGER;",
+    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP;",
+    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"
+]
+for stmt in migration_statements:
+    try:
+        with engine.begin() as conn:
+            from sqlalchemy import text
+            conn.execute(text(stmt))
+    except Exception as col_err:
+        logger.warning(f"Note on DB migration ({stmt}): {col_err}")
 
 # Rate Limiter setup
 limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
@@ -58,6 +64,14 @@ app = FastAPI(
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.exception_handler(ResponseValidationError)
+async def response_validation_error_handler(request: Request, exc: ResponseValidationError):
+    logger.error(f"ResponseValidationError on {request.method} {request.url.path}: {exc.errors()}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Response serialization error: {exc.errors()}"}
+    )
 
 # Enable CORS for local Vite development, Vercel production deployment & Android Capacitor
 allowed_origins_env = config.ALLOWED_ORIGINS_RAW

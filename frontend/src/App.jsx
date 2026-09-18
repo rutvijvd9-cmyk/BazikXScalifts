@@ -1429,7 +1429,7 @@ export default function App() {
       setSecurityActionModal((prev) => ({
         ...prev,
         loading: false,
-        error: err.response?.data?.detail || err.message || "Authorization failed."
+        error: err.response?.data?.detail || err.response?.data?.message || err.message || "Authorization failed."
       }));
     }
   };

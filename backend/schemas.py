@@ -140,12 +140,12 @@ class CampaignResponse(BaseModel):
     id: int
     title: str
     template_name: str
-    language: str
-    target_filter: str
-    status: str
-    total_recipients: int
-    successful_sends: int
-    failed_sends: int
+    language: Optional[str] = "en"
+    target_filter: Optional[str] = "ALL"
+    status: Optional[str] = "DRAFT"
+    total_recipients: Optional[int] = 0
+    successful_sends: Optional[int] = 0
+    failed_sends: Optional[int] = 0
     per_day_limit: Optional[int] = None
     scheduled_for: Optional[Union[datetime, str]] = None
     created_at: Optional[Union[datetime, str]] = None
