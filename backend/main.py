@@ -63,7 +63,7 @@ for stmt in migration_statements:
         logger.warning(f"Note on DB migration ({stmt}): {col_err}")
 
 # Rate Limiter setup
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+from rate_limiter import limiter
 app = FastAPI(
     title=config.APP_NAME,
     version="1.0.0"
