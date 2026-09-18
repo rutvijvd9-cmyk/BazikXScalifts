@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
 
 
@@ -147,7 +147,8 @@ class CampaignResponse(BaseModel):
     successful_sends: int
     failed_sends: int
     per_day_limit: Optional[int] = None
-    scheduled_for: Optional[str] = None
+    scheduled_for: Optional[Union[datetime, str]] = None
+    created_at: Optional[Union[datetime, str]] = None
 
     class Config:
         from_attributes = True

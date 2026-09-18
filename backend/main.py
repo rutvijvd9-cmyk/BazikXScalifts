@@ -44,6 +44,8 @@ try:
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code_expires TIMESTAMP;"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'agent';"))
         conn.execute(text("ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS per_day_limit INTEGER;"))
+        conn.execute(text("ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP;"))
+        conn.execute(text("ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
         conn.commit()
 except Exception as col_err:
     logger.warning(f"Note on 2FA column sync: {col_err}")
@@ -1105,7 +1107,11 @@ def list_campaigns(
     current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
-    return db.query(models.Campaign).order_by(models.Campaign.created_at.desc()).offset(skip).limit(limit).all()
+    try:
+        return db.query(models.Campaign).order_by(models.Campaign.created_at.desc()).offset(skip).limit(limit).all()
+    except Exception as e:
+        logger.error(f"Error fetching campaigns: {e}", exc_info=True)
+        return []
 
 
 @app.get("/api/campaigns/{campaign_id}", response_model=schemas.CampaignResponse)
@@ -1114,10 +1120,16 @@ def get_campaign(
     current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
-    campaign = db.query(models.Campaign).filter(models.Campaign.id == campaign_id).first()
-    if not campaign:
-        raise HTTPException(status_code=404, detail="Campaign not found")
-    return campaign
+    try:
+        campaign = db.query(models.Campaign).filter(models.Campaign.id == campaign_id).first()
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        return campaign
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching campaign {campaign_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error fetching campaign")
 
 
 # ==========================================
