@@ -15,10 +15,14 @@ from database import DATABASE_URL, SessionLocal
 import models
 from whatsapp_service import send_whatsapp_template
 
-logger = logging.getLogger("scheduler")
-scheduler = BackgroundScheduler(jobstores={"default": SQLAlchemyJobStore(url=DATABASE_URL)})
-
 import config
+from zoneinfo import ZoneInfo
+
+logger = logging.getLogger("scheduler")
+scheduler = BackgroundScheduler(
+    jobstores={"default": SQLAlchemyJobStore(url=DATABASE_URL)},
+    timezone=ZoneInfo(config.TIMEZONE)
+)
 
 WEBHOOK_SECRET = config.WEBHOOK_SECRET
 MANUBHAI_STORE_INACTIVE_FEED_URL = config.MANUBHAI_STORE_INACTIVE_FEED_URL

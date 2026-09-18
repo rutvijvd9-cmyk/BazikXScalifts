@@ -134,10 +134,14 @@ export function getTodayISTDateString() {
 export function formatScheduleDisplay(dateStr) {
   if (!dateStr) return null;
   let s = String(dateStr).trim();
+  let d;
   if (!s.endsWith("Z") && !s.includes("+") && !s.slice(10).includes("-")) {
-    s += "Z";
+    const clean = s.replace(" ", "T");
+    const iso = clean.length === 16 ? `${clean}:00+05:30` : `${clean}+05:30`;
+    d = new Date(iso);
+  } else {
+    d = new Date(s);
   }
-  const d = new Date(s);
   if (isNaN(d.getTime())) return { formattedDate: String(dateStr), countdown: "", isFuture: false };
 
   const formattedDate = d.toLocaleString("en-IN", {
@@ -148,7 +152,7 @@ export function formatScheduleDisplay(dateStr) {
     hour: "numeric",
     minute: "2-digit",
     hour12: true
-  });
+  }) + " IST";
 
   const now = Date.now();
   const diffMs = d.getTime() - now;
@@ -1407,6 +1411,11 @@ export default function App() {
       recipientCount: estCount,
       payloadData: {
         ...newCampaign,
+        scheduled_for: newCampaign.scheduled_for
+          ? (newCampaign.scheduled_for.includes("+") || newCampaign.scheduled_for.endsWith("Z")
+              ? newCampaign.scheduled_for
+              : (newCampaign.scheduled_for.length === 16 ? `${newCampaign.scheduled_for}:00+05:30` : `${newCampaign.scheduled_for}+05:30`))
+          : null,
         per_day_limit: parsedLimit && parsedLimit > 0 ? parsedLimit : null
       },
       password: "",
@@ -5590,9 +5599,14 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1 flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-gray-500" />
-                    Schedule for Later (Optional)
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-gray-500" />
+                      Schedule for Later
+                    </span>
+                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100/90 px-1.5 py-0.5 rounded border border-amber-200">
+                      IST (GMT+5:30)
+                    </span>
                   </label>
                   <input
                     type="datetime-local"
@@ -5608,7 +5622,7 @@ export default function App() {
                       </span>
                     </div>
                   ) : (
-                    <p className="text-[10px] text-gray-400 mt-0.5">Leave empty to send immediately</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">Indian Standard Time (IST). Leave empty to send immediately.</p>
                   )}
                 </div>
               </div>

@@ -1066,28 +1066,31 @@ def create_and_trigger_campaign(
         )
 
     scheduled_dt = None
+    scheduled_dt_tz = None
     if payload.scheduled_for:
         try:
             tz_kolkata = ZoneInfo(config.TIMEZONE)
             raw = str(payload.scheduled_for).strip()
             if raw.endswith("Z"):
                 dt_obj = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-                scheduled_dt = dt_obj.astimezone(timezone.utc).replace(tzinfo=None)
             elif "+" in raw or "-" in raw[10:]:
                 dt_obj = datetime.fromisoformat(raw)
-                scheduled_dt = dt_obj.astimezone(timezone.utc).replace(tzinfo=None)
             else:
                 clean_str = raw.replace("T", " ")
                 naive_dt = datetime.fromisoformat(clean_str)
-                localized_dt = naive_dt.replace(tzinfo=tz_kolkata)
-                scheduled_dt = localized_dt.astimezone(timezone.utc).replace(tzinfo=None)
+                dt_obj = naive_dt.replace(tzinfo=tz_kolkata)
+            
+            scheduled_dt_tz = dt_obj.astimezone(tz_kolkata)
+            # Store local Indian Standard Time in database
+            scheduled_dt = scheduled_dt_tz.replace(tzinfo=None)
         except Exception as parse_err:
             logger.warning(f"Failed to parse scheduled_for '{payload.scheduled_for}': {parse_err}")
             scheduled_dt = None
+            scheduled_dt_tz = None
 
     try:
-        now_utc = datetime.utcnow()
-        is_future = scheduled_dt and scheduled_dt > now_utc
+        now_ist = datetime.now(ZoneInfo(config.TIMEZONE))
+        is_future = scheduled_dt_tz and scheduled_dt_tz > now_ist
         campaign = models.Campaign(
             title=payload.title,
             template_name=payload.template_name,
@@ -1102,16 +1105,16 @@ def create_and_trigger_campaign(
         db.refresh(campaign)
 
         if is_future:
-            # Schedule future execution
+            # Schedule future execution with exact Indian Standard Time (IST)
             job_id = f"campaign_{campaign.id}"
             scheduler.add_job(
                 func=execute_campaign_broadcast,
-                trigger=DateTrigger(run_date=scheduled_dt),
+                trigger=DateTrigger(run_date=scheduled_dt_tz, timezone=ZoneInfo(config.TIMEZONE)),
                 args=[campaign.id, payload.custom_phones],
                 id=job_id,
                 replace_existing=True
             )
-            logger.info(f"📅 Campaign {campaign.id} scheduled to execute at {scheduled_dt} UTC (Indian time: {scheduled_dt + timedelta(hours=5, minutes=30)})")
+            logger.info(f"📅 Campaign {campaign.id} scheduled to execute at {scheduled_dt_tz} (IST)")
         else:
             # Trigger campaign broadcast asynchronously in background to prevent HTTP 500 / timeout
             logger.info(f"🚀 Queueing immediate broadcast for Campaign #{campaign.id} via BackgroundTasks")
