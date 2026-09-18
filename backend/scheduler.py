@@ -411,6 +411,7 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
 
         success_count = 0
         fail_count = 0
+        last_failure_reason = ""
 
         import re
         tmpl = db.query(models.Template).filter(models.Template.template_name == campaign.template_name).first()
@@ -430,63 +431,69 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
             batch_start_time = time.time()
 
             for phone in batch:
-                contact = db.query(models.Contact).filter(models.Contact.phone == phone).first()
-                customer_name = contact.name if contact and contact.name else "Valued Customer"
+                try:
+                    contact = db.query(models.Contact).filter(models.Contact.phone == phone).first()
+                    customer_name = contact.name if contact and contact.name else "Valued Customer"
 
-                # Build parameters: use template-level mappings first, then positional fallback
-                params = {}
-                if tmpl and tmpl.variable_mappings and isinstance(tmpl.variable_mappings, dict):
-                    cart_val_str = str(contact.total_spent if contact else 0)
-                    items_summary = campaign.title
-                    for idx_str, m_def in tmpl.variable_mappings.items():
-                        if not isinstance(m_def, dict):
-                            continue
-                        m_type = m_def.get("type")
-                        m_val = m_def.get("value")
-                        if m_type == "contact_field":
-                            if m_val == "phone":
-                                val_str = phone
-                            elif m_val == "city":
-                                val_str = contact.city if contact and contact.city else "Ahmedabad"
-                            elif m_val == "total_orders":
-                                val_str = str(contact.total_orders) if contact else "1"
-                            elif m_val == "last_order_date":
-                                val_str = contact.last_order_date.strftime("%d/%m/%Y") if contact and contact.last_order_date else "Recently"
+                    # Build parameters: use template-level mappings first, then positional fallback
+                    params = {}
+                    if tmpl and tmpl.variable_mappings and isinstance(tmpl.variable_mappings, dict):
+                        cart_val_str = str(getattr(contact, "total_spent", 0) or 0)
+                        items_summary = campaign.title
+                        for idx_str, m_def in tmpl.variable_mappings.items():
+                            if not isinstance(m_def, dict):
+                                continue
+                            m_type = m_def.get("type")
+                            m_val = m_def.get("value")
+                            if m_type == "contact_field":
+                                if m_val == "phone":
+                                    val_str = phone
+                                elif m_val == "city":
+                                    val_str = contact.city if contact and contact.city else "Ahmedabad"
+                                elif m_val == "total_orders":
+                                    val_str = str(contact.total_orders) if contact else "1"
+                                elif m_val == "last_order_date":
+                                    val_str = contact.last_order_date.strftime("%d/%m/%Y") if contact and contact.last_order_date else "Recently"
+                                else:
+                                    val_str = customer_name
+                            elif m_type == "cart_event":
+                                val_str = cart_val_str if m_val == "cart_value" else items_summary
+                            elif m_type == "coupon":
+                                val_str = config.DEFAULT_COUPON_CODE if hasattr(config, "DEFAULT_COUPON_CODE") else "MANU10"
+                            elif m_type == "static":
+                                val_str = str(m_val) if m_val else ""
                             else:
                                 val_str = customer_name
-                        elif m_type == "cart_event":
-                            val_str = cart_val_str if m_val == "cart_value" else items_summary
-                        elif m_type == "coupon":
-                            val_str = config.DEFAULT_COUPON_CODE if hasattr(config, "DEFAULT_COUPON_CODE") else "MANU10"
-                        elif m_type == "static":
-                            val_str = str(m_val) if m_val else ""
-                        else:
-                            val_str = customer_name
-                        params[f"param_{idx_str}"] = val_str
-                else:
-                    # Positional fallback if template has no configured mappings
-                    fallback_values = [
-                        customer_name,
-                        campaign.title,
-                        config.STORE_SUPPORT_PHONE or phone,
-                        f"{config.DEFAULT_DISCOUNT_PERCENT}% OFF",
-                        config.STORE_LOCATION or config.BRAND_NAME,
-                        config.BRAND_NAME
-                    ]
-                    for idx in range(1, placeholder_count + 1):
-                        params[f"param_{idx}"] = fallback_values[(idx - 1) % len(fallback_values)]
+                            params[f"param_{idx_str}"] = val_str
+                    else:
+                        # Positional fallback if template has no configured mappings
+                        fallback_values = [
+                            customer_name,
+                            campaign.title,
+                            config.STORE_SUPPORT_PHONE or phone,
+                            f"{config.DEFAULT_DISCOUNT_PERCENT}% OFF",
+                            config.STORE_LOCATION or config.BRAND_NAME,
+                            config.BRAND_NAME
+                        ]
+                        for idx in range(1, placeholder_count + 1):
+                            params[f"param_{idx}"] = fallback_values[(idx - 1) % len(fallback_values)]
 
-                res = send_whatsapp_template(
-                    recipient_phone=phone,
-                    template_name=campaign.template_name,
-                    language=campaign.language,
-                    parameters=params
-                )
+                    res = send_whatsapp_template(
+                        recipient_phone=phone,
+                        template_name=campaign.template_name,
+                        language=campaign.language,
+                        parameters=params
+                    )
 
-                if res.get("status") in ["success", "success_simulated"]:
-                    success_count += 1
-                else:
+                    if res.get("status") in ["success", "success_simulated"]:
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                        last_failure_reason = res.get("error") or res.get("reason") or res.get("message") or "Meta send rejected"
+                except Exception as rec_err:
+                    logger.error(f"Error processing recipient {phone} in campaign {campaign_id}: {rec_err}", exc_info=True)
                     fail_count += 1
+                    last_failure_reason = str(rec_err)
 
             # Update live campaign progress in DB after each batch so UI displays real-time progress
             campaign.successful_sends = success_count
@@ -502,14 +509,21 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
 
         campaign.successful_sends = success_count
         campaign.failed_sends = fail_count
-        campaign.status = "COMPLETED"
+        if fail_count > 0 and success_count == 0:
+            campaign.status = "FAILED"
+            campaign.error_message = last_failure_reason or "All recipient deliveries failed"
+        else:
+            campaign.status = "COMPLETED"
+            if fail_count > 0:
+                campaign.error_message = f"Partially completed: {success_count} sent, {fail_count} failed"
         db.commit()
-        logger.info(f"🏁 Campaign {campaign_id} COMPLETED: {success_count} sent, {fail_count} failed/blocked.")
+        logger.info(f"🏁 Campaign {campaign_id} {campaign.status}: {success_count} sent, {fail_count} failed. Note: {campaign.error_message}")
 
     except Exception as e:
-        logger.error(f"Error executing campaign {campaign_id}: {e}")
+        logger.error(f"Error executing campaign {campaign_id}: {e}", exc_info=True)
         if campaign:
             campaign.status = "FAILED"
+            campaign.error_message = str(e)
             db.commit()
     finally:
         db.close()

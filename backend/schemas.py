@@ -148,6 +148,7 @@ class CampaignResponse(BaseModel):
     failed_sends: Optional[int] = 0
     per_day_limit: Optional[int] = None
     scheduled_for: Optional[Union[datetime, str]] = None
+    error_message: Optional[str] = None
     created_at: Optional[Union[datetime, str]] = None
 
     class Config:

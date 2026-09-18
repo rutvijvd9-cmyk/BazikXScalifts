@@ -47,6 +47,7 @@ migration_statements = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'agent';",
     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS per_day_limit INTEGER;",
     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP;",
+    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS error_message TEXT;",
     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"
 ]
 for stmt in migration_statements:

@@ -53,6 +53,14 @@ def send_whatsapp_template(
     """
     db = SessionLocal()
     try:
+        # Normalize language code for Meta API (e.g. EN_US -> en_US)
+        if language:
+            parts = language.split("_")
+            if len(parts) == 2:
+                language = f"{parts[0].lower()}_{parts[1].upper()}"
+            else:
+                language = language.lower()
+
         # Resolve exact approved template language from DB if not explicitly non-default
         if not language or language == "en":
             tmpl_record = db.query(models.Template).filter(models.Template.template_name == template_name).first()
@@ -63,12 +71,36 @@ def send_whatsapp_template(
         is_opted_out = db.query(models.OptOut).filter(models.OptOut.phone == recipient_phone).first()
         if is_opted_out:
             logger.info(f"🚫 [Opt-Out Blocked] Cannot send message to {recipient_phone} (User opted out).")
+            try:
+                log_entry = models.MessageLog(
+                    recipient_phone=recipient_phone,
+                    template_name=template_name,
+                    language=language,
+                    status="FAILED",
+                    error_message="Customer opted out / on DND list"
+                )
+                db.add(log_entry)
+                db.commit()
+            except Exception:
+                pass
             return {"status": "blocked", "reason": "Customer opted out / on DND list"}
 
         # Guardrail 2: Hard Daily Spend Limit
         under_limit, count_today = check_daily_limit(db)
         if not under_limit:
             logger.error(f"🚨 [BUDGET GUARD] Daily send limit ({DAILY_MESSAGE_SEND_LIMIT}) reached! Current today: {count_today}. Message blocked to protect spend.")
+            try:
+                log_entry = models.MessageLog(
+                    recipient_phone=recipient_phone,
+                    template_name=template_name,
+                    language=language,
+                    status="FAILED",
+                    error_message=f"Daily budget limit reached ({count_today}/{DAILY_MESSAGE_SEND_LIMIT} sent today)"
+                )
+                db.add(log_entry)
+                db.commit()
+            except Exception:
+                pass
             return {
                 "status": "blocked",
                 "reason": f"Daily budget ceiling reached ({count_today}/{DAILY_MESSAGE_SEND_LIMIT} messages sent today)."
@@ -209,7 +241,19 @@ def send_whatsapp_template(
                 return {"status": "failed", "error": error_info}
 
     except Exception as e:
-        logger.error(f"Error in send_whatsapp_template: {e}")
+        logger.error(f"Error in send_whatsapp_template: {e}", exc_info=True)
+        try:
+            log_entry = models.MessageLog(
+                recipient_phone=recipient_phone,
+                template_name=template_name,
+                language=language,
+                status="FAILED",
+                error_message=str(e)
+            )
+            db.add(log_entry)
+            db.commit()
+        except Exception:
+            pass
         return {"status": "error", "message": str(e)}
     finally:
         db.close()

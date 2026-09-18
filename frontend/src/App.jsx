@@ -3245,10 +3245,20 @@ export default function App() {
                               </span>
                             )}
                             {c.status === "FAILED" && (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
-                                <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
-                                FAILED
-                              </span>
+                              <div>
+                                <span
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200 cursor-help"
+                                  title={c.error_message || "Campaign failed during execution"}
+                                >
+                                  <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
+                                  FAILED
+                                </span>
+                                {c.error_message && (
+                                  <p className="text-[10px] text-red-600 font-mono mt-1 max-w-[220px] line-clamp-2" title={c.error_message}>
+                                    {c.error_message}
+                                  </p>
+                                )}
+                              </div>
                             )}
                             {!["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "FAILED"].includes(c.status) && (
                               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200">
@@ -4345,6 +4355,8 @@ export default function App() {
                           <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                             log.status === "FAILED"
                               ? "bg-red-50 text-red-700 border border-red-200"
+                              : log.status.startsWith("BLOCKED")
+                              ? "bg-purple-50 text-purple-700 border border-purple-200"
                               : log.status === "SENT_SIMULATED"
                               ? "bg-amber-50 text-amber-700 border border-amber-200"
                               : "bg-emerald-50 text-[#10B981] border border-emerald-200"
