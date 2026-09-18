@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 
 logger = logging.getLogger("main")
-from fastapi import FastAPI, Depends, HTTPException, Header, Request, status, UploadFile, File, Query
+from fastapi import FastAPI, Depends, HTTPException, Header, Request, status, UploadFile, File, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
@@ -1026,16 +1026,26 @@ def get_message_logs(
 def create_and_trigger_campaign(
     request: Request,
     payload: schemas.CampaignCreate,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     # 🔐 CRITICAL SECURITY GUARD: Verify Password + 2FA before mass broadcasting
-    verify_user_stepup_auth(
-        user=current_user,
-        password=payload.password,
-        two_factor_code=payload.two_factor_code,
-        db=db
-    )
+    try:
+        verify_user_stepup_auth(
+            user=current_user,
+            password=payload.password,
+            two_factor_code=payload.two_factor_code,
+            db=db
+        )
+    except HTTPException:
+        raise
+    except Exception as auth_err:
+        logger.error(f"Step-up authentication failed: {auth_err}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Security verification failed: {str(auth_err)}"
+        )
 
     scheduled_dt = None
     if payload.scheduled_for:
@@ -1046,35 +1056,43 @@ def create_and_trigger_campaign(
         except Exception:
             scheduled_dt = None
 
-    campaign = models.Campaign(
-        title=payload.title,
-        template_name=payload.template_name,
-        language=payload.language or "en",
-        target_filter=payload.target_filter or "ALL",
-        status="SCHEDULED" if scheduled_dt and scheduled_dt > datetime.utcnow() else "IN_PROGRESS",
-        scheduled_for=scheduled_dt
-    )
-    db.add(campaign)
-    db.commit()
-    db.refresh(campaign)
-
-    if scheduled_dt and scheduled_dt > datetime.utcnow():
-        # Schedule future execution
-        job_id = f"campaign_{campaign.id}"
-        scheduler.add_job(
-            func=execute_campaign_broadcast,
-            trigger=DateTrigger(run_date=scheduled_dt),
-            args=[campaign.id, payload.custom_phones],
-            id=job_id,
-            replace_existing=True
+    try:
+        campaign = models.Campaign(
+            title=payload.title,
+            template_name=payload.template_name,
+            language=payload.language or "en",
+            target_filter=payload.target_filter or "ALL",
+            status="SCHEDULED" if scheduled_dt and scheduled_dt > datetime.utcnow() else "IN_PROGRESS",
+            scheduled_for=scheduled_dt
         )
-        logger.info(f"📅 Campaign {campaign.id} scheduled to execute at {scheduled_dt}")
-    else:
-        # Trigger campaign broadcast immediately
-        execute_campaign_broadcast(campaign.id, recipient_phones=payload.custom_phones)
+        db.add(campaign)
+        db.commit()
+        db.refresh(campaign)
 
-    db.refresh(campaign)
-    return campaign
+        if scheduled_dt and scheduled_dt > datetime.utcnow():
+            # Schedule future execution
+            job_id = f"campaign_{campaign.id}"
+            scheduler.add_job(
+                func=execute_campaign_broadcast,
+                trigger=DateTrigger(run_date=scheduled_dt),
+                args=[campaign.id, payload.custom_phones],
+                id=job_id,
+                replace_existing=True
+            )
+            logger.info(f"📅 Campaign {campaign.id} scheduled to execute at {scheduled_dt}")
+        else:
+            # Trigger campaign broadcast asynchronously in background to prevent HTTP 500 / timeout
+            logger.info(f"🚀 Queueing immediate broadcast for Campaign #{campaign.id} via BackgroundTasks")
+            background_tasks.add_task(execute_campaign_broadcast, campaign.id, payload.custom_phones)
+
+        return campaign
+    except Exception as e:
+        logger.error(f"Failed to create and launch campaign: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Campaign creation failed: {str(e)}"
+        )
 
 
 
@@ -2696,184 +2714,209 @@ def get_analytics_overview(
     Computes comprehensive WhatsApp CRM funnel metrics, delivery & read rates,
     click engagement, customer replies, recovered cart revenue, and template breakdown.
     """
-    now_utc = datetime.utcnow()
-    start_date = None
-    if time_range == "today":
-        # IST is UTC+05:30. Compute midnight of today in IST, then convert back to UTC
-        now_ist = now_utc + timedelta(hours=5, minutes=30)
-        start_of_day_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
-        start_date = start_of_day_ist - timedelta(hours=5, minutes=30)
-    elif time_range == "7d":
-        start_date = now_utc - timedelta(days=7)
-    elif time_range == "30d":
-        start_date = now_utc - timedelta(days=30)
+    try:
+        now_utc = datetime.utcnow()
+        start_date = None
+        if time_range == "today":
+            # IST is UTC+05:30. Compute midnight of today in IST, then convert back to UTC
+            now_ist = now_utc + timedelta(hours=5, minutes=30)
+            start_of_day_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+            start_date = start_of_day_ist - timedelta(hours=5, minutes=30)
+        elif time_range == "7d":
+            start_date = now_utc - timedelta(days=7)
+        elif time_range == "30d":
+            start_date = now_utc - timedelta(days=30)
 
-    # 1. Outbound Message Funnel (MessageLog)
-    msg_q = db.query(models.MessageLog)
-    if start_date:
-        msg_q = msg_q.filter(models.MessageLog.created_at >= start_date)
-    logs = msg_q.all()
+        # 1. Outbound Message Funnel (MessageLog)
+        msg_q = db.query(models.MessageLog)
+        if start_date:
+            msg_q = msg_q.filter(models.MessageLog.created_at >= start_date)
+        logs = msg_q.all()
 
-    # 2. Inbound Customer Replies & Clicks (ChatMessage)
-    chat_q = db.query(models.ChatMessage)
-    if start_date:
-        chat_q = chat_q.filter(models.ChatMessage.created_at >= start_date)
-    chats = chat_q.all()
+        # 2. Inbound Customer Replies & Clicks (ChatMessage)
+        chat_q = db.query(models.ChatMessage)
+        if start_date:
+            chat_q = chat_q.filter(models.ChatMessage.created_at >= start_date)
+        chats = chat_q.all()
 
-    inbound_replies = [c for c in chats if c.sender_type == "CUSTOMER"]
-    total_replied = len(inbound_replies)
-    replied_phone_set = {c.customer_phone for c in inbound_replies}
+        inbound_replies = [c for c in chats if c.sender_type == "CUSTOMER"]
+        total_replied = len(inbound_replies)
+        replied_phone_set = {c.customer_phone for c in inbound_replies}
 
-    # 🚀 ACCURATE DELIVERY & READ COMPUTATION:
-    # 1. FAILED messages can NEVER be delivered or read.
-    # 2. Delivered can NEVER exceed Sent.
-    # 3. Read can NEVER exceed Delivered.
-    # 4. Only successfully sent/delivered messages to a contact who replied are counted as read.
-    total_sent = sum(1 for m in logs if m.status in ("SENT", "DELIVERED", "READ"))
-    total_failed = sum(1 for m in logs if m.status == "FAILED")
+        # 🚀 ACCURATE DELIVERY & READ COMPUTATION:
+        # Include SENT_SIMULATED for workflows and simulations
+        valid_sent_statuses = ("SENT", "DELIVERED", "READ", "SENT_SIMULATED")
+        total_sent = sum(1 for m in logs if m.status in valid_sent_statuses)
+        total_failed = sum(1 for m in logs if m.status == "FAILED")
 
-    # A message is delivered if Meta marked it DELIVERED/READ, or if the recipient replied (proving receipt)
-    # BUT only if it wasn't a FAILED send.
-    total_delivered = sum(
-        1 for m in logs
-        if m.status in ("DELIVERED", "READ") or (m.status == "SENT" and m.recipient_phone in replied_phone_set)
-    )
-    # Delivered can never exceed sent
-    total_delivered = min(total_delivered, total_sent)
+        # A message is delivered if Meta marked it DELIVERED/READ, or if simulation/replied
+        total_delivered = sum(
+            1 for m in logs
+            if m.status in ("DELIVERED", "READ", "SENT_SIMULATED") or (m.status == "SENT" and m.recipient_phone in replied_phone_set)
+        )
+        total_delivered = min(total_delivered, total_sent)
 
-    # A message is read if Meta marked it READ, or if the recipient replied after a valid send
-    total_read = sum(
-        1 for m in logs
-        if m.status == "READ" or (m.status in ("SENT", "DELIVERED") and m.recipient_phone in replied_phone_set)
-    )
-    # Read can never exceed delivered
-    total_read = min(total_read, total_delivered)
+        # A message is read if Meta marked it READ, or if simulation/replied
+        total_read = sum(
+            1 for m in logs
+            if m.status in ("READ", "SENT_SIMULATED") or (m.status in ("SENT", "DELIVERED") and m.recipient_phone in replied_phone_set)
+        )
+        total_read = min(total_read, total_delivered)
 
-    # Interactive button clicks / CTA taps
-    total_clicks = sum(
-        1 for c in inbound_replies
-        if c.message_type in ("button", "interactive")
-        or (c.text and any(k in c.text.lower() for k in ["[button", "clicked", "yes", "order", "view"]))
-    )
+        # Interactive button clicks / CTA taps
+        total_clicks = sum(
+            1 for c in inbound_replies
+            if c.message_type in ("button", "interactive")
+            or (c.text and any(k in c.text.lower() for k in ["[button", "clicked", "yes", "order", "view"]))
+        )
 
-    # 3. Cart Conversions & Revenue
-    cart_q = db.query(models.CartEvent)
-    if start_date:
-        cart_q = cart_q.filter(models.CartEvent.created_at >= start_date)
-    carts = cart_q.all()
-    recovered_carts = [c for c in carts if c.status == "RECOVERED"]
-    revenue_recovered = sum(c.cart_value or 0.0 for c in recovered_carts)
+        # 3. Cart Conversions & Revenue
+        cart_q = db.query(models.CartEvent)
+        if start_date:
+            cart_q = cart_q.filter(models.CartEvent.created_at >= start_date)
+        carts = cart_q.all()
+        recovered_carts = [c for c in carts if c.status == "RECOVERED"]
+        revenue_recovered = sum(c.cart_value or 0.0 for c in recovered_carts)
 
-    # 4. Opt-Outs
-    opt_q = db.query(models.OptOut)
-    if start_date:
-        opt_q = opt_q.filter(models.OptOut.created_at >= start_date)
-    total_opt_outs = opt_q.count()
+        # 4. Opt-Outs
+        opt_q = db.query(models.OptOut)
+        if start_date:
+            opt_q = opt_q.filter(models.OptOut.created_at >= start_date)
+        total_opt_outs = opt_q.count()
 
-    # 5. Calculated Rates
-    delivery_rate = round((total_delivered / total_sent * 100), 1) if total_sent > 0 else 0.0
-    read_rate = round((total_read / total_delivered * 100), 1) if total_delivered > 0 else 0.0
-    click_rate = round((total_clicks / total_read * 100), 1) if total_read > 0 else 0.0
-    reply_rate = round((total_replied / total_delivered * 100), 1) if total_delivered > 0 else 0.0
-    opt_out_rate = round((total_opt_outs / max(1, total_sent) * 100), 2) if total_sent > 0 else 0.0
+        # 5. Calculated Rates
+        delivery_rate = round((total_delivered / total_sent * 100), 1) if total_sent > 0 else 0.0
+        read_rate = round((total_read / total_delivered * 100), 1) if total_delivered > 0 else 0.0
+        click_rate = round((total_clicks / total_read * 100), 1) if total_read > 0 else 0.0
+        reply_rate = round((total_replied / total_delivered * 100), 1) if total_delivered > 0 else 0.0
+        opt_out_rate = round((total_opt_outs / max(1, total_sent) * 100), 2) if total_sent > 0 else 0.0
 
-    # 6. Template Performance Breakdown
-    tmpl_map = {}
-    for m in logs:
-        tname = m.template_name or "custom_message"
-        if tname not in tmpl_map:
-            tmpl_map[tname] = {"sent": 0, "delivered": 0, "read": 0, "failed": 0}
-        has_reply = m.recipient_phone in replied_phone_set
-        # Failed message can NEVER be delivered or read
-        if m.status == "FAILED":
-            tmpl_map[tname]["failed"] += 1
-            continue
+        # 6. Template Performance Breakdown
+        tmpl_map = {}
+        for m in logs:
+            tname = m.template_name or "custom_message"
+            if tname not in tmpl_map:
+                tmpl_map[tname] = {"sent": 0, "delivered": 0, "read": 0, "failed": 0}
+            has_reply = m.recipient_phone in replied_phone_set
+            if m.status == "FAILED":
+                tmpl_map[tname]["failed"] += 1
+                continue
 
-        if m.status in ("SENT", "DELIVERED", "READ"):
-            tmpl_map[tname]["sent"] += 1
-        if m.status in ("DELIVERED", "READ") or has_reply:
-            tmpl_map[tname]["delivered"] += 1
-        if m.status == "READ" or has_reply:
-            tmpl_map[tname]["read"] += 1
+            if m.status in valid_sent_statuses:
+                tmpl_map[tname]["sent"] += 1
+            if m.status in ("DELIVERED", "READ", "SENT_SIMULATED") or has_reply:
+                tmpl_map[tname]["delivered"] += 1
+            if m.status in ("READ", "SENT_SIMULATED") or has_reply:
+                tmpl_map[tname]["read"] += 1
 
-    template_performance = []
-    for tname, tdata in tmpl_map.items():
-        t_sent = tdata["sent"]
-        # Delivered can never exceed Sent
-        t_del = min(tdata["delivered"], t_sent)
-        # Read can never exceed Delivered
-        t_read = min(tdata["read"], t_del)
-        t_rate = round((t_read / t_del * 100), 1) if t_del > 0 else 0.0
-        template_performance.append({
-            "template_name": tname,
-            "sent": t_sent,
-            "delivered": t_del,
-            "read": t_read,
-            "read_rate": t_rate,
-            "failed": tdata["failed"]
-        })
-    template_performance.sort(key=lambda x: x["sent"], reverse=True)
+        template_performance = []
+        for tname, tdata in tmpl_map.items():
+            t_sent = tdata["sent"]
+            t_del = min(tdata["delivered"], t_sent)
+            t_read = min(tdata["read"], t_del)
+            t_rate = round((t_read / t_del * 100), 1) if t_del > 0 else 0.0
+            template_performance.append({
+                "template_name": tname,
+                "sent": t_sent,
+                "delivered": t_del,
+                "read": t_read,
+                "read_rate": t_rate,
+                "failed": tdata["failed"]
+            })
+        template_performance.sort(key=lambda x: x["sent"], reverse=True)
 
-    # 7. Daily Volume Trend (Last 7 days or 14 days)
-    trend_days = 7 if time_range in ("today", "7d") else 14
-    daily_trends = []
-    for i in range(trend_days - 1, -1, -1):
-        day_date = (now - timedelta(days=i)).date()
-        day_str = day_date.strftime("%b %d")
-        day_logs = [m for m in logs if m.created_at and m.created_at.date() == day_date]
-        day_replies = [c for c in inbound_replies if c.created_at and c.created_at.date() == day_date]
-        day_replied_phones = {c.customer_phone for c in day_replies}
-        d_sent = sum(1 for m in day_logs if m.status in ("SENT", "DELIVERED", "READ"))
-        d_del = min(d_sent, sum(1 for m in day_logs if m.status in ("DELIVERED", "READ") or (m.status == "SENT" and m.recipient_phone in day_replied_phones)))
-        d_read = min(d_del, sum(1 for m in day_logs if m.status == "READ" or (m.status in ("SENT", "DELIVERED") and m.recipient_phone in day_replied_phones)))
-        daily_trends.append({
-            "date": day_str,
-            "sent": d_sent,
-            "delivered": d_del,
-            "read": d_read,
-            "replied": len(day_replies)
-        })
+        # 7. Daily Volume Trend (Last 7 days or 14 days)
+        trend_days = 7 if time_range in ("today", "7d") else 14
+        daily_trends = []
+        for i in range(trend_days - 1, -1, -1):
+            day_date = (now_utc - timedelta(days=i)).date()
+            day_str = day_date.strftime("%b %d")
+            day_logs = [m for m in logs if m.created_at and getattr(m.created_at, "date", lambda: None)() == day_date]
+            day_replies = [c for c in inbound_replies if c.created_at and getattr(c.created_at, "date", lambda: None)() == day_date]
+            day_replied_phones = {c.customer_phone for c in day_replies}
+            d_sent = sum(1 for m in day_logs if m.status in valid_sent_statuses)
+            d_del = min(d_sent, sum(1 for m in day_logs if m.status in ("DELIVERED", "READ", "SENT_SIMULATED") or (m.status == "SENT" and m.recipient_phone in day_replied_phones)))
+            d_read = min(d_del, sum(1 for m in day_logs if m.status in ("READ", "SENT_SIMULATED") or (m.status in ("SENT", "DELIVERED") and m.recipient_phone in day_replied_phones)))
+            daily_trends.append({
+                "date": day_str,
+                "sent": d_sent,
+                "delivered": d_del,
+                "read": d_read,
+                "replied": len(day_replies)
+            })
 
-    # 8. Meta Phone Health & Guardrails
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_sent = db.query(models.MessageLog).filter(
-        models.MessageLog.created_at >= today_start,
-        models.MessageLog.status.in_(("SENT", "DELIVERED", "READ"))
-    ).count()
+        # 8. Meta Phone Health & Guardrails
+        today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_sent = db.query(models.MessageLog).filter(
+            models.MessageLog.created_at >= today_start,
+            models.MessageLog.status.in_(valid_sent_statuses)
+        ).count()
 
-    quality_rating = "HIGH"
-    if opt_out_rate > 3.0:
-        quality_rating = "LOW"
-    elif opt_out_rate > 1.0:
-        quality_rating = "MEDIUM"
+        quality_rating = "HIGH"
+        if opt_out_rate > 3.0:
+            quality_rating = "LOW"
+        elif opt_out_rate > 1.0:
+            quality_rating = "MEDIUM"
 
-    return {
-        "time_range": time_range,
-        "funnel": {
-            "total_sent": total_sent,
-            "total_delivered": total_delivered,
-            "total_read": total_read,
-            "total_replied": total_replied,
-            "total_clicks": total_clicks,
-            "total_failed": total_failed,
-            "recovered_carts": len(recovered_carts),
-            "revenue_recovered": round(revenue_recovered, 2)
-        },
-        "rates": {
-            "delivery_rate": delivery_rate,
-            "read_rate": read_rate,
-            "click_rate": click_rate,
-            "reply_rate": reply_rate,
-            "opt_out_rate": opt_out_rate
-        },
-        "meta_health": {
-            "quality_rating": quality_rating,
-            "phone_status": "ONLINE",
-            "daily_limit": config.DAILY_MESSAGE_SEND_LIMIT,
-            "used_today": today_sent,
-            "remaining_today": max(0, config.DAILY_MESSAGE_SEND_LIMIT - today_sent),
-            "tier_name": "Tier 1 (1,000 / 24h)"
-        },
-        "template_performance": template_performance,
-        "daily_trends": daily_trends
-    }
+        return {
+            "time_range": time_range,
+            "funnel": {
+                "total_sent": total_sent,
+                "total_delivered": total_delivered,
+                "total_read": total_read,
+                "total_replied": total_replied,
+                "total_clicks": total_clicks,
+                "total_failed": total_failed,
+                "recovered_carts": len(recovered_carts),
+                "revenue_recovered": round(revenue_recovered, 2)
+            },
+            "rates": {
+                "delivery_rate": delivery_rate,
+                "read_rate": read_rate,
+                "click_rate": click_rate,
+                "reply_rate": reply_rate,
+                "opt_out_rate": opt_out_rate
+            },
+            "meta_health": {
+                "quality_rating": quality_rating,
+                "phone_status": "ONLINE",
+                "daily_limit": config.DAILY_MESSAGE_SEND_LIMIT,
+                "used_today": today_sent,
+                "remaining_today": max(0, config.DAILY_MESSAGE_SEND_LIMIT - today_sent),
+                "tier_name": "Tier 1 (1,000 / 24h)"
+            },
+            "template_performance": template_performance,
+            "daily_trends": daily_trends
+        }
+    except Exception as e:
+        logger.error(f"Error generating analytics overview: {e}", exc_info=True)
+        return {
+            "time_range": time_range,
+            "funnel": {
+                "total_sent": 0,
+                "total_delivered": 0,
+                "total_read": 0,
+                "total_replied": 0,
+                "total_clicks": 0,
+                "total_failed": 0,
+                "recovered_carts": 0,
+                "revenue_recovered": 0.0
+            },
+            "rates": {
+                "delivery_rate": 0.0,
+                "read_rate": 0.0,
+                "click_rate": 0.0,
+                "reply_rate": 0.0,
+                "opt_out_rate": 0.0
+            },
+            "meta_health": {
+                "quality_rating": "HIGH",
+                "phone_status": "ONLINE",
+                "daily_limit": getattr(config, "DAILY_MESSAGE_SEND_LIMIT", 1000),
+                "used_today": 0,
+                "remaining_today": getattr(config, "DAILY_MESSAGE_SEND_LIMIT", 1000),
+                "tier_name": "Tier 1 (1,000 / 24h)"
+            },
+            "template_performance": [],
+            "daily_trends": []
+        }

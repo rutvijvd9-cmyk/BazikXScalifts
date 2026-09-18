@@ -30,7 +30,8 @@ import {
   Calendar,
   CloudRain,
   UserPlus,
-  Package
+  Package,
+  Search
 } from "lucide-react";
 
 export default function FlowchartCanvas({
@@ -56,6 +57,7 @@ export default function FlowchartCanvas({
   const [simCartValue, setSimCartValue] = useState(650);
   const [simLog, setSimLog] = useState([]);
   const [simStepIndex, setSimStepIndex] = useState(-1);
+  const [templateSearchQuery, setTemplateSearchQuery] = useState("");
 
   const selectedNode = (flow.nodes || []).find((n) => n.id === selectedNodeId);
 
@@ -1172,42 +1174,98 @@ export default function FlowchartCanvas({
             {(selectedNode.type === "whatsapp_message" ||
               selectedNode.type === "action_whatsapp") && (
               <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="font-bold text-gray-700">WhatsApp Template</label>
-                  <select
-                    value={
-                      selectedNode.data?.template_name ||
-                      availableTemplates[0]?.template_name ||
-                      "abandoned_cart_recovery"
-                    }
-                    onChange={(e) =>
-                      updateSelectedNode("template_name", e.target.value)
-                    }
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-white focus:border-[#25D366] outline-none font-medium"
-                  >
-                    {availableTemplates.length > 0 ? (
-                      availableTemplates.map((t) => (
-                        <option key={t.id || t.template_name} value={t.template_name}>
-                          {t.template_name} ({t.language})
-                        </option>
-                      ))
-                    ) : (
-                      <>
-                        <option value="abandoned_cart_recovery">
-                          abandoned_cart_recovery (Marketing)
-                        </option>
-                        <option value="reengagement_30_days">
-                          reengagement_30_days (Winback)
-                        </option>
-                        <option value="festive_promo_offer">
-                          festive_promo_offer (Festivals)
-                        </option>
-                        <option value="vip_exclusive_offer">
-                          vip_exclusive_offer (VIP)
-                        </option>
-                      </>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-gray-700 text-sm">WhatsApp Template</label>
+                    <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                      {availableTemplates.length} Available
+                    </span>
+                  </div>
+
+                  {/* Search Input for Templates */}
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      placeholder="Search templates by name, category..."
+                      value={templateSearchQuery}
+                      onChange={(e) => setTemplateSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-50 focus:bg-white focus:border-[#25D366] outline-none transition-colors"
+                    />
+                    {templateSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setTemplateSearchQuery("")}
+                        className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 text-xs"
+                      >
+                        ✕
+                      </button>
                     )}
-                  </select>
+                  </div>
+
+                  {/* Template Select Dropdown */}
+                  {(() => {
+                    const currentVal = selectedNode.data?.template_name || availableTemplates[0]?.template_name || "abandoned_cart_recovery";
+                    const filtered = availableTemplates.filter((t) => {
+                      if (!templateSearchQuery) return true;
+                      const q = templateSearchQuery.toLowerCase();
+                      return (
+                        (t.template_name && t.template_name.toLowerCase().includes(q)) ||
+                        (t.category && t.category.toLowerCase().includes(q)) ||
+                        (t.language && t.language.toLowerCase().includes(q))
+                      );
+                    });
+
+                    return (
+                      <div className="space-y-1">
+                        <select
+                          value={currentVal}
+                          onChange={(e) => updateSelectedNode("template_name", e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-white focus:border-[#25D366] outline-none font-medium text-sm text-gray-800"
+                          size={templateSearchQuery ? Math.min(6, Math.max(2, filtered.length + 1)) : 1}
+                        >
+                          {/* Always keep currently selected visible if not in filter */}
+                          {templateSearchQuery && !filtered.some((t) => t.template_name === currentVal) && (
+                            <option value={currentVal}>
+                              ✓ Selected: {currentVal}
+                            </option>
+                          )}
+
+                          {filtered.length > 0 ? (
+                            filtered.map((t) => (
+                              <option key={t.id || t.template_name} value={t.template_name}>
+                                {t.template_name} ({t.language || "en"}{t.category ? ` • ${t.category}` : ""})
+                              </option>
+                            ))
+                          ) : availableTemplates.length === 0 ? (
+                            <>
+                              <option value="abandoned_cart_recovery">
+                                abandoned_cart_recovery (Marketing)
+                              </option>
+                              <option value="reengagement_30_days">
+                                reengagement_30_days (Winback)
+                              </option>
+                              <option value="festive_promo_offer">
+                                festive_promo_offer (Festivals)
+                              </option>
+                              <option value="vip_exclusive_offer">
+                                vip_exclusive_offer (VIP)
+                              </option>
+                            </>
+                          ) : (
+                            <option disabled value="">
+                              No matching templates found
+                            </option>
+                          )}
+                        </select>
+                        {templateSearchQuery && (
+                          <div className="text-[11px] text-gray-500 text-right">
+                            Found {filtered.length} matching of {availableTemplates.length}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="space-y-1.5">

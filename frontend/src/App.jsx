@@ -1135,27 +1135,31 @@ export default function App() {
     }
   }, [token, activeTab, analyticsTimeRange]);
 
-  // Periodic polling for Live Two-Way Chat (polls conversations every 4.5s, and active chat messages)
+  // Periodic polling for Live Two-Way Chat (only active when tab is visible and on chat tab or conversations)
   useEffect(() => {
     if (!token) return;
     const interval = setInterval(() => {
-      fetchChatConversations(true);
-      if (selectedChatPhone && activeTab === "chat") {
-        fetchChatMessages(selectedChatPhone, true);
+      if (document.hidden) return; // Pause polling when user is on another window or tab
+      if (activeTab === "chat") {
+        fetchChatConversations(true);
+        if (selectedChatPhone) {
+          fetchChatMessages(selectedChatPhone, true);
+        }
       }
-    }, 4500);
+    }, 7000);
     return () => clearInterval(interval);
   }, [token, selectedChatPhone, activeTab]);
 
   // Periodic automatic silent background refresh for Automations, Cart Recovery, and Logs
   useEffect(() => {
     if (!token) return;
-    // Auto-refresh every 4 seconds when user is on automations, cart_recovery, logs, or dashboard
+    // Auto-refresh every 12 seconds when user is on automations, cart_recovery, logs, or dashboard
     const interval = setInterval(() => {
+      if (document.hidden) return; // Pause background polling if user switched away
       if (["automations", "cart_recovery", "logs", "dashboard"].includes(activeTab)) {
         fetchData(true);
       }
-    }, 4000);
+    }, 12000);
     return () => clearInterval(interval);
   }, [token, activeTab]);
 
