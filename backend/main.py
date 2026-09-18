@@ -128,6 +128,8 @@ def on_startup():
         "ALTER TABLE templates ADD COLUMN IF NOT EXISTS variable_mappings JSON",
         # cart_events: open extra_data payload for dynamic ecom variables
         "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS extra_data JSON",
+        # system_settings: key-value system configuration
+        "CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(50) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT NOW())",
     ]
     try:
         with engine.connect() as _conn:
@@ -2578,14 +2580,39 @@ def approve_and_dispatch_automation_rule(
 
 @app.get("/api/settings")
 def get_system_settings(
-    current_user: models.User = Depends(auth.get_current_user)
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
 ):
+    setting = db.query(models.SystemSetting).filter(models.SystemSetting.key == "daily_limit").first()
+    effective_limit = int(setting.value) if setting and setting.value else config.DAILY_MESSAGE_SEND_LIMIT
     return {
-        "daily_limit": config.DAILY_MESSAGE_SEND_LIMIT,
+        "daily_limit": effective_limit,
         "cart_delay_minutes": 30,
         "active_phone_id": config.WHATSAPP_PHONE_NUMBER_ID or "Not Configured (Simulation Mode)",
         "webhook_endpoint": config.WHATSAPP_WEBHOOK_URL or "/api/webhooks/whatsapp",
         "dnd_keywords": list(OPT_OUT_KEYWORDS)
+    }
+
+
+@app.put("/api/settings/daily-limit")
+def update_daily_limit_setting(
+    payload: schemas.DailyLimitUpdateRequest,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    setting = db.query(models.SystemSetting).filter(models.SystemSetting.key == "daily_limit").first()
+    if setting:
+        setting.value = str(payload.daily_limit)
+        setting.updated_at = datetime.utcnow()
+    else:
+        setting = models.SystemSetting(key="daily_limit", value=str(payload.daily_limit))
+        db.add(setting)
+    db.commit()
+    logger.info(f"⚙️ Daily outbound message limit updated to {payload.daily_limit} by user '{current_user.username}'.")
+    return {
+        "status": "success",
+        "message": f"Daily outbound message limit updated to {payload.daily_limit} messages per day.",
+        "daily_limit": payload.daily_limit
     }
 
 
@@ -2934,6 +2961,8 @@ def get_analytics_overview(
         elif opt_out_rate > 1.0:
             quality_rating = "MEDIUM"
 
+        effective_limit = whatsapp_service.get_effective_daily_limit(db)
+
         return {
             "time_range": time_range,
             "funnel": {
@@ -2956,9 +2985,9 @@ def get_analytics_overview(
             "meta_health": {
                 "quality_rating": quality_rating,
                 "phone_status": "ONLINE",
-                "daily_limit": config.DAILY_MESSAGE_SEND_LIMIT,
+                "daily_limit": effective_limit,
                 "used_today": today_sent,
-                "remaining_today": max(0, config.DAILY_MESSAGE_SEND_LIMIT - today_sent),
+                "remaining_today": max(0, effective_limit - today_sent),
                 "tier_name": "Tier 1 (1,000 / 24h)"
             },
             "template_performance": template_performance,
@@ -2966,6 +2995,11 @@ def get_analytics_overview(
         }
     except Exception as e:
         logger.error(f"Error generating analytics overview: {e}", exc_info=True)
+        try:
+            effective_limit = whatsapp_service.get_effective_daily_limit(db)
+        except Exception:
+            effective_limit = getattr(config, "DAILY_MESSAGE_SEND_LIMIT", 1000)
+
         return {
             "time_range": time_range,
             "funnel": {

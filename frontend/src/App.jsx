@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard,
   Megaphone,
@@ -59,7 +59,9 @@ import {
   BarChart3,
   TrendingUp,
   MousePointerClick,
-  ArrowRight
+  ArrowRight,
+  Volume2,
+  VolumeX
 } from "lucide-react";
 import axios, { getApiBaseUrl, renderProductionUrl as RENDER_PROD_URL, setApiBaseUrl } from "./api";
 import FlowchartCanvas from "./components/FlowchartCanvas";
@@ -304,6 +306,46 @@ export default function App() {
   const [chatSending, setChatSending] = useState(false);
   const [chatFilterUnreadOnly, setChatFilterUnreadOnly] = useState(false);
   const [chatListCollapsed, setChatListCollapsed] = useState(false);
+  const [chatSoundEnabled, setChatSoundEnabled] = useState(true);
+  const lastProcessedMessageIdRef = useRef(null);
+  const isInitialChatLoadRef = useRef(true);
+
+  // Settings Daily Limit Editing States
+  const [isEditingDailyLimit, setIsEditingDailyLimit] = useState(false);
+  const [dailyLimitInput, setDailyLimitInput] = useState(500);
+  const [savingDailyLimit, setSavingDailyLimit] = useState(false);
+
+  // Pleasant Web Audio Chime for Live Chat Incoming Messages (Zero external MP3 dependencies)
+  const playIncomingMessageSound = () => {
+    if (!chatSoundEnabled) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      if (ctx.state === "suspended") {
+        ctx.resume();
+      }
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      const now = ctx.currentTime;
+      // Melodic two-tone ping: 800Hz -> 1200Hz
+      osc.frequency.setValueAtTime(800, now);
+      osc.frequency.exponentialRampToValueAtTime(1200, now + 0.08);
+
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.35);
+    } catch (e) {
+      // Browsers may block audio until first user click
+    }
+  };
 
   // WhatsApp Delivery & Engagement Analytics States
   const [analyticsData, setAnalyticsData] = useState(null);
@@ -927,7 +969,26 @@ export default function App() {
       const res = await axios.get(`/api/chat/messages/${encodeURIComponent(phone)}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setChatMessages(res.data || []);
+      const newMsgs = res.data || [];
+      
+      // Sound chime check: if there is a new customer message that arrived after our last seen message
+      if (newMsgs.length > 0) {
+        const lastMsg = newMsgs[newMsgs.length - 1];
+        if (isInitialChatLoadRef.current) {
+          isInitialChatLoadRef.current = false;
+          lastProcessedMessageIdRef.current = lastMsg.id;
+        } else if (
+          lastMsg.id !== lastProcessedMessageIdRef.current &&
+          lastMsg.sender_type === "CUSTOMER"
+        ) {
+          lastProcessedMessageIdRef.current = lastMsg.id;
+          playIncomingMessageSound();
+        } else {
+          lastProcessedMessageIdRef.current = lastMsg.id;
+        }
+      }
+
+      setChatMessages(newMsgs);
       // Update local unread counter for this conversation
       setChatConversations((prev) =>
         prev.map((c) => (c.customer_phone === phone ? { ...c, unread_count: 0 } : c))
@@ -936,6 +997,32 @@ export default function App() {
       if (!silent) console.error("Failed to fetch messages for " + phone, err);
     } finally {
       if (!silent) setChatLoading(false);
+    }
+  };
+
+  const handleUpdateDailyLimit = async (e) => {
+    e?.preventDefault();
+    const parsed = parseInt(dailyLimitInput, 10);
+    if (isNaN(parsed) || parsed < 1) {
+      alert("Please enter a valid daily message limit (minimum 1).");
+      return;
+    }
+    setSavingDailyLimit(true);
+    try {
+      const res = await axios.put(
+        "/api/settings/daily-limit",
+        { daily_limit: parsed },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setSystemSettings((prev) => ({ ...prev, daily_limit: parsed }));
+      setIsEditingDailyLimit(false);
+      setActionSuccessMsg(`✅ ${res.data.message || "Daily message limit updated successfully!"}`);
+      fetchData(true);
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert("Failed to update daily message limit: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setSavingDailyLimit(false);
     }
   };
 
@@ -1190,7 +1277,7 @@ export default function App() {
     }
   }, [token, activeTab, analyticsTimeRange]);
 
-  // Periodic polling for Live Two-Way Chat (only active when tab is visible and on chat tab or conversations)
+  // Periodic polling for Live Two-Way Chat (high-frequency 2s polling for fast real-time messaging)
   useEffect(() => {
     if (!token) return;
     const interval = setInterval(() => {
@@ -1201,7 +1288,7 @@ export default function App() {
           fetchChatMessages(selectedChatPhone, true);
         }
       }
-    }, 7000);
+    }, 2000);
     return () => clearInterval(interval);
   }, [token, selectedChatPhone, activeTab]);
 
@@ -2592,9 +2679,53 @@ export default function App() {
                       <h4 className="font-bold text-gray-900">Daily Outbound Message Limit (Spending Guardrail)</h4>
                       <p className="text-xs text-gray-500 mt-0.5">Maximum WhatsApp messages the system is allowed to send per 24 hours</p>
                     </div>
-                    <span className="font-mono font-bold text-base text-[#10B981] bg-white px-3 py-1 rounded-lg border border-gray-200">
-                      {systemSettings.daily_limit || 500} / Day
-                    </span>
+                    {isEditingDailyLimit ? (
+                      <form onSubmit={handleUpdateDailyLimit} className="flex items-center gap-2">
+                        <div className="flex items-center bg-white border border-emerald-300 rounded-lg px-2.5 py-1 focus-within:ring-2 focus-within:ring-[#25D366]">
+                          <input
+                            type="number"
+                            min="1"
+                            max="500000"
+                            value={dailyLimitInput}
+                            onChange={(e) => setDailyLimitInput(e.target.value)}
+                            className="w-24 font-mono font-bold text-base text-gray-900 focus:outline-none"
+                            autoFocus
+                          />
+                          <span className="text-xs text-gray-400 font-semibold ml-1">/ Day</span>
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={savingDailyLimit}
+                          className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-3 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-50"
+                        >
+                          {savingDailyLimit ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingDailyLimit(false)}
+                          className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition"
+                        >
+                          Cancel
+                        </button>
+                      </form>
+                    ) : (
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-mono font-bold text-base text-[#10B981] bg-white px-3 py-1 rounded-lg border border-gray-200">
+                          {systemSettings.daily_limit || 500} / Day
+                        </span>
+                        <button
+                          onClick={() => {
+                            setDailyLimitInput(systemSettings.daily_limit || 500);
+                            setIsEditingDailyLimit(true);
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 rounded-lg transition shadow-xs"
+                          title="Edit daily outbound message limit"
+                        >
+                          <Edit2 className="w-3 h-3 text-gray-500" />
+                          Edit
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border border-gray-200">
@@ -2932,7 +3063,7 @@ export default function App() {
                     className="flex items-center gap-1.5 bg-[#F5A623] hover:bg-[#E67E22] text-black px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    + Create Template
+                    Create Template
                   </button>
                   <button
                     onClick={handleSyncMetaTemplates}
@@ -4155,7 +4286,7 @@ export default function App() {
                   className="flex items-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  + Create Coupon Code
+                  Create Coupon Code
                 </button>
               </div>
 
@@ -4452,9 +4583,38 @@ export default function App() {
                     Two-way synchronized live customer conversations
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <Clock className="w-3.5 h-3.5 text-gray-400" />
-                  Auto-syncing every 4.5s
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      const next = !chatSoundEnabled;
+                      setChatSoundEnabled(next);
+                      if (next) {
+                        playIncomingMessageSound();
+                      }
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                      chatSoundEnabled
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                        : "bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200"
+                    }`}
+                    title={chatSoundEnabled ? "Sound notifications enabled (Click to mute)" : "Sound notifications muted (Click to unmute)"}
+                  >
+                    {chatSoundEnabled ? (
+                      <>
+                        <Volume2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Sound On</span>
+                      </>
+                    ) : (
+                      <>
+                        <VolumeX className="w-3.5 h-3.5 text-gray-400" />
+                        <span>Sound Off</span>
+                      </>
+                    )}
+                  </button>
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500 font-mono">
+                    <Clock className="w-3.5 h-3.5 text-gray-400" />
+                    Auto-syncing every 2s
+                  </div>
                 </div>
               </div>
 

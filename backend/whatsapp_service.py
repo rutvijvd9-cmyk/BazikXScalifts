@@ -22,6 +22,17 @@ META_API_URL = (
 )
 
 
+def get_effective_daily_limit(db) -> int:
+    """Returns the effective daily limit from DB SystemSetting, falling back to config."""
+    try:
+        setting = db.query(models.SystemSetting).filter(models.SystemSetting.key == "daily_limit").first()
+        if setting and setting.value:
+            return int(setting.value)
+    except Exception:
+        pass
+    return DAILY_MESSAGE_SEND_LIMIT
+
+
 def check_daily_limit(db) -> tuple[bool, int]:
     """
     Counts total messages dispatched today (UTC).
@@ -33,7 +44,8 @@ def check_daily_limit(db) -> tuple[bool, int]:
         models.MessageLog.status.in_(["SENT", "SENT_SIMULATED", "DELIVERED", "READ"])
     ).count()
 
-    is_allowed = current_count < DAILY_MESSAGE_SEND_LIMIT
+    effective_limit = get_effective_daily_limit(db)
+    is_allowed = current_count < effective_limit
     return is_allowed, current_count
 
 
@@ -87,15 +99,16 @@ def send_whatsapp_template(
 
         # Guardrail 2: Hard Daily Spend Limit
         under_limit, count_today = check_daily_limit(db)
+        effective_limit = get_effective_daily_limit(db)
         if not under_limit:
-            logger.error(f"🚨 [BUDGET GUARD] Daily send limit ({DAILY_MESSAGE_SEND_LIMIT}) reached! Current today: {count_today}. Message blocked to protect spend.")
+            logger.error(f"🚨 [BUDGET GUARD] Daily send limit ({effective_limit}) reached! Current today: {count_today}. Message blocked to protect spend.")
             try:
                 log_entry = models.MessageLog(
                     recipient_phone=recipient_phone,
                     template_name=template_name,
                     language=language,
                     status="FAILED",
-                    error_message=f"Daily budget limit reached ({count_today}/{DAILY_MESSAGE_SEND_LIMIT} sent today)"
+                    error_message=f"Daily budget limit reached ({count_today}/{effective_limit} sent today)"
                 )
                 db.add(log_entry)
                 db.commit()
@@ -103,13 +116,13 @@ def send_whatsapp_template(
                 pass
             return {
                 "status": "blocked",
-                "reason": f"Daily budget ceiling reached ({count_today}/{DAILY_MESSAGE_SEND_LIMIT} messages sent today)."
+                "reason": f"Daily budget ceiling reached ({count_today}/{effective_limit} messages sent today)."
             }
 
         # Safe local mock mode when Meta credentials are empty
         if not WHATSAPP_API_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
             mock_wamid = f"mock_wamid_{int(datetime.utcnow().timestamp())}"
-            logger.info(f"📱 [SIMULATION MODE] Template '{template_name}' ({language}) to {recipient_phone} with params {parameters} (Today's count: {count_today + 1}/{DAILY_MESSAGE_SEND_LIMIT})")
+            logger.info(f"📱 [SIMULATION MODE] Template '{template_name}' ({language}) to {recipient_phone} with params {parameters} (Today's count: {count_today + 1}/{effective_limit})")
             
             log_entry = models.MessageLog(
                 recipient_phone=recipient_phone,

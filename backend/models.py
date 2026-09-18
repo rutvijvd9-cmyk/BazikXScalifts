@@ -206,3 +206,11 @@ class ExternalDataSource(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+
+    key = Column(String(50), primary_key=True, index=True)
+    value = Column(Text, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+

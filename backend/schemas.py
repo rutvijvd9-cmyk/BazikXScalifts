@@ -340,3 +340,7 @@ class WorkflowSimulateRequest(BaseModel):
     customer_phone: str = Field(..., description="Test recipient phone number")
     test_cart_value: Optional[float] = 450.0
     mock_mode: bool = Field(default=False, description="If true, simulate without sending actual WhatsApp API calls")
+
+
+class DailyLimitUpdateRequest(BaseModel):
+    daily_limit: int = Field(..., ge=1, le=500000, description="Maximum outbound WhatsApp messages allowed per 24 hours")
