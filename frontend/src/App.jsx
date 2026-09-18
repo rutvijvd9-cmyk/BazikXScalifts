@@ -2502,7 +2502,7 @@ export default function App() {
           {/* TAB 3: SETTINGS VIEW */}
           {/* ========================================================= */}
           {activeTab === "settings" && (
-            <div className="space-y-6 max-w-4xl">
+            <div className="space-y-6 w-full max-w-7xl">
               <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-6">
                 <div className="flex items-center gap-3 border-b border-gray-100 pb-4 mb-5">
                   <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-gray-700">
