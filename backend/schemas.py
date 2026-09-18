@@ -48,6 +48,7 @@ class DiscountCodeCreate(BaseModel):
     discount_value: float = Field(..., gt=0)
     min_order_value: Optional[float] = Field(default=0.0, ge=0)
     max_uses: Optional[int] = Field(default=1000, ge=1)
+    expires_at: Optional[datetime] = None
     is_active: Optional[bool] = True
 
 
@@ -60,6 +61,8 @@ class DiscountCodeResponse(BaseModel):
     max_uses: int
     used_count: int
     is_active: bool
+    expires_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

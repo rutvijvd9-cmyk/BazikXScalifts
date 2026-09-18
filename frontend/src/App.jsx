@@ -342,7 +342,8 @@ export default function App() {
     discount_type: "PERCENT",
     discount_value: 10,
     min_order_value: 0,
-    max_uses: 1000
+    max_uses: 1000,
+    expires_at: ""
   });
 
   // New Template Modal State
@@ -1051,7 +1052,11 @@ export default function App() {
   const handleCreateDiscountCode = async (e) => {
     e.preventDefault();
     try {
-      await axios.post("/api/discount-codes", newDiscountCode, {
+      const payload = {
+        ...newDiscountCode,
+        expires_at: newDiscountCode.expires_at ? new Date(newDiscountCode.expires_at).toISOString() : null
+      };
+      await axios.post("/api/discount-codes", payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setActionSuccessMsg(`Discount Code '${newDiscountCode.code}' created successfully!`);
@@ -1061,7 +1066,8 @@ export default function App() {
         discount_type: "PERCENT",
         discount_value: 10,
         min_order_value: 0,
-        max_uses: 1000
+        max_uses: 1000,
+        expires_at: ""
       });
       fetchData();
       setTimeout(() => setActionSuccessMsg(""), 5000);
@@ -4024,42 +4030,70 @@ export default function App() {
                         <th className="px-6 py-3">Type & Value</th>
                         <th className="px-6 py-3">Min Order</th>
                         <th className="px-6 py-3">Redemptions</th>
+                        <th className="px-6 py-3">Expiry Date</th>
                         <th className="px-6 py-3">Status</th>
                         <th className="px-6 py-3">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {discountCodes.map((d) => (
-                        <tr key={d.id} className="hover:bg-gray-50/80 transition">
-                          <td className="px-6 py-4 font-mono font-bold text-base text-gray-900 flex items-center gap-2">
-                            <span className="p-1 bg-amber-50 text-[#D35400] rounded border border-amber-200 text-xs">🏷️</span>
-                            {d.code}
-                          </td>
-                          <td className="px-6 py-4 font-bold text-gray-900">
-                            {d.discount_type === "PERCENT" ? `${d.discount_value}% OFF` : `₹${d.discount_value} FLAT OFF`}
-                          </td>
-                          <td className="px-6 py-4 text-xs font-semibold text-gray-600">
-                            {d.min_order_value > 0 ? `₹${d.min_order_value}` : "No Minimum"}
-                          </td>
-                          <td className="px-6 py-4 font-mono text-xs">
-                            <span className="font-bold text-gray-900">{d.used_count}</span> / {d.max_uses} max
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              Active
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <button
-                              onClick={() => handleDeleteDiscountCode(d.id, d.code)}
-                              className="text-gray-400 hover:text-red-600 transition"
-                              title="Delete coupon"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {discountCodes.map((d) => {
+                        const isExpired = d.expires_at && new Date(d.expires_at) < new Date();
+                        return (
+                          <tr key={d.id} className="hover:bg-gray-50/80 transition">
+                            <td className="px-6 py-4 font-mono font-bold text-base text-gray-900 flex items-center gap-2">
+                              <span className="p-1 bg-amber-50 text-[#D35400] rounded border border-amber-200 text-xs">🏷️</span>
+                              {d.code}
+                            </td>
+                            <td className="px-6 py-4 font-bold text-gray-900">
+                              {d.discount_type === "PERCENT" ? `${d.discount_value}% OFF` : `₹${d.discount_value} FLAT OFF`}
+                            </td>
+                            <td className="px-6 py-4 text-xs font-semibold text-gray-600">
+                              {d.min_order_value > 0 ? `₹${d.min_order_value}` : "No Minimum"}
+                            </td>
+                            <td className="px-6 py-4 font-mono text-xs">
+                              <span className="font-bold text-gray-900">{d.used_count}</span> / {d.max_uses} max
+                            </td>
+                            <td className="px-6 py-4 text-xs">
+                              {d.expires_at ? (
+                                <span className={`inline-flex items-center gap-1 font-mono font-semibold px-2 py-0.5 rounded border ${
+                                  isExpired 
+                                    ? "bg-red-50 text-red-700 border-red-200" 
+                                    : "bg-gray-50 text-gray-700 border-gray-200"
+                                }`}>
+                                  <Calendar className="w-3 h-3 text-gray-400" />
+                                  {new Date(d.expires_at).toLocaleDateString("en-IN", {
+                                    day: "2-digit",
+                                    month: "short",
+                                    year: "numeric"
+                                  })}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400 font-medium">Never Expires</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                                isExpired
+                                  ? "bg-red-50 text-red-700 border-red-200"
+                                  : d.is_active
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  : "bg-gray-100 text-gray-500 border-gray-200"
+                              }`}>
+                                {isExpired ? "Expired" : d.is_active ? "Active" : "Disabled"}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <button
+                                onClick={() => handleDeleteDiscountCode(d.id, d.code)}
+                                className="text-gray-400 hover:text-red-600 transition cursor-pointer"
+                                title="Delete coupon"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -5856,6 +5890,25 @@ export default function App() {
                     className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-gray-500" />
+                    Coupon Expiry Date
+                  </span>
+                  <span className="text-[10px] text-emerald-600 font-semibold lowercase">optional</span>
+                </label>
+                <input
+                  type="date"
+                  value={newDiscountCode.expires_at}
+                  onChange={(e) => setNewDiscountCode({ ...newDiscountCode, expires_at: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  {newDiscountCode.expires_at ? `Coupon will expire on ${newDiscountCode.expires_at}` : "Leave empty if coupon should never expire"}
+                </p>
               </div>
 
               <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">

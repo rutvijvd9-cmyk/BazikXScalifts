@@ -2186,6 +2186,7 @@ def create_discount_code(
         discount_value=payload.discount_value,
         min_order_value=payload.min_order_value or 0.0,
         max_uses=payload.max_uses or 1000,
+        expires_at=payload.expires_at,
         is_active=payload.is_active if payload.is_active is not None else True
     )
     db.add(disc)
