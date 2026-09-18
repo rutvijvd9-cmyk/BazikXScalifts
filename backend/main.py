@@ -27,6 +27,7 @@ import models
 import schemas
 import auth
 from scheduler import start_scheduler, schedule_cart_recovery, execute_campaign_broadcast, scheduler
+import whatsapp_service
 from whatsapp_service import send_whatsapp_template, create_meta_template
 from apscheduler.triggers.date import DateTrigger
 
@@ -48,7 +49,10 @@ migration_statements = [
     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS per_day_limit INTEGER;",
     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP;",
     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS error_message TEXT;",
-    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"
+    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
+    "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS extra_data JSON;",
+    "ALTER TABLE templates ADD COLUMN IF NOT EXISTS variable_mappings JSON;",
+    "CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(50) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT NOW());"
 ]
 for stmt in migration_statements:
     try:
@@ -3022,9 +3026,9 @@ def get_analytics_overview(
             "meta_health": {
                 "quality_rating": "HIGH",
                 "phone_status": "ONLINE",
-                "daily_limit": getattr(config, "DAILY_MESSAGE_SEND_LIMIT", 1000),
+                "daily_limit": effective_limit,
                 "used_today": 0,
-                "remaining_today": getattr(config, "DAILY_MESSAGE_SEND_LIMIT", 1000),
+                "remaining_today": effective_limit,
                 "tier_name": "Tier 1 (1,000 / 24h)"
             },
             "template_performance": [],
