@@ -39,6 +39,19 @@ Base.metadata.create_all(bind=engine)
 from fastapi.exceptions import ResponseValidationError
 from fastapi.responses import JSONResponse
 
+# Auto-apply Alembic migrations on startup if configured
+try:
+    import alembic.config
+    import alembic.command
+    ini_path = "alembic.ini"
+    if not os.path.exists(ini_path):
+        ini_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "alembic.ini")
+    alembic_cfg = alembic.config.Config(ini_path)
+    alembic.command.upgrade(alembic_cfg, "head")
+    logger.info("Alembic migrations verified up-to-date at head.")
+except Exception as m_err:
+    logger.warning(f"Alembic auto-upgrade note (non-critical): {m_err}")
+
 # Non-destructive column sync for existing tables
 migration_statements = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_2fa_enabled BOOLEAN DEFAULT FALSE;",
