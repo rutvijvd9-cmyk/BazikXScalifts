@@ -131,6 +131,49 @@ export function getTodayISTDateString() {
   return formatter.format(now); // "YYYY-MM-DD"
 }
 
+export function formatScheduleDisplay(dateStr) {
+  if (!dateStr) return null;
+  let s = String(dateStr).trim();
+  if (!s.endsWith("Z") && !s.includes("+") && !s.slice(10).includes("-")) {
+    s += "Z";
+  }
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return { formattedDate: String(dateStr), countdown: "", isFuture: false };
+
+  const formattedDate = d.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  });
+
+  const now = Date.now();
+  const diffMs = d.getTime() - now;
+  let countdown = "";
+  if (diffMs > 0) {
+    const mins = Math.round(diffMs / 60000);
+    if (mins < 60) {
+      countdown = `in ~${mins}m`;
+    } else {
+      const hours = Math.floor(mins / 60);
+      const remMins = mins % 60;
+      if (hours < 24) {
+        countdown = `in ~${hours}h ${remMins > 0 ? `${remMins}m` : ""}`;
+      } else {
+        const days = Math.round(hours / 24);
+        countdown = `in ~${days}d`;
+      }
+    }
+  } else {
+    countdown = "Triggering shortly";
+  }
+
+  return { formattedDate, countdown, isFuture: diffMs > 0 };
+}
+
 export default function App() {
   const [serverUrl, setServerUrl] = useState(INITIAL_API_BASE_URL);
   const [showServerModal, setShowServerModal] = useState(false);
@@ -1431,6 +1474,20 @@ export default function App() {
         loading: false,
         error: err.response?.data?.detail || err.response?.data?.message || err.message || "Authorization failed."
       }));
+    }
+  };
+
+  const handleCancelCampaign = async (campaignId) => {
+    if (!window.confirm(`Cancel scheduled broadcast #${campaignId}? It will not be sent.`)) return;
+    try {
+      await axios.delete(`/api/campaigns/${campaignId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setActionSuccessMsg(`Scheduled campaign #${campaignId} has been cancelled.`);
+      fetchData();
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert("Failed to cancel campaign: " + (err.response?.data?.detail || err.message));
     }
   };
 
@@ -3097,38 +3154,116 @@ export default function App() {
                 <table className="w-full text-left text-sm text-gray-600">
                   <thead className="bg-gray-50 text-xs uppercase font-semibold text-gray-500 border-b border-gray-200">
                     <tr>
-                      <th className="px-6 py-3">ID</th>
-                      <th className="px-6 py-3">Campaign Title</th>
-                      <th className="px-6 py-3">Template</th>
-                      <th className="px-6 py-3">Language</th>
-                      <th className="px-6 py-3">Target</th>
-                      <th className="px-6 py-3">Delivered / Total</th>
-                      <th className="px-6 py-3">Status</th>
+                      <th className="px-5 py-3">ID</th>
+                      <th className="px-5 py-3">Campaign Title</th>
+                      <th className="px-5 py-3">Template</th>
+                      <th className="px-5 py-3">Language</th>
+                      <th className="px-5 py-3">Target</th>
+                      <th className="px-5 py-3">Schedule / Trigger Time</th>
+                      <th className="px-5 py-3">Delivered / Total</th>
+                      <th className="px-5 py-3">Status</th>
+                      <th className="px-5 py-3 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {campaigns.map((c) => (
-                      <tr key={c.id} className="hover:bg-gray-50/80 transition">
-                        <td className="px-6 py-4 font-mono text-xs text-gray-400">#{c.id}</td>
-                        <td className="px-6 py-4 font-semibold text-gray-900">{c.title}</td>
-                        <td className="px-6 py-4 font-mono text-xs">{c.template_name}</td>
-                        <td className="px-6 py-4 uppercase font-semibold text-xs">{c.language}</td>
-                        <td className="px-6 py-4 text-xs">{c.target_filter}</td>
-                        <td className="px-6 py-4 font-bold text-gray-900">
-                          <div>{c.successful_sends} / {c.total_recipients}</div>
-                          {c.per_day_limit && (
-                            <span className="text-[10px] font-medium text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
-                              Limit: {c.per_day_limit}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-50 text-[#10B981] border border-green-200">
-                            {c.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {campaigns.map((c) => {
+                      const sch = c.scheduled_for ? formatScheduleDisplay(c.scheduled_for) : null;
+                      return (
+                        <tr key={c.id} className="hover:bg-gray-50/80 transition">
+                          <td className="px-5 py-4 font-mono text-xs text-gray-400">#{c.id}</td>
+                          <td className="px-5 py-4 font-semibold text-gray-900">{c.title}</td>
+                          <td className="px-5 py-4 font-mono text-xs">{c.template_name}</td>
+                          <td className="px-5 py-4 uppercase font-semibold text-xs">{c.language}</td>
+                          <td className="px-5 py-4 text-xs">{c.target_filter}</td>
+                          <td className="px-5 py-4">
+                            {c.scheduled_for ? (
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1.5 font-semibold text-gray-900 text-xs">
+                                  <Calendar className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+                                  <span>{sch ? sch.formattedDate : c.scheduled_for}</span>
+                                </div>
+                                {c.status === "SCHEDULED" && sch?.countdown && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                                    <Clock className="w-2.5 h-2.5 text-amber-600 animate-pulse" />
+                                    {sch.countdown}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="space-y-0.5">
+                                <div className="inline-flex items-center gap-1 text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                                  <Zap className="w-3 h-3 text-amber-500" />
+                                  Immediate
+                                </div>
+                                {c.created_at && (
+                                  <div className="text-[10px] text-gray-400">
+                                    {formatToIST(c.created_at)}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-5 py-4 font-bold text-gray-900">
+                            <div>{c.successful_sends} / {c.total_recipients}</div>
+                            {c.per_day_limit && (
+                              <span className="text-[10px] font-medium text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                                Limit: {c.per_day_limit}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4">
+                            {c.status === "SCHEDULED" && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 shadow-xs">
+                                <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                                SCHEDULED
+                              </span>
+                            )}
+                            {c.status === "IN_PROGRESS" && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 shadow-xs">
+                                <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
+                                SENDING...
+                              </span>
+                            )}
+                            {c.status === "COMPLETED" && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                COMPLETED
+                              </span>
+                            )}
+                            {c.status === "CANCELLED" && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-300">
+                                CANCELLED
+                              </span>
+                            )}
+                            {c.status === "FAILED" && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
+                                <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
+                                FAILED
+                              </span>
+                            )}
+                            {!["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "FAILED"].includes(c.status) && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+                                {c.status}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4 text-right">
+                            {c.status === "SCHEDULED" ? (
+                              <button
+                                onClick={() => handleCancelCampaign(c.id)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition"
+                                title="Cancel this scheduled broadcast"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                Cancel
+                              </button>
+                            ) : (
+                              <span className="text-xs text-gray-300">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -5465,7 +5600,16 @@ export default function App() {
                     onChange={(e) => setNewCampaign({ ...newCampaign, scheduled_for: e.target.value })}
                     className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
                   />
-                  <p className="text-[10px] text-gray-400 mt-0.5">Leave empty to send immediately</p>
+                  {newCampaign.scheduled_for ? (
+                    <div className="mt-1.5 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-xs text-amber-900 font-medium">
+                      <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                      <span>
+                        Trigger: <strong>{formatScheduleDisplay(newCampaign.scheduled_for)?.formattedDate || newCampaign.scheduled_for}</strong>
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-gray-400 mt-0.5">Leave empty to send immediately</p>
+                  )}
                 </div>
               </div>
 
@@ -5493,9 +5637,8 @@ export default function App() {
       {/* ── 🔐 Step-Up Authentication & 2FA Confirmation Modal ── */}
       {securityActionModal.isOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200">
-            {/* Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center">
                   <ShieldCheck className="w-5 h-5" />
@@ -5527,6 +5670,22 @@ export default function App() {
                   {securityActionModal.recipientCount} Contacts
                 </span>
               </div>
+              {securityActionModal.payloadData?.scheduled_for ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-500 font-medium">Trigger Schedule:</span>
+                  <span className="font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-amber-600" />
+                    {formatScheduleDisplay(securityActionModal.payloadData.scheduled_for)?.formattedDate || securityActionModal.payloadData.scheduled_for}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-500 font-medium">Trigger Mode:</span>
+                  <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    ⚡ Immediate Dispatch
+                  </span>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-gray-500 font-medium">Safety Policy:</span>
                 <span className="text-emerald-700 font-bold flex items-center gap-1">

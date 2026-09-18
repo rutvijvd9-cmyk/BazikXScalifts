@@ -4,7 +4,8 @@ import csv
 import logging
 import hmac
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import List, Optional
 from dotenv import load_dotenv
 import httpx
@@ -1067,27 +1068,40 @@ def create_and_trigger_campaign(
     scheduled_dt = None
     if payload.scheduled_for:
         try:
-            # Handle ISO string from datetime-local input
-            clean_str = payload.scheduled_for.replace("Z", "").replace("T", " ")
-            scheduled_dt = datetime.fromisoformat(clean_str)
-        except Exception:
+            tz_kolkata = ZoneInfo(config.TIMEZONE)
+            raw = str(payload.scheduled_for).strip()
+            if raw.endswith("Z"):
+                dt_obj = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                scheduled_dt = dt_obj.astimezone(timezone.utc).replace(tzinfo=None)
+            elif "+" in raw or "-" in raw[10:]:
+                dt_obj = datetime.fromisoformat(raw)
+                scheduled_dt = dt_obj.astimezone(timezone.utc).replace(tzinfo=None)
+            else:
+                clean_str = raw.replace("T", " ")
+                naive_dt = datetime.fromisoformat(clean_str)
+                localized_dt = naive_dt.replace(tzinfo=tz_kolkata)
+                scheduled_dt = localized_dt.astimezone(timezone.utc).replace(tzinfo=None)
+        except Exception as parse_err:
+            logger.warning(f"Failed to parse scheduled_for '{payload.scheduled_for}': {parse_err}")
             scheduled_dt = None
 
     try:
+        now_utc = datetime.utcnow()
+        is_future = scheduled_dt and scheduled_dt > now_utc
         campaign = models.Campaign(
             title=payload.title,
             template_name=payload.template_name,
             language=payload.language or "en",
             target_filter=payload.target_filter or "ALL",
             per_day_limit=payload.per_day_limit,
-            status="SCHEDULED" if scheduled_dt and scheduled_dt > datetime.utcnow() else "IN_PROGRESS",
+            status="SCHEDULED" if is_future else "IN_PROGRESS",
             scheduled_for=scheduled_dt
         )
         db.add(campaign)
         db.commit()
         db.refresh(campaign)
 
-        if scheduled_dt and scheduled_dt > datetime.utcnow():
+        if is_future:
             # Schedule future execution
             job_id = f"campaign_{campaign.id}"
             scheduler.add_job(
@@ -1097,7 +1111,7 @@ def create_and_trigger_campaign(
                 id=job_id,
                 replace_existing=True
             )
-            logger.info(f"📅 Campaign {campaign.id} scheduled to execute at {scheduled_dt}")
+            logger.info(f"📅 Campaign {campaign.id} scheduled to execute at {scheduled_dt} UTC (Indian time: {scheduled_dt + timedelta(hours=5, minutes=30)})")
         else:
             # Trigger campaign broadcast asynchronously in background to prevent HTTP 500 / timeout
             logger.info(f"🚀 Queueing immediate broadcast for Campaign #{campaign.id} via BackgroundTasks")
@@ -1144,6 +1158,35 @@ def get_campaign(
     except Exception as e:
         logger.error(f"Error fetching campaign {campaign_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error fetching campaign")
+
+
+@app.delete("/api/campaigns/{campaign_id}")
+def cancel_campaign(
+    campaign_id: int,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    try:
+        campaign = db.query(models.Campaign).filter(models.Campaign.id == campaign_id).first()
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        job_id = f"campaign_{campaign.id}"
+        try:
+            if scheduler.get_job(job_id):
+                scheduler.remove_job(job_id)
+                logger.info(f"Removed scheduled job {job_id}")
+        except Exception as sj_err:
+            logger.warning(f"Note on removing scheduler job {job_id}: {sj_err}")
+
+        campaign.status = "CANCELLED"
+        db.commit()
+        return {"message": f"Campaign #{campaign_id} cancelled", "id": campaign_id, "status": "CANCELLED"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling campaign {campaign_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to cancel campaign")
 
 
 # ==========================================
