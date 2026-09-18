@@ -614,6 +614,87 @@ def create_system_user(
     return user
 
 
+@app.put("/api/users/{user_id}/role", response_model=schemas.UserResponse)
+def update_user_role(
+    user_id: int,
+    payload: schemas.UserRoleUpdate,
+    current_user: models.User = Depends(auth.require_roles("admin")),
+    db: Session = Depends(get_db)
+):
+    """
+    Promote or demote a team member role (Admin only).
+    """
+    target_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    # Safety guard: Prevent demoting yourself if you are the last admin or demoting initial root admin
+    if target_user.id == current_user.id and payload.role != "admin":
+        admin_count = db.query(models.User).filter(models.User.role == "admin", models.User.is_active == True).count()
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot demote yourself: system requires at least one active Admin."
+            )
+
+    target_user.role = payload.role
+    db.commit()
+    db.refresh(target_user)
+    return target_user
+
+
+@app.put("/api/users/{user_id}/password")
+def admin_reset_user_password(
+    user_id: int,
+    payload: schemas.AdminUserPasswordReset,
+    current_user: models.User = Depends(auth.require_roles("admin")),
+    db: Session = Depends(get_db)
+):
+    """
+    Admin override: Reset any user or admin's password securely (Admin only).
+    """
+    target_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    target_user.hashed_password = auth.get_password_hash(payload.new_password)
+    db.commit()
+    return {
+        "status": "success",
+        "message": f"Password for {target_user.username} has been successfully updated by Admin."
+    }
+
+
+@app.put("/api/users/{user_id}/2fa")
+def admin_toggle_user_2fa(
+    user_id: int,
+    payload: schemas.AdminToggle2FARequest,
+    current_user: models.User = Depends(auth.require_roles("admin")),
+    db: Session = Depends(get_db)
+):
+    """
+    Admin override: Enable or disable 2FA on behalf of a user/admin (e.g. locked out of 2FA device).
+    """
+    target_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    target_user.is_2fa_enabled = payload.enabled
+    if not payload.enabled:
+        # Clear secret and emergency recovery codes upon disabling
+        target_user.totp_secret = None
+        target_user.email_recovery_code = None
+        target_user.email_recovery_code_expires = None
+
+    db.commit()
+    action = "enabled" if payload.enabled else "disabled"
+    return {
+        "status": "success",
+        "message": f"2FA has been {action} for {target_user.username}.",
+        "is_2fa_enabled": target_user.is_2fa_enabled
+    }
+
+
 # ==========================================
 # 🔒 PROTECTED CRM ENDPOINTS (Require JWT)
 # ==========================================
@@ -2496,12 +2577,12 @@ def get_workflow_sessions(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Returns the most recent customer sessions traversing this workflow."""
+    """Returns the enrolled customer contacts and execution sessions traversing this workflow."""
     return (
         db.query(models.WorkflowSession)
         .filter(models.WorkflowSession.flow_id == flow_id)
         .order_by(models.WorkflowSession.id.desc())
-        .limit(50)
+        .limit(250)
         .all()
     )
 

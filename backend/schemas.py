@@ -169,6 +169,18 @@ class UserCreate(BaseModel):
     role: str = Field(default="agent", pattern="^(admin|manager|agent)$")
 
 
+class UserRoleUpdate(BaseModel):
+    role: str = Field(..., pattern="^(admin|agent|service|manager)$")
+
+
+class AdminUserPasswordReset(BaseModel):
+    new_password: str = Field(..., min_length=6, description="New user password (minimum 6 characters)")
+
+
+class AdminToggle2FARequest(BaseModel):
+    enabled: bool = Field(..., description="Enable or disable 2FA for this user")
+
+
 class UserLogin(BaseModel):
     username: str
     password: str

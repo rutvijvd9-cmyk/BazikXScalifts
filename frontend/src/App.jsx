@@ -21,6 +21,7 @@ import {
   Trash2,
   Edit2,
   UserPlus,
+  Key,
   AlertTriangle,
   PlayCircle,
   BookOpen,
@@ -28,6 +29,7 @@ import {
   ToggleLeft,
   ToggleRight,
   ShieldCheck,
+  ShieldAlert,
   Tag,
   Eye,
   EyeOff,
@@ -417,11 +419,49 @@ export default function App() {
   };
 
 
+  // Journey Enrolled Contacts / Sessions Modal State
+  const [journeySessionsModal, setJourneySessionsModal] = useState({
+    isOpen: false,
+    flow: null,
+    sessions: [],
+    loading: false,
+    search: "",
+    statusFilter: "ALL"
+  });
+
+  const handleOpenJourneySessions = async (flow) => {
+    setJourneySessionsModal({
+      isOpen: true,
+      flow,
+      sessions: [],
+      loading: true,
+      search: "",
+      statusFilter: "ALL"
+    });
+    try {
+      const res = await axios.get(`/api/workflows/${flow.id}/sessions`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setJourneySessionsModal((prev) => ({
+        ...prev,
+        sessions: res.data || [],
+        loading: false
+      }));
+    } catch (err) {
+      console.error("Failed to fetch journey sessions:", err);
+      setJourneySessionsModal((prev) => ({
+        ...prev,
+        loading: false
+      }));
+    }
+  };
+
   // Add User from Settings Modal State
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
-  const [newUserForm, setNewUserForm] = useState({ username: "", email: "", password: "" });
+  const [newUserForm, setNewUserForm] = useState({ username: "", email: "", password: "", role: "agent" });
   const [addUserLoading, setAddUserLoading] = useState(false);
   const [addUserError, setAddUserError] = useState("");
+  const [userRoleUpdatingId, setUserRoleUpdatingId] = useState(null);
 
   const handleCreateUserFromSettings = async (e) => {
     e.preventDefault();
@@ -434,13 +474,105 @@ export default function App() {
       });
       setActionSuccessMsg(`✅ Team user "${newUserForm.username}" registered successfully!`);
       setIsAddUserModalOpen(false);
-      setNewUserForm({ username: "", email: "", password: "" });
-      fetchData();
+      setNewUserForm({ username: "", email: "", password: "", role: "agent" });
+      fetchData(true);
       setTimeout(() => setActionSuccessMsg(""), 6000);
     } catch (err) {
       setAddUserError(err.response?.data?.detail || err.message || "Failed to create user");
     } finally {
       setAddUserLoading(false);
+    }
+  };
+
+  const handleUpdateUserRole = async (targetUser, newRole) => {
+    const actionLabel = newRole === "admin" ? "promote" : "demote";
+    const titleLabel = newRole === "admin" ? "Admin (Full Access)" : "Team Member";
+    if (!window.confirm(`Are you sure you want to ${actionLabel} ${targetUser.username} to ${titleLabel}?`)) {
+      return;
+    }
+    setUserRoleUpdatingId(targetUser.id);
+    try {
+      await axios.put(`/api/users/${targetUser.id}/role`, { role: newRole }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSystemUsers((prev) =>
+        prev.map((u) => (u.id === targetUser.id ? { ...u, role: newRole } : u))
+      );
+      setActionSuccessMsg(`🛡️ ${targetUser.username} has been updated to ${titleLabel}!`);
+      fetchData(true);
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert("Failed to update user role: " + (err.response?.data?.detail || err.message));
+      fetchData(true);
+    } finally {
+      setUserRoleUpdatingId(null);
+    }
+  };
+
+  // Admin Password Reset Modal State
+  const [adminPasswordModal, setAdminPasswordModal] = useState({
+    isOpen: false,
+    user: null,
+    newPassword: "",
+    confirmPassword: "",
+    loading: false,
+    error: ""
+  });
+
+  const handleAdminResetPassword = async (e) => {
+    e.preventDefault();
+    if (!adminPasswordModal.user) return;
+    if (adminPasswordModal.newPassword.length < 6) {
+      setAdminPasswordModal((prev) => ({ ...prev, error: "Password must be at least 6 characters long." }));
+      return;
+    }
+    if (adminPasswordModal.newPassword !== adminPasswordModal.confirmPassword) {
+      setAdminPasswordModal((prev) => ({ ...prev, error: "Passwords do not match." }));
+      return;
+    }
+    setAdminPasswordModal((prev) => ({ ...prev, loading: true, error: "" }));
+    try {
+      await axios.put(`/api/users/${adminPasswordModal.user.id}/password`, {
+        new_password: adminPasswordModal.newPassword
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setActionSuccessMsg(`🔑 Password for ${adminPasswordModal.user.username} updated successfully!`);
+      setAdminPasswordModal({ isOpen: false, user: null, newPassword: "", confirmPassword: "", loading: false, error: "" });
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      setAdminPasswordModal((prev) => ({
+        ...prev,
+        loading: false,
+        error: err.response?.data?.detail || err.message || "Failed to update password"
+      }));
+    }
+  };
+
+  // Admin 2FA Toggle Handler
+  const [admin2faUpdatingId, setAdmin2faUpdatingId] = useState(null);
+  const handleAdminToggle2FA = async (targetUser, enable) => {
+    const action = enable ? "enable" : "disable";
+    const msg = enable
+      ? `Are you sure you want to enable 2FA requirement for ${targetUser.username}?`
+      : `Are you sure you want to disable 2FA for ${targetUser.username}? (This allows them to log in if they lost their Authenticator app).`;
+    if (!window.confirm(msg)) return;
+    setAdmin2faUpdatingId(targetUser.id);
+    try {
+      await axios.put(`/api/users/${targetUser.id}/2fa`, { enabled: enable }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSystemUsers((prev) =>
+        prev.map((u) => (u.id === targetUser.id ? { ...u, is_2fa_enabled: enable } : u))
+      );
+      setActionSuccessMsg(`🛡️ 2FA has been ${action}d for ${targetUser.username}!`);
+      fetchData(true);
+      setTimeout(() => setActionSuccessMsg(""), 5000);
+    } catch (err) {
+      alert(`Failed to ${action} 2FA: ` + (err.response?.data?.detail || err.message));
+      fetchData(true);
+    } finally {
+      setAdmin2faUpdatingId(null);
     }
   };
 
@@ -826,15 +958,18 @@ export default function App() {
 
   const handleDeleteContact = async (c) => {
     if (!window.confirm(`Are you sure you want to delete contact ${c.phone} (${c.name || "Customer"})?`)) return;
+    // Optimistically remove contact from UI immediately
+    setContacts((prev) => prev.filter((contact) => contact.id !== c.id));
+    setActionSuccessMsg(`🗑️ Contact ${c.phone} deleted successfully!`);
     try {
       await axios.delete(`/api/contacts/${c.id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setActionSuccessMsg(`🗑️ Contact ${c.phone} deleted successfully!`);
-      fetchData();
+      fetchData(true); // silent sync with backend in background
       setTimeout(() => setActionSuccessMsg(""), 5000);
     } catch (err) {
       alert("Failed to delete contact: " + (err.response?.data?.detail || err.message));
+      fetchData(true); // rollback/re-sync if backend request failed
     }
   };
 
@@ -1303,6 +1438,15 @@ export default function App() {
               </form>
 
               <div className="pt-2 border-t border-gray-100 flex flex-col items-center gap-2 text-xs">
+                <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-center">
+                  <p className="text-xs text-amber-800">
+                    Lost access to your Authenticator device?
+                  </p>
+                  <p className="text-[11px] text-amber-900 font-semibold mt-0.5">
+                    Contact your System Admin to disable 2FA for your account so you can log in.
+                  </p>
+                </div>
+
                 <button
                   type="button"
                   onClick={handleCancel2FA}
@@ -1363,12 +1507,20 @@ export default function App() {
                 <Lock className="w-4 h-4" />
                 Sign In Securely
               </button>
+
+              <div className="text-center pt-2">
+                <p className="text-xs text-gray-500">
+                  Forgot password or lost 2FA?{" "}
+                  <span className="text-gray-700 font-semibold">Contact your Administrator</span> to reset credentials.
+                </p>
+              </div>
             </form>
           )}
 
-          <div className="mt-6 pt-4 border-t border-gray-100 text-center">
-            <span className="text-xs text-gray-400">Protected by End-to-End Bcrypt & JWT Security</span>
+          <div className="mt-5 pt-3 border-t border-gray-100 text-center">
+            <span className="text-[11px] text-gray-400 font-medium">Protected by End-to-End Bcrypt & JWT Security • Admin-Managed Access</span>
           </div>
+
         </div>
 
         {/* ── Server URL Settings Modal ── */}
@@ -2164,10 +2316,19 @@ export default function App() {
 
                             {/* Metrics Summary Strip */}
                             <div className="grid grid-cols-4 gap-2 pt-1 border-t border-gray-100 text-xs">
-                              <div>
-                                <span className="text-[10px] text-gray-400 block font-medium">Enrolled</span>
-                                <span className="font-bold text-gray-900 font-mono">{flow.stats?.entered || 0}</span>
-                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenJourneySessions(flow)}
+                                className="text-left p-1.5 -m-1.5 rounded-lg hover:bg-emerald-50/70 transition group cursor-pointer border border-transparent hover:border-emerald-200"
+                                title="Click to view all contacts enrolled in this journey"
+                              >
+                                <span className="text-[10px] text-gray-400 block font-medium group-hover:text-emerald-700 flex items-center gap-0.5">
+                                  Enrolled <Eye className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition" />
+                                </span>
+                                <span className="font-bold text-gray-900 group-hover:text-[#25D366] font-mono underline decoration-dotted underline-offset-2">
+                                  {flow.stats?.entered || 0}
+                                </span>
+                              </button>
                               <div>
                                 <span className="text-[10px] text-gray-400 block font-medium">Completed</span>
                                 <span className="font-bold text-gray-900 font-mono">{flow.stats?.completed || 0}</span>
@@ -2196,6 +2357,14 @@ export default function App() {
                             </button>
 
                             <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleOpenJourneySessions(flow)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                                title="Inspect contacts that traversed this automation"
+                              >
+                                <Users className="w-3.5 h-3.5" />
+                                Contacts ({flow.stats?.entered || 0})
+                              </button>
                               <button
                                 onClick={() => setEditingWorkflow(flow)}
                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition shadow-xs"
@@ -2350,16 +2519,18 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {systemUsers.map((u) => (
-                        <tr key={u.id} className="hover:bg-gray-50/80 transition">
-                          <td className="px-4 py-3.5 font-mono text-xs text-gray-400">#{u.id}</td>
-                          <td className="px-4 py-3.5 font-bold text-gray-900 flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-[#25D366]"></span>
-                            {u.username}
-                            {u.username === username && (
-                              <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded font-mono font-normal">You</span>
-                            )}
-                          </td>
+                      {(() => {
+                        const isCallerAdmin = currentUserProfile?.role === "admin" || (username && username.toLowerCase().includes("admin"));
+                        return systemUsers.map((u) => (
+                          <tr key={u.id} className="hover:bg-gray-50/80 transition">
+                            <td className="px-4 py-3.5 font-mono text-xs text-gray-400">#{u.id}</td>
+                            <td className="px-4 py-3.5 font-bold text-gray-900 flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-[#25D366]"></span>
+                              {u.username}
+                              {u.username === username && (
+                                <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded font-mono font-normal">You</span>
+                              )}
+                            </td>
                           <td className="px-4 py-3.5 text-xs text-gray-600 font-mono">{u.email}</td>
                           <td className="px-4 py-3.5">
                             {u.is_2fa_enabled ? (
@@ -2378,51 +2549,155 @@ export default function App() {
                             </span>
                           </td>
                           <td className="px-4 py-3.5 font-semibold text-xs text-gray-700">
-                            {u.id === 1 || u.username.toLowerCase().includes("admin") ? (
-                              <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-bold">Admin (Full Access)</span>
+                            {u.role === "admin" ? (
+                              <span className="bg-amber-100 text-amber-900 px-2.5 py-1 rounded-md font-bold inline-flex items-center gap-1 border border-amber-300">
+                                <ShieldCheck className="w-3 h-3 text-amber-700" /> Admin (Full Access)
+                              </span>
+                            ) : u.role === "service" ? (
+                              <span className="bg-purple-50 text-purple-800 px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1 border border-purple-200">
+                                Service Account
+                              </span>
                             ) : (
-                              <span className="bg-blue-50 text-blue-800 px-2 py-0.5 rounded font-medium">Team Member</span>
+                              <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-md font-medium inline-flex items-center gap-1 border border-blue-200">
+                                Team Member
+                              </span>
                             )}
                           </td>
                           <td className="px-4 py-3.5 text-right">
-                            {u.username === username && (
-                              u.is_2fa_enabled ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setDisablePassword("");
-                                    setIsDisable2faModalOpen(true);
-                                  }}
-                                  className="text-xs text-red-600 hover:text-red-800 font-semibold hover:underline"
-                                >
-                                  Disable 2FA
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    setSetupVerifyError("");
-                                    setSetupVerifyCode("");
-                                    try {
-                                      const res = await axios.get("/api/auth/2fa/setup", {
-                                        headers: { Authorization: `Bearer ${token}` }
+                            <div className="flex items-center justify-end gap-2 flex-wrap">
+                              {/* 1. Admin Role Management: Promote / Demote */}
+                              {isCallerAdmin && (
+                                <>
+                                  {u.role === "admin" ? (
+                                    <button
+                                      type="button"
+                                      disabled={userRoleUpdatingId === u.id || (u.id === 1 && u.username === username && systemUsers.filter((x) => x.role === "admin").length <= 1)}
+                                      onClick={() => handleUpdateUserRole(u, "agent")}
+                                      className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                      title="Demote to Team Member"
+                                    >
+                                      {userRoleUpdatingId === u.id ? (
+                                        <RefreshCw className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <ShieldAlert className="w-3 h-3 text-amber-600" />
+                                      )}
+                                      Demote to Member
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={userRoleUpdatingId === u.id}
+                                      onClick={() => handleUpdateUserRole(u, "admin")}
+                                      className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                      title="Promote to Admin"
+                                    >
+                                      {userRoleUpdatingId === u.id ? (
+                                        <RefreshCw className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                                      )}
+                                      Promote to Admin
+                                    </button>
+                                  )}
+
+                                  {/* 2. Admin Password Override Button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAdminPasswordModal({
+                                        isOpen: true,
+                                        user: u,
+                                        newPassword: "",
+                                        confirmPassword: "",
+                                        loading: false,
+                                        error: ""
                                       });
-                                      setTwoFactorSetupData(res.data);
-                                      setIs2faModalOpen(true);
-                                    } catch (err) {
-                                      alert("Failed to initiate 2FA setup: " + (err.response?.data?.detail || err.message));
-                                    }
-                                  }}
-                                  className="text-xs bg-[#25D366] hover:bg-[#1EBE5D] text-white px-2.5 py-1 rounded-md font-bold transition inline-flex items-center gap-1 shadow-xs"
-                                >
-                                  <ShieldCheck className="w-3 h-3" />
-                                  Enable 2FA
-                                </button>
-                              )
-                            )}
+                                    }}
+                                    className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition cursor-pointer"
+                                    title={`Reset Password for ${u.username}`}
+                                  >
+                                    <Key className="w-3 h-3 text-indigo-600" />
+                                    Reset Password
+                                  </button>
+
+                                  {/* 3. Admin 2FA Override (if user is locked out) */}
+                                  {u.username !== username && (
+                                    u.is_2fa_enabled ? (
+                                      <button
+                                        type="button"
+                                        disabled={admin2faUpdatingId === u.id}
+                                        onClick={() => handleAdminToggle2FA(u, false)}
+                                        className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition disabled:opacity-40 cursor-pointer"
+                                        title={`Turn OFF 2FA requirement for ${u.username}`}
+                                      >
+                                        {admin2faUpdatingId === u.id ? (
+                                          <RefreshCw className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <ShieldAlert className="w-3 h-3 text-rose-600" />
+                                        )}
+                                        Disable 2FA
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled={admin2faUpdatingId === u.id}
+                                        onClick={() => handleAdminToggle2FA(u, true)}
+                                        className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200 transition disabled:opacity-40 cursor-pointer"
+                                        title={`Turn ON 2FA requirement for ${u.username}`}
+                                      >
+                                        {admin2faUpdatingId === u.id ? (
+                                          <RefreshCw className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <ShieldCheck className="w-3 h-3 text-gray-600" />
+                                        )}
+                                        Enable 2FA
+                                      </button>
+                                    )
+                                  )}
+                                </>
+                              )}
+
+                              {/* Self 2FA Toggle for logged-in user */}
+                              {u.username === username && (
+                                u.is_2fa_enabled ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setDisablePassword("");
+                                      setIsDisable2faModalOpen(true);
+                                    }}
+                                    className="text-xs text-red-600 hover:text-red-800 font-semibold hover:underline cursor-pointer"
+                                  >
+                                    Disable My 2FA
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      setSetupVerifyError("");
+                                      setSetupVerifyCode("");
+                                      try {
+                                        const res = await axios.get("/api/auth/2fa/setup", {
+                                          headers: { Authorization: `Bearer ${token}` }
+                                        });
+                                        setTwoFactorSetupData(res.data);
+                                        setIs2faModalOpen(true);
+                                      } catch (err) {
+                                        alert("Failed to initiate 2FA setup: " + (err.response?.data?.detail || err.message));
+                                      }
+                                    }}
+                                    className="text-xs bg-[#25D366] hover:bg-[#1EBE5D] text-white px-2.5 py-1 rounded-md font-bold transition inline-flex items-center gap-1 shadow-xs cursor-pointer"
+                                  >
+                                    <ShieldCheck className="w-3 h-3" />
+                                    Enable 2FA
+                                  </button>
+                                )
+                              )}
+                            </div>
                           </td>
                         </tr>
-                      ))}
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -4301,6 +4576,20 @@ export default function App() {
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">
+                  Access Level (Role)
+                </label>
+                <select
+                  value={newUserForm.role || "agent"}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366] bg-white cursor-pointer"
+                >
+                  <option value="agent">Team Member (Standard Access)</option>
+                  <option value="admin">Admin (Full Access & User Management)</option>
+                </select>
+              </div>
+
               <div className="pt-2 flex items-center justify-end gap-3">
                 <button
                   type="button"
@@ -4319,6 +4608,226 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Journey Enrolled Contacts & Execution Sessions Modal ── */}
+      {journeySessionsModal.isOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-gray-200 max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#25D366] flex items-center justify-center font-bold">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-lg text-gray-900 leading-tight">
+                      {journeySessionsModal.flow?.name || "Automation Journey"} — Enrolled Contacts
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                      ⚡ {journeySessionsModal.flow?.trigger_type}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Real-time list of customers who entered this automation journey, their current node, and action history
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setJourneySessionsModal((prev) => ({ ...prev, isOpen: false }))}
+                className="text-gray-400 hover:text-gray-600 font-bold text-xl leading-none p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Filter & Search Toolbar */}
+            <div className="py-3 flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-b border-gray-100">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search by phone, customer name, cart..."
+                  value={journeySessionsModal.search}
+                  onChange={(e) => setJourneySessionsModal((prev) => ({ ...prev, search: e.target.value }))}
+                  className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 font-medium">Status:</span>
+                <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-200 text-xs">
+                  {["ALL", "ACTIVE", "WAITING_DELAY", "COMPLETED_GOAL", "COMPLETED_DROPOUT"].map((st) => (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => setJourneySessionsModal((prev) => ({ ...prev, statusFilter: st }))}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+                        journeySessionsModal.statusFilter === st
+                          ? "bg-white text-gray-900 shadow-xs font-bold"
+                          : "text-gray-500 hover:text-gray-900"
+                      }`}
+                    >
+                      {st === "ALL"
+                        ? "All"
+                        : st === "WAITING_DELAY"
+                        ? "Waiting Delay"
+                        : st === "COMPLETED_GOAL"
+                        ? "Goal Met"
+                        : st === "COMPLETED_DROPOUT"
+                        ? "Exited"
+                        : "Active"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Contacts & Sessions Table */}
+            <div className="flex-1 overflow-y-auto pt-2">
+              {journeySessionsModal.loading ? (
+                <div className="py-16 flex flex-col items-center justify-center text-gray-400 text-xs gap-2">
+                  <RefreshCw className="w-6 h-6 animate-spin text-[#25D366]" />
+                  <span>Loading enrolled contacts and pathway sessions...</span>
+                </div>
+              ) : (() => {
+                const term = (journeySessionsModal.search || "").toLowerCase().trim();
+                const filtered = journeySessionsModal.sessions.filter((s) => {
+                  if (journeySessionsModal.statusFilter !== "ALL" && s.status !== journeySessionsModal.statusFilter) {
+                    return false;
+                  }
+                  if (!term) return true;
+                  const phone = (s.customer_phone || "").toLowerCase();
+                  const name = (s.state_data?.customer_name || "").toLowerCase();
+                  const token = (s.state_data?.cart_token || "").toLowerCase();
+                  const status = (s.status || "").toLowerCase();
+                  return phone.includes(term) || name.includes(term) || token.includes(term) || status.includes(term);
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="py-16 text-center text-gray-400 space-y-2">
+                      <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto text-gray-400">
+                        <Users className="w-6 h-6" />
+                      </div>
+                      <p className="text-sm font-semibold text-gray-700">No Enrolled Contacts Found</p>
+                      <p className="text-xs text-gray-400 max-w-sm mx-auto">
+                        {journeySessionsModal.sessions.length === 0
+                          ? "No contacts have triggered or traversed this automation journey yet. You can use 'Simulate Flow' to test it immediately."
+                          : "No sessions matched your search filters."}
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="divide-y divide-gray-100">
+                    <table className="w-full text-left text-xs text-gray-600">
+                      <thead className="bg-gray-50 text-[11px] uppercase font-semibold text-gray-500 border-b border-gray-200 sticky top-0 z-10">
+                        <tr>
+                          <th className="px-4 py-3">Customer Phone & Name</th>
+                          <th className="px-4 py-3">Cart / Data</th>
+                          <th className="px-4 py-3">Current Journey Stage</th>
+                          <th className="px-4 py-3">Status</th>
+                          <th className="px-4 py-3">Enrolled At (IST)</th>
+                          <th className="px-4 py-3 text-right">Step History</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {filtered.map((s) => {
+                          const state = s.state_data || {};
+                          const hist = s.history || [];
+                          const lastStep = hist.length > 0 ? hist[hist.length - 1] : null;
+
+                          return (
+                            <tr key={s.id} className="hover:bg-gray-50/80 transition">
+                              <td className="px-4 py-3.5">
+                                <div className="font-bold text-gray-900 font-mono text-xs flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-[#25D366]"></span>
+                                  {s.customer_phone}
+                                </div>
+                                <div className="text-[11px] text-gray-500">
+                                  {state.customer_name || "Online Customer"}
+                                </div>
+                              </td>
+
+                              <td className="px-4 py-3.5">
+                                {state.cart_value !== undefined ? (
+                                  <div>
+                                    <span className="font-bold text-gray-900 font-mono">₹{state.cart_value}</span>
+                                    {state.items_summary && (
+                                      <div className="text-[10px] text-gray-400 truncate max-w-[160px]" title={state.items_summary}>
+                                        {state.items_summary}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-400">—</span>
+                                )}
+                              </td>
+
+                              <td className="px-4 py-3.5">
+                                <div className="font-semibold text-gray-800 text-xs">
+                                  {lastStep?.label || s.current_node_id || "In Progress"}
+                                </div>
+                                {lastStep?.details && (
+                                  <div className="text-[10px] text-gray-400 truncate max-w-[180px]" title={lastStep.details}>
+                                    {lastStep.details}
+                                  </div>
+                                )}
+                              </td>
+
+                              <td className="px-4 py-3.5">
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                  s.status === "COMPLETED_GOAL"
+                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                    : s.status === "WAITING_DELAY"
+                                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                    : s.status === "COMPLETED_DROPOUT"
+                                    ? "bg-gray-100 text-gray-600 border border-gray-200"
+                                    : "bg-blue-50 text-blue-700 border border-blue-200"
+                                }`}>
+                                  {s.status === "COMPLETED_GOAL" ? "🎯 Goal Converted" :
+                                   s.status === "WAITING_DELAY" ? "⏳ Waiting Delay" :
+                                   s.status === "COMPLETED_DROPOUT" ? "🚪 Journey Ended" : "⚡ In Journey"}
+                                </span>
+                              </td>
+
+                              <td className="px-4 py-3.5 font-mono text-[11px] text-gray-500 whitespace-nowrap">
+                                {formatToIST(s.created_at)}
+                              </td>
+
+                              <td className="px-4 py-3.5 text-right">
+                                <span className="inline-block px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px] font-mono font-bold" title={`${hist.length} execution milestones passed`}>
+                                  {hist.length} step{hist.length === 1 ? "" : "s"} passed
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-4 border-t border-gray-100 flex items-center justify-between flex-shrink-0 text-xs text-gray-500">
+              <span>
+                Total Sessions Enrolled: <strong className="text-gray-900 font-mono">{journeySessionsModal.sessions.length}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setJourneySessionsModal((prev) => ({ ...prev, isOpen: false }))}
+                className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -5605,6 +6114,100 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ── Admin Password Reset Modal ── */}
+      {adminPasswordModal.isOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-200">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                  <Key className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-gray-900">Reset User Password</h3>
+                  <p className="text-xs text-gray-500">Admin credential override</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdminPasswordModal({ isOpen: false, user: null, newPassword: "", confirmPassword: "", loading: false, error: "" })}
+                className="text-gray-400 hover:text-gray-600 font-bold text-xl cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-600 mt-3 mb-4 bg-indigo-50 border border-indigo-100 p-2.5 rounded-lg">
+              Set a new secure password for account: <strong className="text-indigo-900 font-mono">{adminPasswordModal.user?.username}</strong>.
+            </p>
+
+            {adminPasswordModal.error && (
+              <div className="mb-3 p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg font-medium">
+                {adminPasswordModal.error}
+              </div>
+            )}
+
+            <form onSubmit={handleAdminResetPassword} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">New Password</label>
+                <div className="relative">
+                  <input
+                    type={adminPasswordModal.showPassword ? "text" : "password"}
+                    required
+                    minLength={6}
+                    placeholder="Minimum 6 characters"
+                    value={adminPasswordModal.newPassword}
+                    onChange={(e) => setAdminPasswordModal((prev) => ({ ...prev, newPassword: e.target.value }))}
+                    className="w-full pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setAdminPasswordModal((prev) => ({ ...prev, showPassword: !prev.showPassword }))}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer"
+                  >
+                    {adminPasswordModal.showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1">Confirm New Password</label>
+                <div className="relative">
+                  <input
+                    type={adminPasswordModal.showPassword ? "text" : "password"}
+                    required
+                    minLength={6}
+                    placeholder="Repeat new password"
+                    value={adminPasswordModal.confirmPassword}
+                    onChange={(e) => setAdminPasswordModal((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+                    className="w-full pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAdminPasswordModal({ isOpen: false, user: null, newPassword: "", confirmPassword: "", loading: false, error: "" })}
+                  className="flex-1 py-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={adminPasswordModal.loading}
+                  className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {adminPasswordModal.loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Key className="w-3.5 h-3.5" />}
+                  Save Password
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
