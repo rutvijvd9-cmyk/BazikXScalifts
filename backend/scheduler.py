@@ -3,6 +3,7 @@ import re
 import hmac
 import hashlib
 import logging
+import time
 from datetime import datetime, timedelta
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -402,64 +403,85 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
             if matches:
                 placeholder_count = max([int(m) for m in matches])
 
-        for phone in phones:
-            contact = db.query(models.Contact).filter(models.Contact.phone == phone).first()
-            customer_name = contact.name if contact and contact.name else "Valued Customer"
+        # 🚀 BATCH PACING: 15 messages per batch with 1-second pause to prevent rate-limit (80 RPS ceiling)
+        BATCH_SIZE = 15
+        total_phones = len(phones)
+        logger.info(f"⚡ [Campaign {campaign_id}] Processing {total_phones} recipients in batches of {BATCH_SIZE} (1s pacing)")
 
-            # Build parameters: use template-level mappings first, then positional fallback
-            params = {}
-            if tmpl and tmpl.variable_mappings and isinstance(tmpl.variable_mappings, dict):
-                cart_val_str = str(contact.total_spent if contact else 0)
-                items_summary = campaign.title
-                for idx_str, m_def in tmpl.variable_mappings.items():
-                    if not isinstance(m_def, dict):
-                        continue
-                    m_type = m_def.get("type")
-                    m_val = m_def.get("value")
-                    if m_type == "contact_field":
-                        if m_val == "phone":
-                            val_str = phone
-                        elif m_val == "city":
-                            val_str = contact.city if contact and contact.city else "Ahmedabad"
-                        elif m_val == "total_orders":
-                            val_str = str(contact.total_orders) if contact else "1"
-                        elif m_val == "last_order_date":
-                            val_str = contact.last_order_date.strftime("%d/%m/%Y") if contact and contact.last_order_date else "Recently"
+        for i in range(0, total_phones, BATCH_SIZE):
+            batch = phones[i:i + BATCH_SIZE]
+            batch_start_time = time.time()
+
+            for phone in batch:
+                contact = db.query(models.Contact).filter(models.Contact.phone == phone).first()
+                customer_name = contact.name if contact and contact.name else "Valued Customer"
+
+                # Build parameters: use template-level mappings first, then positional fallback
+                params = {}
+                if tmpl and tmpl.variable_mappings and isinstance(tmpl.variable_mappings, dict):
+                    cart_val_str = str(contact.total_spent if contact else 0)
+                    items_summary = campaign.title
+                    for idx_str, m_def in tmpl.variable_mappings.items():
+                        if not isinstance(m_def, dict):
+                            continue
+                        m_type = m_def.get("type")
+                        m_val = m_def.get("value")
+                        if m_type == "contact_field":
+                            if m_val == "phone":
+                                val_str = phone
+                            elif m_val == "city":
+                                val_str = contact.city if contact and contact.city else "Ahmedabad"
+                            elif m_val == "total_orders":
+                                val_str = str(contact.total_orders) if contact else "1"
+                            elif m_val == "last_order_date":
+                                val_str = contact.last_order_date.strftime("%d/%m/%Y") if contact and contact.last_order_date else "Recently"
+                            else:
+                                val_str = customer_name
+                        elif m_type == "cart_event":
+                            val_str = cart_val_str if m_val == "cart_value" else items_summary
+                        elif m_type == "coupon":
+                            val_str = config.DEFAULT_COUPON_CODE if hasattr(config, "DEFAULT_COUPON_CODE") else "MANU10"
+                        elif m_type == "static":
+                            val_str = str(m_val) if m_val else ""
                         else:
                             val_str = customer_name
-                    elif m_type == "cart_event":
-                        val_str = cart_val_str if m_val == "cart_value" else items_summary
-                    elif m_type == "coupon":
-                        val_str = config.DEFAULT_COUPON_CODE if hasattr(config, "DEFAULT_COUPON_CODE") else "MANU10"
-                    elif m_type == "static":
-                        val_str = str(m_val) if m_val else ""
-                    else:
-                        val_str = customer_name
-                    params[f"param_{idx_str}"] = val_str
-            else:
-                # Positional fallback if template has no configured mappings
-                fallback_values = [
-                    customer_name,
-                    campaign.title,
-                    config.STORE_SUPPORT_PHONE or phone,
-                    f"{config.DEFAULT_DISCOUNT_PERCENT}% OFF",
-                    config.STORE_LOCATION or config.BRAND_NAME,
-                    config.BRAND_NAME
-                ]
-                for i in range(1, placeholder_count + 1):
-                    params[f"param_{i}"] = fallback_values[(i - 1) % len(fallback_values)]
+                        params[f"param_{idx_str}"] = val_str
+                else:
+                    # Positional fallback if template has no configured mappings
+                    fallback_values = [
+                        customer_name,
+                        campaign.title,
+                        config.STORE_SUPPORT_PHONE or phone,
+                        f"{config.DEFAULT_DISCOUNT_PERCENT}% OFF",
+                        config.STORE_LOCATION or config.BRAND_NAME,
+                        config.BRAND_NAME
+                    ]
+                    for idx in range(1, placeholder_count + 1):
+                        params[f"param_{idx}"] = fallback_values[(idx - 1) % len(fallback_values)]
 
-            res = send_whatsapp_template(
-                recipient_phone=phone,
-                template_name=campaign.template_name,
-                language=campaign.language,
-                parameters=params
-            )
+                res = send_whatsapp_template(
+                    recipient_phone=phone,
+                    template_name=campaign.template_name,
+                    language=campaign.language,
+                    parameters=params
+                )
 
-            if res.get("status") in ["success", "success_simulated"]:
-                success_count += 1
-            else:
-                fail_count += 1
+                if res.get("status") in ["success", "success_simulated"]:
+                    success_count += 1
+                else:
+                    fail_count += 1
+
+            # Update live campaign progress in DB after each batch so UI displays real-time progress
+            campaign.successful_sends = success_count
+            campaign.failed_sends = fail_count
+            db.commit()
+
+            # Pacing: Sleep for remainder of 1 second if more batches remain
+            if i + BATCH_SIZE < total_phones:
+                elapsed = time.time() - batch_start_time
+                sleep_time = max(0.0, 1.0 - elapsed)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
 
         campaign.successful_sends = success_count
         campaign.failed_sends = fail_count
