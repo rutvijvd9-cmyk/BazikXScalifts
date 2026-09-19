@@ -57,5 +57,7 @@ ehthumbs.db
 Thumbs.db
 .idea/
 .vscode/
-*.swp
-*.swo
+# Local Databases
+*.db
+*.sqlite
+*.sqlite3

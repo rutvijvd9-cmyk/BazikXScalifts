@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, JSON
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, JSON, ForeignKey
 from database import Base
 
 
@@ -74,6 +74,7 @@ class MessageLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     recipient_phone = Column(String(20), index=True, nullable=False)
     template_name = Column(String(100), nullable=False)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
     language = Column(String(10), default="en")
     status = Column(String(50), default="QUEUED")  # QUEUED, SENT, DELIVERED, READ, FAILED
     meta_message_id = Column(String(100), nullable=True, index=True)

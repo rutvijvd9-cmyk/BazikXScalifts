@@ -65,6 +65,7 @@ migration_statements = [
     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
     "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS extra_data JSON;",
     "ALTER TABLE templates ADD COLUMN IF NOT EXISTS variable_mappings JSON;",
+    "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS campaign_id INTEGER REFERENCES campaigns(id);",
     "CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(50) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT NOW());"
 ]
 for stmt in migration_statements:

@@ -61,7 +61,8 @@ def send_whatsapp_template(
     language: str = "en",
     parameters: dict = None,
     coupon_code: str = None,
-    button_parameters: list = None
+    button_parameters: list = None,
+    campaign_id: int = None
 ) -> dict:
     """
     Sends a WhatsApp message via Meta Cloud API or simulation mode.
@@ -93,6 +94,7 @@ def send_whatsapp_template(
                 log_entry = models.MessageLog(
                     recipient_phone=recipient_phone,
                     template_name=template_name,
+                    campaign_id=campaign_id,
                     language=language,
                     status="FAILED",
                     error_message="Customer opted out / on DND list"
@@ -112,6 +114,7 @@ def send_whatsapp_template(
                 log_entry = models.MessageLog(
                     recipient_phone=recipient_phone,
                     template_name=template_name,
+                    campaign_id=campaign_id,
                     language=language,
                     status="FAILED",
                     error_message=f"Daily budget limit reached ({count_today}/{effective_limit} sent today)"
@@ -133,6 +136,7 @@ def send_whatsapp_template(
             log_entry = models.MessageLog(
                 recipient_phone=recipient_phone,
                 template_name=template_name,
+                campaign_id=campaign_id,
                 language=language,
                 status="SENT_SIMULATED",
                 meta_message_id=mock_wamid
@@ -212,6 +216,7 @@ def send_whatsapp_template(
                     log_entry = models.MessageLog(
                         recipient_phone=recipient_phone,
                         template_name=template_name,
+                        campaign_id=campaign_id,
                         language=language,
                         status="SENT",
                         meta_message_id=msg_id
@@ -250,6 +255,7 @@ def send_whatsapp_template(
                 log_entry = models.MessageLog(
                     recipient_phone=recipient_phone,
                     template_name=template_name,
+                    campaign_id=campaign_id,
                     language=language,
                     status="FAILED",
                     error_message=error_info
@@ -265,6 +271,7 @@ def send_whatsapp_template(
             log_entry = models.MessageLog(
                 recipient_phone=recipient_phone,
                 template_name=template_name,
+                campaign_id=campaign_id,
                 language=language,
                 status="FAILED",
                 error_message=str(e)

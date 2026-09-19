@@ -1843,6 +1843,7 @@ export default function App() {
               campaigns={campaigns}
               handleOpenCampaignModal={handleOpenCampaignModal}
               handleCancelScheduledCampaign={handleCancelCampaign}
+              token={token}
             />
           )}
 

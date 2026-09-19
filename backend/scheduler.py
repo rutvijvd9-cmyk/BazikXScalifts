@@ -482,7 +482,8 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
                         recipient_phone=phone,
                         template_name=campaign.template_name,
                         language=campaign.language,
-                        parameters=params
+                        parameters=params,
+                        campaign_id=campaign.id
                     )
 
                     if res.get("status") in ["success", "success_simulated"]:
