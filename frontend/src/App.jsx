@@ -1975,6 +1975,7 @@ export default function App() {
       <JourneySessionsModal
         modalState={journeySessionsModal}
         setModalState={setJourneySessionsModal}
+        onOpenAnalyticsPage={handleOpenAnalyticsPage}
       />
 
       {/* Full-screen Automation Analytics Page */}
