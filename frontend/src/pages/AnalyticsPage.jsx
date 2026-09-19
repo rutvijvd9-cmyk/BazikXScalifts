@@ -236,7 +236,7 @@ export default function AnalyticsPage({
                   <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">4. Engaged / Clicks</span>
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">4. Engaged / Replies</span>
                       </div>
                       <p className="text-2xl font-black text-gray-900 mt-2">
                         {(analyticsData?.funnel?.total_clicks ?? 0) + (analyticsData?.funnel?.total_replied ?? 0)}
