@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import {
   Users, Search, RefreshCw, ShoppingCart, Send, Clock,
-  CheckCircle2, Award, X, ArrowRight, GitBranch
+  CheckCircle2, Award, X, ArrowRight, GitBranch, Maximize2
 } from "lucide-react";
 import { formatToIST } from "../../utils/dateUtils";
-import JourneyConversionFunnel from "../analytics/JourneyConversionFunnel";
+import AnalyticsFlowCanvas from "../analytics/AnalyticsFlowCanvas";
 
 /* ── Node-type → pill style (light theme) ── */
 const NODE_STYLES = {
@@ -69,7 +69,7 @@ function StatusBadge({ status }) {
 /* ══════════════════════════════════════════
    MAIN MODAL
 ══════════════════════════════════════════ */
-export default function JourneySessionsModal({ modalState, setModalState }) {
+export default function JourneySessionsModal({ modalState, setModalState, onOpenAnalyticsPage }) {
   const [selectedStepId, setSelectedStepId] = useState(null);
   const [activeTab, setActiveTab]           = useState("funnel"); // "funnel" | "contacts"
 
@@ -135,10 +135,26 @@ export default function JourneySessionsModal({ modalState, setModalState }) {
               </p>
             </div>
           </div>
-          <button onClick={() => setModalState(prev => ({ ...prev, isOpen: false }))}
-            className="text-gray-400 hover:text-gray-700 p-2 rounded-xl hover:bg-gray-100 transition cursor-pointer">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenAnalyticsPage && (
+              <button
+                type="button"
+                onClick={() => {
+                  setModalState(prev => ({ ...prev, isOpen: false }));
+                  onOpenAnalyticsPage(flow);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                title="Open in Dedicated Full Page"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                Full Page
+              </button>
+            )}
+            <button onClick={() => setModalState(prev => ({ ...prev, isOpen: false }))}
+              className="text-gray-400 hover:text-gray-700 p-2 rounded-xl hover:bg-gray-100 transition cursor-pointer">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* ── KPI bar (always visible) ── */}
@@ -190,21 +206,22 @@ export default function JourneySessionsModal({ modalState, setModalState }) {
         </div>
 
         {/* ── Tab content ── */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
 
           {/* ════ TAB: FUNNEL ════ */}
           {activeTab === "funnel" && (
-            <div className="px-6 py-5">
+            <div className="flex-1 h-full w-full relative flex flex-col overflow-hidden min-h-[500px]">
               {modalState.loading ? (
                 <div className="py-16 flex justify-center">
                   <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
                 </div>
               ) : (
-                <JourneyConversionFunnel
+                <AnalyticsFlowCanvas
                   flow={flow}
                   sessions={sessions}
                   selectedStepId={selectedStepId}
                   onSelectStep={setSelectedStepId}
+                  onViewContactsAtStep={() => setActiveTab("contacts")}
                 />
               )}
             </div>
@@ -212,7 +229,7 @@ export default function JourneySessionsModal({ modalState, setModalState }) {
 
           {/* ════ TAB: ENROLLED CONTACTS ════ */}
           {activeTab === "contacts" && (
-            <div>
+            <div className="flex-1 overflow-y-auto">
               {/* Filter bar */}
               <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 border-b border-gray-100 bg-gray-50/50 sticky top-0 z-10">
                 {/* Search */}

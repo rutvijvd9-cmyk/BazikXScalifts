@@ -4,7 +4,7 @@ import {
   ShoppingCart, Send, Clock, CheckCircle2, Award, X, ArrowRight
 } from "lucide-react";
 import { formatToIST } from "../utils/dateUtils";
-import JourneyConversionFunnel from "../components/analytics/JourneyConversionFunnel";
+import AnalyticsFlowCanvas from "../components/analytics/AnalyticsFlowCanvas";
 
 /* ── Step pill ── */
 const NODE_STYLES = {
@@ -161,30 +161,28 @@ export default function AutomationAnalyticsPage({ flow, sessions, loading, onBac
       </div>
 
       {/* ── Tab Content ── */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
 
         {/* FUNNEL TAB */}
         {activeTab === "funnel" && (
-          <div className="max-w-4xl mx-auto px-6 py-6">
+          <div className="flex-1 h-full w-full relative flex flex-col overflow-hidden">
             {loading ? (
               <div className="py-24 flex justify-center"><RefreshCw className="w-7 h-7 animate-spin text-gray-400" /></div>
             ) : (
-              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-                <JourneyConversionFunnel
-                  flow={flow}
-                  sessions={sessions}
-                  selectedStepId={selectedStepId}
-                  onSelectStep={setSelectedStepId}
-                  maxHeight="68vh"
-                />
-              </div>
+              <AnalyticsFlowCanvas
+                flow={flow}
+                sessions={sessions}
+                selectedStepId={selectedStepId}
+                onSelectStep={setSelectedStepId}
+                onViewContactsAtStep={() => setActiveTab("contacts")}
+              />
             )}
           </div>
         )}
 
         {/* CONTACTS TAB */}
         {activeTab === "contacts" && (
-          <div>
+          <div className="flex-1 overflow-y-auto">
             {/* Filter bar */}
             <div className="bg-white border-b border-gray-200 px-6 py-3 flex flex-wrap items-center gap-3 sticky top-0 z-10">
               <div className="relative">
