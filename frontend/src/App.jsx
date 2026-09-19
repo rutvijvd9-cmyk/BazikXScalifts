@@ -1776,43 +1776,26 @@ export default function App() {
 
           {activeTab === "settings" && (
             <SettingsPage
-              settings={settings}
+              systemSettings={systemSettings}
               dailyLimitInput={dailyLimitInput}
               setDailyLimitInput={setDailyLimitInput}
+              isEditingDailyLimit={isEditingDailyLimit}
+              setIsEditingDailyLimit={setIsEditingDailyLimit}
               savingDailyLimit={savingDailyLimit}
-              handleSaveDailyLimit={handleSaveDailyLimit}
-              testPhone={testPhone}
-              setTestPhone={setTestPhone}
-              testTemplate={testTemplate}
-              setTestTemplate={setTestTemplate}
-              testingPhone={testingPhone}
-              handleSendTestMessage={handleSendTestMessage}
-              templates={templates}
+              handleUpdateDailyLimit={handleUpdateDailyLimit}
               currentUserProfile={currentUserProfile}
-              handleOpen2faSetup={handleOpen2faSetup}
               setIsDisable2faModalOpen={setIsDisable2faModalOpen}
-              exportingDb={exportingDb}
-              handleExportDatabase={handleExportDatabase}
-              fileInputRefDb={fileInputRefDb}
-              importingDb={importingDb}
-              handleImportDatabase={handleImportDatabase}
               setIsAddUserModalOpen={setIsAddUserModalOpen}
-              usersLoading={usersLoading}
-              fetchUsers={fetchUsers}
               systemUsers={systemUsers}
               username={username}
-              handleOpenPasswordReset={handleOpenPasswordReset}
               handleDeleteUser={handleDeleteUser}
               userRoleUpdatingId={userRoleUpdatingId}
               handleUpdateUserRole={handleUpdateUserRole}
               setAdminPasswordModal={setAdminPasswordModal}
-              systemSettings={systemSettings}
-              isEditingDailyLimit={isEditingDailyLimit}
-              setIsEditingDailyLimit={setIsEditingDailyLimit}
-              setIsRoleInfoModalOpen={setIsRoleInfoModalOpen}
-              setAddUserError={setAddUserError}
               admin2faUpdatingId={admin2faUpdatingId}
               handleAdminToggle2FA={handleAdminToggle2FA}
+              setIsRoleInfoModalOpen={setIsRoleInfoModalOpen}
+              setAddUserError={setAddUserError}
             />
           )}
 
@@ -1820,21 +1803,7 @@ export default function App() {
           {activeTab === "templates" && (
             <TemplatesPage
               templates={templates}
-              templateImporting={templateImporting}
-              handleImportOfficialTemplates={handleImportOfficialTemplates}
               setIsTemplateModalOpen={setIsTemplateModalOpen}
-              templateSearch={templateSearch}
-              setTemplateSearch={setTemplateSearch}
-              templateCategoryFilter={templateCategoryFilter}
-              setTemplateCategoryFilter={setTemplateCategoryFilter}
-              templateLanguageFilter={templateLanguageFilter}
-              setTemplateLanguageFilter={setTemplateLanguageFilter}
-              templateStatusFilter={templateStatusFilter}
-              setTemplateStatusFilter={setTemplateStatusFilter}
-              templatesPage={templatesPage}
-              setTemplatesPage={setTemplatesPage}
-              templatesPerPage={templatesPerPage}
-              setTemplatesPerPage={setTemplatesPerPage}
               handleDeleteTemplate={handleDeleteTemplate}
               handleSyncMetaTemplates={handleSyncMetaTemplates}
               loading={loading}
@@ -1852,9 +1821,7 @@ export default function App() {
             <CampaignsPage
               campaigns={campaigns}
               handleOpenCampaignModal={handleOpenCampaignModal}
-              handleTriggerCampaign={handleTriggerCampaign}
-              handleCancelScheduledCampaign={handleCancelScheduledCampaign}
-              handleDeleteCampaign={handleDeleteCampaign}
+              handleCancelScheduledCampaign={handleCancelCampaign}
             />
           )}
 
@@ -1878,16 +1845,21 @@ export default function App() {
               contactsPerPage={contactsPerPage}
               setContactsPerPage={setContactsPerPage}
               setContactsPage={setContactsPage}
-              importingContacts={importingContacts}
-              handleImportContactsCsv={handleImportContactsCsv}
-              fileInputRef={fileInputRef}
-              contactsSearch={contactsSearch}
-              setContactsSearch={setContactsSearch}
-              contactsTagFilter={contactsTagFilter}
-              setContactsTagFilter={setContactsTagFilter}
-              contactsSortBy={contactsSortBy}
-              setContactsSortBy={setContactsSortBy}
               contactsPage={contactsPage}
+              searchTerm={searchTerm}
+              setSearchTerm={setSearchTerm}
+              contactFilterCity={contactFilterCity}
+              setContactFilterCity={setContactFilterCity}
+              contactFilterTag={contactFilterTag}
+              setContactFilterTag={setContactFilterTag}
+              contactFilterVip={contactFilterVip}
+              setContactFilterVip={setContactFilterVip}
+              contactFilterOrders={contactFilterOrders}
+              setContactFilterOrders={setContactFilterOrders}
+              contactSortField={contactSortField}
+              setContactSortField={setContactSortField}
+              contactSortOrder={contactSortOrder}
+              setContactSortOrder={setContactSortOrder}
               handleDeleteContact={handleDeleteContact}
               handleOpenAddContact={handleOpenAddContact}
               handleOpenEditContact={handleOpenEditContact}

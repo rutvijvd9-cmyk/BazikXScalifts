@@ -1,8 +1,6 @@
 import React from "react";
 import {
   Plus,
-  Play,
-  PlayCircle,
   Clock,
   Trash2,
   Calendar,
@@ -15,9 +13,7 @@ import { formatToIST, formatScheduleDisplay } from "../utils/dateUtils";
 export default function CampaignsPage({
   campaigns = [],
   handleOpenCampaignModal,
-  handleTriggerCampaign,
-  handleCancelScheduledCampaign,
-  handleDeleteCampaign
+  handleCancelScheduledCampaign
 }) {
   return (
             <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">

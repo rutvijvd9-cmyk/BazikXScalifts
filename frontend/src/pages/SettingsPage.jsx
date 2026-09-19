@@ -1,63 +1,35 @@
 import React from "react";
 import {
-  Settings,
   ShieldCheck,
   ShieldAlert,
-  Send,
-  Lock,
-  Upload,
   UserPlus,
   RefreshCw,
-  Clock,
-  KeyRound,
   Trash2,
-  Key,
-  Edit2,
-  Users,
-  BookOpen
+  Key
 } from "lucide-react";
 import { formatToIST } from "../utils/dateUtils";
 
 export default function SettingsPage({
-  settings = {},
   systemSettings = {},
   dailyLimitInput,
   setDailyLimitInput,
   isEditingDailyLimit = false,
   setIsEditingDailyLimit = () => {},
-  savingDailyLimit,
-  handleSaveDailyLimit,
-  testPhone,
-  setTestPhone,
-
-  testTemplate,
-  setTestTemplate,
-  testingPhone,
-  handleSendTestMessage,
-  templates = [],
+  savingDailyLimit = false,
+  handleUpdateDailyLimit = () => {},
   currentUserProfile,
-  handleOpen2faSetup,
-  setIsDisable2faModalOpen,
-  exportingDb,
-  handleExportDatabase,
-  fileInputRefDb,
-  importingDb,
-  handleImportDatabase,
-  setIsAddUserModalOpen,
-  usersLoading,
-  fetchUsers,
+  setIsDisable2faModalOpen = () => {},
+  setIsAddUserModalOpen = () => {},
   systemUsers = [],
   username,
-  handleOpenPasswordReset,
-  handleDeleteUser,
+  handleDeleteUser = () => {},
   userRoleUpdatingId,
-  handleUpdateUserRole,
-  setAdminPasswordModal,
+  handleUpdateUserRole = () => {},
+  setAdminPasswordModal = () => {},
   admin2faUpdatingId,
-  handleAdminToggle2FA,
+  handleAdminToggle2FA = () => {},
   setIsRoleInfoModalOpen = () => {},
-  setAddUserError = () => {},
-  handleUpdateDailyLimit = (e) => { e?.preventDefault(); handleSaveDailyLimit(dailyLimitInput); }
+  setAddUserError = () => {}
 }) {
 
   return (

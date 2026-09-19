@@ -1,34 +1,14 @@
 import React from "react";
 import {
-  Upload,
   Plus,
-  Search,
   BookOpen,
-  Filter,
   Trash2,
-  ChevronLeft,
-  ChevronRight,
-  Sparkles,
   RefreshCw
 } from "lucide-react";
 
 export default function TemplatesPage({
   templates = [],
-  templateImporting,
-  handleImportOfficialTemplates,
   setIsTemplateModalOpen,
-  templateSearch,
-  setTemplateSearch,
-  templateCategoryFilter,
-  setTemplateCategoryFilter,
-  templateLanguageFilter,
-  setTemplateLanguageFilter,
-  templateStatusFilter,
-  setTemplateStatusFilter,
-  templatesPage,
-  setTemplatesPage,
-  templatesPerPage,
-  setTemplatesPerPage,
   handleDeleteTemplate,
   handleSyncMetaTemplates,
   loading = false,
