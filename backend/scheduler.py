@@ -901,6 +901,11 @@ def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, 
                 "node_id": str(trigger_node.get("id")),
                 "node_type": "trigger",
                 "label": trigger_node.get("label", "Workflow Started"),
+                "condition_label": (
+                    f"Cart > ₹{min_cart_val}" if min_cart_val
+                    else f"Inactive > {trigger_data.get('inactive_days')}d" if trigger_data.get("inactive_days")
+                    else (trigger_node.get("label") or "Trigger Started")
+                ),
                 "timestamp": datetime.utcnow().isoformat(),
                 "details": f"Session enrolled for {customer_phone}"
             }]
@@ -1218,6 +1223,8 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             session.history = (session.history or []) + [{
                 "node_id": str(curr_node.get("id")),
                 "node_type": "condition",
+                "condition_type": condition_type,
+                "branch": branch_handle.upper(),
                 "label": curr_node.get("label", f"Check {condition_type}"),
                 "timestamp": now.isoformat(),
                 "details": f"Condition evaluated to {cond_str} -> Took '{branch_handle.upper()}' path"
