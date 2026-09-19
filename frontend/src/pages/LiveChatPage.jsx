@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
   Search,
   ChevronLeft,
@@ -39,6 +39,19 @@ export default function LiveChatPage({
   fetchChatMessages,
   handleSendChatMessage
 }) {
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = (behavior = "auto") => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior, block: "end" });
+    }
+  };
+
+  useEffect(() => {
+    // Scroll instantly to bottom when chat opens or messages change
+    scrollToBottom("auto");
+  }, [selectedChatPhone, chatMessages]);
+
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col flex-1 min-h-0">
       {/* Top Banner / Live Status Indicator */}
@@ -393,6 +406,7 @@ export default function LiveChatPage({
                   );
                 })
               )}
+              <div ref={messagesEndRef} />
             </div>
 
             {/* Quick Reply Suggestions */}
