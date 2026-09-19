@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import {
   Zap,
   Clock,
@@ -16,7 +16,8 @@ import {
   Users,
   Award,
   Filter,
-  ArrowRight
+  ArrowRight,
+  Hand
 } from "lucide-react";
 
 export default function AnalyticsFlowCanvas({
@@ -27,6 +28,36 @@ export default function AnalyticsFlowCanvas({
   onViewContactsAtStep
 }) {
   const [zoom, setZoom] = useState(0.85);
+  const containerRef = useRef(null);
+  const isDraggingRef = useRef(false);
+  const startPosRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
+
+  const handleMouseDown = (e) => {
+    // Only pan when clicking on canvas background, not on interactive cards/buttons
+    if (e.target.closest("button") || e.target.closest(".group") || e.target.closest("input")) {
+      return;
+    }
+    isDraggingRef.current = true;
+    startPosRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      scrollLeft: containerRef.current ? containerRef.current.scrollLeft : 0,
+      scrollTop: containerRef.current ? containerRef.current.scrollTop : 0
+    };
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDraggingRef.current || !containerRef.current) return;
+    e.preventDefault();
+    const dx = e.clientX - startPosRef.current.x;
+    const dy = e.clientY - startPosRef.current.y;
+    containerRef.current.scrollLeft = startPosRef.current.scrollLeft - dx;
+    containerRef.current.scrollTop = startPosRef.current.scrollTop - dy;
+  };
+
+  const handleMouseUp = () => {
+    isDraggingRef.current = false;
+  };
 
   const allNodes = flow?.nodes || [];
   const allEdges = flow?.edges || [];
@@ -444,7 +475,14 @@ export default function AnalyticsFlowCanvas({
       )}
 
       {/* Canvas Workspace with Exact SVG Dot Grid Pattern */}
-      <div className="relative flex-1 overflow-x-auto overflow-y-auto bg-[#F8FAFC] scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+      <div
+        ref={containerRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        className="relative flex-1 h-full w-full overflow-x-auto overflow-y-auto bg-[#F8FAFC] scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent cursor-grab active:cursor-grabbing select-none"
+      >
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
@@ -455,8 +493,16 @@ export default function AnalyticsFlowCanvas({
 
         {/* Canvas Scaled Content Container */}
         <div
-          className="min-h-full min-w-full w-max p-16 pb-28 flex flex-col items-center justify-start transition-transform origin-top mx-auto"
-          style={{ transform: `scale(${zoom})` }}
+          className="min-h-full min-w-full w-max flex flex-col items-center justify-start transition-transform origin-top mx-auto"
+          style={{
+            transform: `scale(${zoom})`,
+            transformOrigin: "top center",
+            paddingTop: "48px",
+            paddingLeft: "64px",
+            paddingRight: "64px",
+            paddingBottom: `${Math.max(160, Math.round(500 * zoom))}px`,
+            minHeight: `${Math.round(100 / Math.max(zoom, 0.3))}%`
+          }}
         >
           {rootNode ? (
             renderFlowChain(rootNode.id)
