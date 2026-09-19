@@ -166,36 +166,48 @@ def simulate_workflow_flow(
 
     from scheduler import start_workflow_session, process_workflow_session_step
 
-    sim_token = f"sim_{int(datetime.utcnow().timestamp())}"
-    state_data = {
-        "cart_token": sim_token,
-        "cart_value": payload.test_cart_value or 450.0,
-        "customer_name": "Test Patron",
-        "items_summary": "Special Vanela Gathiya & Bhavnagari Gathiya",
-        "simulation": True,
-        "simulated_by": current_user.username
-    }
+    try:
+        sim_token = f"sim_{int(datetime.utcnow().timestamp())}"
+        state_data = {
+            "cart_token": sim_token,
+            "cart_value": payload.test_cart_value or 450.0,
+            "customer_name": "Test Patron",
+            "items_summary": "Special Vanela Gathiya & Bhavnagari Gathiya",
+            "simulation": True,
+            "simulated_by": current_user.username
+        }
 
-    session = start_workflow_session(
-        flow_id=flow.id,
-        customer_phone=payload.customer_phone,
-        state_data=state_data,
-        db=db
-    )
+        session = start_workflow_session(
+            flow_id=flow.id,
+            customer_phone=payload.customer_phone,
+            state_data=state_data,
+            db=db
+        )
 
-    if not session:
-        raise HTTPException(status_code=500, detail="Failed to initialize workflow session")
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unable to start simulation for flow '{flow.name}'. Ensure flow is active and has valid trigger."
+            )
 
-    if payload.mock_mode and session.status == "WAITING_DELAY":
-        session.status = "ACTIVE"
-        db.commit()
-        process_workflow_session_step(session.id, db=db, mock_send=True)
+        if payload.mock_mode and session.status == "WAITING_DELAY":
+            session.status = "ACTIVE"
+            db.commit()
+            process_workflow_session_step(session.id, db=db, mock_send=True)
 
-    db.refresh(session)
-    return {
-        "status": "success",
-        "message": f"Simulation initiated for {payload.customer_phone} in '{flow.name}'",
-        "session_id": session.id,
-        "current_status": session.status,
-        "history": session.history or []
-    }
+        db.refresh(session)
+        return {
+            "status": "success",
+            "message": f"Simulation initiated for {payload.customer_phone} in '{flow.name}'",
+            "session_id": session.id,
+            "current_status": session.status,
+            "history": session.history or []
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Error simulating workflow #{flow_id}: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Simulation error: {str(exc)}"
+        )

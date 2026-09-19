@@ -93,7 +93,7 @@ export default function AutomationAnalyticsPage({ flow, sessions, loading, onBac
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="h-screen max-h-screen bg-gray-50 flex flex-col overflow-hidden">
 
       {/* ── Top bar ── */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-4 flex-shrink-0 sticky top-0 z-20">

@@ -851,6 +851,8 @@ def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, 
         trigger_node = next((n for n in nodes if n.get("type") == "trigger"), nodes[0])
         trigger_data = trigger_node.get("data", {}) if isinstance(trigger_node, dict) else {}
 
+        is_simulation = bool((state_data or {}).get("simulation"))
+
         # ── Guardrail: Minimum Cart Value Trigger Threshold ──
         if trigger_data.get("trigger_type") == "ABANDONED_CART" or flow.trigger_type == "ABANDONED_CART":
             min_cart_val = trigger_data.get("min_cart_value")
@@ -863,10 +865,16 @@ def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, 
                     min_cart_float = float(min_cart_val)
                     actual_cart_float = float((state_data or {}).get("cart_value", 0))
                     if actual_cart_float < min_cart_float:
-                        logger.info(
-                            f"🛑 [Workflow Trigger Blocked] Cart value (₹{actual_cart_float}) is below minimum threshold (₹{min_cart_float}) for flow '{flow.name}'. Workflow session skipped."
-                        )
-                        return None
+                        if is_simulation:
+                            logger.info(
+                                f"ℹ️ [Workflow Simulation] Simulated cart value (₹{actual_cart_float}) adjusted to meet threshold (₹{min_cart_float}) for testing."
+                            )
+                            state_data["cart_value"] = min_cart_float
+                        else:
+                            logger.info(
+                                f"🛑 [Workflow Trigger Blocked] Cart value (₹{actual_cart_float}) is below minimum threshold (₹{min_cart_float}) for flow '{flow.name}'. Workflow session skipped."
+                            )
+                            return None
                 except (ValueError, TypeError) as val_err:
                     logger.warning(f"Error parsing min_cart_value for workflow #{flow.id}: {val_err}")
 
@@ -882,7 +890,7 @@ def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, 
                 contact = db.query(models.Contact).filter(models.Contact.phone == customer_phone).first()
                 if contact and contact.last_order_date:
                     days_since_last_order = (datetime.utcnow() - contact.last_order_date).days
-                    if days_since_last_order < days_int:
+                    if days_since_last_order < days_int and not is_simulation:
                         logger.info(
                             f"🛑 [Workflow Trigger Blocked] Customer {customer_phone} was active {days_since_last_order} days ago (minimum inactive threshold: {days_int} days) for flow '{flow.name}'. Workflow session skipped."
                         )
@@ -907,7 +915,7 @@ def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, 
                     else (trigger_node.get("label") or "Trigger Started")
                 ),
                 "timestamp": datetime.utcnow().isoformat(),
-                "details": f"Session enrolled for {customer_phone}"
+                "details": f"Session enrolled for {customer_phone}" + (" [SIMULATION]" if is_simulation else "")
             }]
         )
         db.add(session)
@@ -920,10 +928,10 @@ def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, 
         db.commit()
         db.refresh(session)
 
-        logger.info(f"🚀 [Workflow Engine] Session #{session.id} started for {customer_phone} in flow '{flow.name}'")
+        logger.info(f"🚀 [Workflow Engine] Session #{session.id} started for {customer_phone} in flow '{flow.name}' (simulation={is_simulation})")
         
         # Advance from trigger to first downstream node
-        process_workflow_session_step(session.id, db=db)
+        process_workflow_session_step(session.id, db=db, mock_send=is_simulation)
         db.refresh(session)
         return session
     except Exception as e:

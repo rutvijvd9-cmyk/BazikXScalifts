@@ -53,10 +53,14 @@ export default function FlowchartCanvas({
   const [pickerFilter, setPickerFilter] = useState("all");
   const [zoom, setZoom] = useState(1);
   const [isSimulating, setIsSimulating] = useState(false);
+  const triggerNode = (flow.nodes || []).find((n) => n.type === "trigger");
+  const triggerMinCart = triggerNode?.data?.min_cart_value ? Number(triggerNode.data.min_cart_value) : 650;
   const [simPhone, setSimPhone] = useState("");
-  const [simCartValue, setSimCartValue] = useState(650);
+  const [simCartValue, setSimCartValue] = useState(triggerMinCart > 650 ? triggerMinCart : 650);
   const [simLog, setSimLog] = useState([]);
+  const [simError, setSimError] = useState("");
   const [simStepIndex, setSimStepIndex] = useState(-1);
+  const [isSimLoading, setIsSimLoading] = useState(false);
   const [templateSearchQuery, setTemplateSearchQuery] = useState("");
 
   const selectedNode = (flow.nodes || []).find((n) => n.id === selectedNodeId);
@@ -205,26 +209,33 @@ export default function FlowchartCanvas({
   // Run simulated step animation
   const handleStartSimulation = async () => {
     if (!simPhone.trim()) {
-      alert("Please enter a customer test phone number (e.g. +919876543210)");
+      setSimError("Please enter a customer test phone number (e.g. +919876543210)");
       return;
     }
-    setIsSimulating(true);
+    setIsSimLoading(true);
+    setSimError("");
     setSimLog([]);
     setSimStepIndex(0);
 
     try {
       if (onSimulate) {
         const res = await onSimulate(flow.id, {
-          customer_phone: simPhone,
-          test_cart_value: Number(simCartValue),
+          customer_phone: simPhone.trim(),
+          test_cart_value: Number(simCartValue) || 650,
           mock_mode: true
         });
         if (res && res.history) {
           setSimLog(res.history);
+        } else if (res && res.message) {
+          setSimLog([{ label: "Status", details: res.message }]);
         }
       }
     } catch (err) {
       console.error("Simulation error:", err);
+      const errMsg = err?.response?.data?.detail || err?.message || "Simulation failed. Please check phone and flow.";
+      setSimError(errMsg);
+    } finally {
+      setIsSimLoading(false);
     }
   };
 
@@ -1701,20 +1712,28 @@ export default function FlowchartCanvas({
               </div>
             )}
 
+            {/* Error Message */}
+            {simError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium">
+                ⚠️ {simError}
+              </div>
+            )}
+
             {/* Actions */}
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 onClick={() => setIsSimulating(false)}
-                className="px-4 py-2 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-semibold text-gray-600 transition"
+                className="px-4 py-2 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-semibold text-gray-600 transition cursor-pointer"
               >
                 Close
               </button>
               <button
                 onClick={handleStartSimulation}
-                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition shadow-xs"
+                disabled={isSimLoading}
+                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
               >
                 <Play className="w-3.5 h-3.5 fill-white" />
-                Run Simulation
+                {isSimLoading ? "Simulating..." : "Run Simulation"}
               </button>
             </div>
           </div>
