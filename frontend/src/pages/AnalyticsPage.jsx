@@ -84,8 +84,8 @@ export default function AnalyticsPage({
                 </div>
               </div>
 
-              {/* 6 Key Metric Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+              {/* Key Metric Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                 {/* 1. Delivery Rate */}
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex flex-col justify-between">
                   <div>
@@ -112,21 +112,6 @@ export default function AnalyticsPage({
                     </span>
                     <p className="text-[11px] text-gray-500 mt-1">
                       <span className="font-semibold text-gray-700">{analyticsData?.funnel?.total_read ?? 0}</span> read receipts
-                    </p>
-                  </div>
-                </div>
-
-                {/* 3. Click-Through Rate (CTR) */}
-                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex flex-col justify-between">
-                  <div>
-                    <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Button CTR</span>
-                  </div>
-                  <div className="mt-3">
-                    <span className="text-2xl font-black text-gray-900">
-                      {analyticsData?.rates?.click_rate ?? 0}%
-                    </span>
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      <span className="font-semibold text-gray-700">{analyticsData?.funnel?.total_clicks ?? 0}</span> button clicks
                     </p>
                   </div>
                 </div>
@@ -232,18 +217,18 @@ export default function AnalyticsPage({
                     </div>
                   </div>
 
-                  {/* Stage 4: Engaged (Clicks + Replies) */}
+                  {/* Stage 4: Engaged / Replies */}
                   <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">4. Engaged / Replies</span>
                       </div>
                       <p className="text-2xl font-black text-gray-900 mt-2">
-                        {(analyticsData?.funnel?.total_clicks ?? 0) + (analyticsData?.funnel?.total_replied ?? 0)}
+                        {analyticsData?.funnel?.total_replied ?? 0}
                       </p>
                     </div>
                     <div className="mt-3 pt-2 border-t border-gray-200/60 text-[11px] font-semibold text-gray-700">
-                      {analyticsData?.funnel?.total_clicks ?? 0} clicks · {analyticsData?.funnel?.total_replied ?? 0} replies
+                      {analyticsData?.funnel?.total_replied ?? 0} customer replies
                     </div>
                   </div>
 
