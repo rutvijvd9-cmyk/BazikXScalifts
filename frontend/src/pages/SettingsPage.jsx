@@ -11,18 +11,25 @@ import {
   Clock,
   KeyRound,
   Trash2,
-  Key
+  Key,
+  Edit2,
+  Users,
+  BookOpen
 } from "lucide-react";
 import { formatToIST } from "../utils/dateUtils";
 
 export default function SettingsPage({
   settings = {},
+  systemSettings = {},
   dailyLimitInput,
   setDailyLimitInput,
+  isEditingDailyLimit = false,
+  setIsEditingDailyLimit = () => {},
   savingDailyLimit,
   handleSaveDailyLimit,
   testPhone,
   setTestPhone,
+
   testTemplate,
   setTestTemplate,
   testingPhone,
@@ -47,8 +54,12 @@ export default function SettingsPage({
   handleUpdateUserRole,
   setAdminPasswordModal,
   admin2faUpdatingId,
-  handleAdminToggle2FA
+  handleAdminToggle2FA,
+  setIsRoleInfoModalOpen = () => {},
+  setAddUserError = () => {},
+  handleUpdateDailyLimit = (e) => { e?.preventDefault(); handleSaveDailyLimit(dailyLimitInput); }
 }) {
+
   return (
             <div className="space-y-6 w-full max-w-7xl">
               <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-6">

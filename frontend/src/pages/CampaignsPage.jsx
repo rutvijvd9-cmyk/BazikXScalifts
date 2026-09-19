@@ -4,13 +4,17 @@ import {
   Play,
   PlayCircle,
   Clock,
-  Trash2
+  Trash2,
+  Calendar,
+  Zap,
+  CheckCircle2,
+  AlertTriangle
 } from "lucide-react";
 import { formatToIST, formatScheduleDisplay } from "../utils/dateUtils";
 
 export default function CampaignsPage({
   campaigns = [],
-  setIsCampaignModalOpen,
+  handleOpenCampaignModal,
   handleTriggerCampaign,
   handleCancelScheduledCampaign,
   handleDeleteCampaign
@@ -29,7 +33,9 @@ export default function CampaignsPage({
                   <Plus className="w-3.5 h-3.5" />
                   New Broadcast
                 </button>
+
               </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm text-gray-600">
                   <thead className="bg-gray-50 text-xs uppercase font-semibold text-gray-500 border-b border-gray-200">
@@ -140,7 +146,7 @@ export default function CampaignsPage({
                           <td className="px-5 py-4 text-right">
                             {c.status === "SCHEDULED" ? (
                               <button
-                                onClick={() => handleCancelCampaign(c.id)}
+                                onClick={() => handleCancelScheduledCampaign(c.id)}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition"
                                 title="Cancel this scheduled broadcast"
                               >
@@ -151,6 +157,7 @@ export default function CampaignsPage({
                               <span className="text-xs text-gray-300">-</span>
                             )}
                           </td>
+
                         </tr>
                       );
                     })}

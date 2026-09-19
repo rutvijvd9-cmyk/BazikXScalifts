@@ -6,7 +6,12 @@ import {
   CheckCircle2,
   Clock,
   Play,
-  PlayCircle
+  PlayCircle,
+  MessageSquare,
+  IndianRupee,
+  Users,
+  ShieldBan,
+  Sliders
 } from "lucide-react";
 import { formatToIST, formatScheduleDisplay } from "../utils/dateUtils";
 
@@ -15,20 +20,18 @@ export default function DashboardPage({
   messageLogs = [],
   cartEvents = [],
   campaigns = [],
-  outboundCountToday,
-  effectiveDailyLimit,
-  dailyLimit,
-  isEditingDailyLimit,
-  setIsEditingDailyLimit,
-  dailyLimitInput,
-  setDailyLimitInput,
-  savingDailyLimit,
-  handleSaveDailyLimit,
+  contacts = [],
+  optOuts = [],
   handleTabChange,
-  handleTriggerCampaign,
-  handleCancelScheduledCampaign
+  setEditingWorkflow,
+  handleOpenNewJourneyModal
 }) {
+  const totalRecoveredValue = cartEvents
+    .filter((c) => c.status === "RECOVERED")
+    .reduce((sum, c) => sum + (c.cart_value || 0), 0);
+
   return (
+
             <>
               {/* Top 4 KPI Metric Cards */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-5">

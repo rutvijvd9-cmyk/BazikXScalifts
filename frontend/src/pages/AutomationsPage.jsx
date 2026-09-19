@@ -1,7 +1,8 @@
 import React from "react";
 import {
-  GitBranch, Play, PlayCircle, Plus, Zap, Sliders, Sparkles, ToggleLeft, ToggleRight, Clock, Trash2, Tag, ShieldCheck, AlertTriangle, RefreshCw, Activity, ShoppingCart, Radio, Send
+  GitBranch, Play, PlayCircle, Plus, Zap, Sliders, Sparkles, ToggleLeft, ToggleRight, Clock, Trash2, Tag, ShieldCheck, AlertTriangle, RefreshCw, Activity, ShoppingCart, Radio, Send, ChevronRight, Eye, Users
 } from "lucide-react";
+
 import FlowchartCanvas from "../components/FlowchartCanvas";
 import { formatToIST, formatToISTDate, getTodayISTDateString } from "../utils/dateUtils";
 
@@ -237,11 +238,12 @@ export default function AutomationsPage({
                             <span>Deduplication window: <strong className="text-gray-800">3-7 Days</strong></span>
                           </div>
                           <button
-                            onClick={handleCreateNewWorkflow}
+                            onClick={handleOpenNewJourneyModal}
                             className="text-xs font-bold text-[#25D366] hover:text-[#1EBE5D] flex items-center gap-1 cursor-pointer transition"
                           >
                             ⚡ Test Simulator Flow →
                           </button>
+
                         </div>
                       </div>
 

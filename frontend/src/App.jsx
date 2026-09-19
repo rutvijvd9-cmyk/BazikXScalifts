@@ -1994,20 +1994,15 @@ export default function App() {
               messageLogs={messageLogs}
               cartEvents={cartEvents}
               campaigns={campaigns}
-              outboundCountToday={outboundCountToday}
-              effectiveDailyLimit={effectiveDailyLimit}
-              dailyLimit={dailyLimit}
-              isEditingDailyLimit={isEditingDailyLimit}
-              setIsEditingDailyLimit={setIsEditingDailyLimit}
-              dailyLimitInput={dailyLimitInput}
-              setDailyLimitInput={setDailyLimitInput}
-              savingDailyLimit={savingDailyLimit}
-              handleSaveDailyLimit={handleSaveDailyLimit}
+              contacts={contacts}
+              optOuts={optOuts}
               handleTabChange={handleTabChange}
-              handleTriggerCampaign={handleTriggerCampaign}
-              handleCancelScheduledCampaign={handleCancelScheduledCampaign}
+              setEditingWorkflow={setEditingWorkflow}
+              handleOpenNewJourneyModal={handleOpenNewJourneyModal}
             />
           )}
+
+
 
           {activeTab === "automations" && (
             <AutomationsPage
@@ -2063,10 +2058,16 @@ export default function App() {
               userRoleUpdatingId={userRoleUpdatingId}
               handleUpdateUserRole={handleUpdateUserRole}
               setAdminPasswordModal={setAdminPasswordModal}
+              systemSettings={systemSettings}
+              isEditingDailyLimit={isEditingDailyLimit}
+              setIsEditingDailyLimit={setIsEditingDailyLimit}
+              setIsRoleInfoModalOpen={setIsRoleInfoModalOpen}
+              setAddUserError={setAddUserError}
               admin2faUpdatingId={admin2faUpdatingId}
               handleAdminToggle2FA={handleAdminToggle2FA}
             />
           )}
+
 
           {activeTab === "templates" && (
             <TemplatesPage
@@ -2087,18 +2088,28 @@ export default function App() {
               templatesPerPage={templatesPerPage}
               setTemplatesPerPage={setTemplatesPerPage}
               handleDeleteTemplate={handleDeleteTemplate}
+              handleSyncMetaTemplates={handleSyncMetaTemplates}
+              loading={loading}
+              templateFilterLang={templateFilterLang}
+              setTemplateFilterLang={setTemplateFilterLang}
+              templatePage={templatePage}
+              setTemplatePage={setTemplatePage}
+              setEditMappingTemplate={setEditMappingTemplate}
+              setEditMappings={setEditMappings}
             />
           )}
+
 
           {activeTab === "campaigns" && (
             <CampaignsPage
               campaigns={campaigns}
-              setIsCampaignModalOpen={setIsCampaignModalOpen}
+              handleOpenCampaignModal={handleOpenCampaignModal}
               handleTriggerCampaign={handleTriggerCampaign}
               handleCancelScheduledCampaign={handleCancelScheduledCampaign}
               handleDeleteCampaign={handleDeleteCampaign}
             />
           )}
+
 
           {activeTab === "analytics" && (
             <AnalyticsPage
@@ -2130,8 +2141,12 @@ export default function App() {
               setContactsSortBy={setContactsSortBy}
               contactsPage={contactsPage}
               handleDeleteContact={handleDeleteContact}
+              handleOpenAddContact={handleOpenAddContact}
+              handleOpenEditContact={handleOpenEditContact}
+              setIsCsvModalOpen={setIsCsvModalOpen}
             />
           )}
+
 
           {activeTab === "discount_codes" && (
             <DiscountCodesPage

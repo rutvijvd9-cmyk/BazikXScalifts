@@ -29,8 +29,17 @@ export default function TemplatesPage({
   setTemplatesPage,
   templatesPerPage,
   setTemplatesPerPage,
-  handleDeleteTemplate
+  handleDeleteTemplate,
+  handleSyncMetaTemplates,
+  loading = false,
+  templateFilterLang = "ALL",
+  setTemplateFilterLang,
+  templatePage = 1,
+  setTemplatePage,
+  setEditMappingTemplate,
+  setEditMappings
 }) {
+
   return (
             <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-wrap gap-4">

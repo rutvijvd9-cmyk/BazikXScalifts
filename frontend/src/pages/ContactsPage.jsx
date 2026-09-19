@@ -10,7 +10,10 @@ import {
   Clock,
   Trash2,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  UserPlus,
+  Calendar,
+  Edit2
 } from "lucide-react";
 import { formatToISTDate } from "../utils/dateUtils";
 
@@ -29,8 +32,12 @@ export default function ContactsPage({
   contactsSortBy,
   setContactsSortBy,
   contactsPage,
-  handleDeleteContact
+  handleDeleteContact,
+  handleOpenAddContact,
+  handleOpenEditContact,
+  setIsCsvModalOpen
 }) {
+
   return (
             <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-wrap gap-3">
