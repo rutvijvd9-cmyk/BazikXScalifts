@@ -1,12 +1,11 @@
 import React from "react";
-import { ShoppingCart, Send, Clock, CheckCircle2, Award, ChevronDown, Filter } from "lucide-react";
+import { ShoppingCart, Send, Clock, CheckCircle2, Award, ChevronRight, Filter } from "lucide-react";
 
 /**
- * JourneyConversionFunnel
- * Renders the vertical tiered funnel matching Screenshot 1:
- * - Dynamic stage cards calculated from actual workflow sessions or flowchart nodes
- * - Drop-off rates and curvature indicators between steps
- * - Interactive step selection to filter contacts below
+ * JourneyConversionFunnel — HORIZONTAL, horizontally scrollable, LIGHT THEME.
+ * Nodes come directly from flow.nodes as-is (no deduplication).
+ * Drop-off % shown between each consecutive stage.
+ * Click any stage card to filter the contacts table below.
  */
 export default function JourneyConversionFunnel({
   flow,
@@ -17,154 +16,149 @@ export default function JourneyConversionFunnel({
   const nodes = flow?.nodes || [];
   const totalEnrolled = sessions.length;
 
+  /* ── Build stages from flow nodes exactly as they exist (preserving duplicates) ── */
   const buildFunnelStages = () => {
+    const VALID_TYPES = ["trigger", "whatsapp_message", "action_whatsapp", "whatsapp", "delay", "condition", "goal", "exit"];
+
     if (!nodes || nodes.length === 0) {
-      const cartCount = totalEnrolled;
-      const sentCount = sessions.filter(s => (s.history || []).some(h => h.node_type === "whatsapp_message" || (h.details && h.details.includes("template")))).length;
-      const waitCount = sessions.filter(s => s.status === "WAITING_DELAY" || (s.history || []).some(h => h.node_type === "delay")).length;
-      const purchasedCount = sessions.filter(s => (s.history || []).some(h => h.branch === "YES" || (h.details && h.details.includes("YES")))).length;
-      const goalCount = sessions.filter(s => s.status === "COMPLETED_GOAL").length;
+      /* Fallback: generic stages from session data when no nodes are stored */
+      const sentCount     = sessions.filter(s => (s.history || []).some(h => ["whatsapp_message","action_whatsapp","whatsapp"].includes(h.node_type))).length;
+      const waitCount     = sessions.filter(s => s.status === "WAITING_DELAY" || (s.history || []).some(h => h.node_type === "delay")).length;
+      const purchasedCnt  = sessions.filter(s => (s.history || []).some(h => h.branch === "YES")).length;
+      const goalCount     = sessions.filter(s => s.status === "COMPLETED_GOAL").length;
 
       return [
-        { id: "stage_trigger", label: "Cart Triggered", count: cartCount, color: "from-blue-600 to-sky-500", borderColor: "border-sky-400", icon: ShoppingCart },
-        { id: "stage_whatsapp", label: "WhatsApp Sent", count: sentCount, color: "from-indigo-600 to-purple-600", borderColor: "border-indigo-400", icon: Send },
-        { id: "stage_wait", label: "Wait 15m", count: waitCount, color: "from-amber-600 to-yellow-500", borderColor: "border-amber-400", icon: Clock },
-        { id: "stage_purchased", label: "Purchased? Yes", count: purchasedCount, color: "from-emerald-600 to-green-500", borderColor: "border-emerald-400", icon: CheckCircle2 },
-        { id: "stage_goal", label: "Goal Converted", count: goalCount, color: "from-teal-500 to-cyan-500", borderColor: "border-teal-400", icon: Award }
+        { id: "stage_trigger",   label: "Cart Triggered",  count: totalEnrolled, nodeType: "trigger" },
+        { id: "stage_whatsapp",  label: "WhatsApp Sent",   count: sentCount,     nodeType: "whatsapp_message" },
+        { id: "stage_wait",      label: "Wait / Delay",    count: waitCount,     nodeType: "delay" },
+        { id: "stage_purchased", label: "Purchased? Yes",  count: purchasedCnt,  nodeType: "condition" },
+        { id: "stage_goal",      label: "Goal Converted",  count: goalCount,     nodeType: "goal" },
       ];
     }
 
+    /* Use every matching node exactly once per its position in the flow (no dedup) */
     return nodes
-      .filter(n => ["trigger", "whatsapp_message", "action_whatsapp", "delay", "condition", "goal", "exit"].includes(n.type?.toLowerCase()))
-      .map(n => {
-        const nid = String(n.id);
-        const ntype = n.type?.toLowerCase();
+      .filter(n => VALID_TYPES.includes((n.type || "").toLowerCase()))
+      .map((n, idx) => {
+        const nid   = String(n.id);
+        const ntype = (n.type || "").toLowerCase();
+        const label = n.label || n.data?.label || ntype;
 
-        let count = sessions.filter(s => {
-          if (String(s.current_node_id) === nid) return true;
-          return (s.history || []).some(h => String(h.node_id) === nid);
-        }).length;
+        const count = sessions.filter(s =>
+          String(s.current_node_id) === nid ||
+          (s.history || []).some(h => String(h.node_id) === nid)
+        ).length || (ntype === "trigger" ? totalEnrolled : 0);
 
-        if (ntype === "trigger" && count === 0) {
-          count = totalEnrolled;
-        }
-
-        let label = n.label || n.data?.label || "Step";
-        let color = "from-blue-600 to-sky-500";
-        let borderColor = "border-sky-400";
-        let icon = ShoppingCart;
-
-        if (ntype === "trigger") {
-          label = n.label || "Cart Triggered";
-          color = "from-sky-700 to-blue-600";
-          borderColor = "border-sky-400";
-          icon = ShoppingCart;
-        } else if (ntype.includes("whatsapp")) {
-          label = n.label || "WhatsApp Sent";
-          color = "from-indigo-700 to-purple-600";
-          borderColor = "border-indigo-400";
-          icon = Send;
-        } else if (ntype === "delay") {
-          label = n.label || `Wait ${n.data?.delay_minutes || 15}m`;
-          color = "from-amber-700 to-yellow-600";
-          borderColor = "border-amber-400";
-          icon = Clock;
-        } else if (ntype === "condition") {
-          label = n.label || "Purchased? Yes";
-          color = "from-emerald-700 to-green-600";
-          borderColor = "border-emerald-400";
-          icon = CheckCircle2;
-        } else if (ntype === "goal" || ntype === "exit") {
-          label = n.label || "Goal Converted";
-          color = "from-teal-600 to-cyan-600";
-          borderColor = "border-teal-400";
-          icon = Award;
-        }
-
-        return { id: nid, label, count, color, borderColor, icon, type: ntype };
+        return { id: nid, label, count, nodeType: ntype };
       });
   };
+
+  /* ── Visual config per node type ── */
+  const nodeConfig = {
+    trigger:         { bg: "bg-blue-500",   ring: "ring-blue-400",   text: "text-white", light: "bg-blue-50 border-blue-200",   icon: ShoppingCart },
+    whatsapp_message:{ bg: "bg-[#7C3AED]",  ring: "ring-violet-400", text: "text-white", light: "bg-violet-50 border-violet-200",icon: Send },
+    action_whatsapp: { bg: "bg-[#7C3AED]",  ring: "ring-violet-400", text: "text-white", light: "bg-violet-50 border-violet-200",icon: Send },
+    whatsapp:        { bg: "bg-[#7C3AED]",  ring: "ring-violet-400", text: "text-white", light: "bg-violet-50 border-violet-200",icon: Send },
+    delay:           { bg: "bg-amber-500",  ring: "ring-amber-400",  text: "text-white", light: "bg-amber-50 border-amber-200",  icon: Clock },
+    condition:       { bg: "bg-emerald-500",ring: "ring-emerald-400",text: "text-white", light: "bg-emerald-50 border-emerald-200",icon: CheckCircle2 },
+    goal:            { bg: "bg-teal-500",   ring: "ring-teal-400",   text: "text-white", light: "bg-teal-50 border-teal-200",    icon: Award },
+    exit:            { bg: "bg-teal-500",   ring: "ring-teal-400",   text: "text-white", light: "bg-teal-50 border-teal-200",    icon: Award },
+  };
+  const defaultCfg = nodeConfig.trigger;
 
   const stages = buildFunnelStages();
 
   return (
-    <div className="bg-[#111827] border border-gray-800 rounded-2xl p-5 shadow-xl text-white relative overflow-hidden">
-      {/* Funnel Header */}
-      <div className="flex items-center justify-between pb-3 mb-2 border-b border-gray-800/80">
+    <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-          <h4 className="font-bold text-sm tracking-wide text-gray-100">Journey Conversion Funnel</h4>
+          <span className="w-2 h-2 rounded-full bg-[#25D366] animate-pulse" />
+          <h4 className="font-bold text-sm text-gray-900 tracking-wide">Journey Conversion Funnel</h4>
+          <span className="text-xs text-gray-400 font-medium">— click any step to filter contacts below</span>
         </div>
         {selectedStepId && (
           <button
             onClick={() => onSelectStep(null)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-300 transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-600 border border-gray-200 transition cursor-pointer"
           >
-            <Filter className="w-3 h-3 text-emerald-400" />
-            <span>Clear Filter</span>
+            <Filter className="w-3 h-3 text-gray-500" />
+            Clear Filter
           </button>
         )}
       </div>
 
-      {/* Funnel Visual Stack with Drop-off curves */}
-      <div className="flex flex-col items-center py-2 max-w-md mx-auto relative">
-        {stages.map((stage, idx) => {
-          const prevCount = idx === 0 ? stage.count : stages[idx - 1].count;
-          const dropOffCount = Math.max(0, prevCount - stage.count);
-          const dropOffPct = prevCount > 0 ? ((dropOffCount / prevCount) * 100).toFixed(1) : "0.0";
-          const isSelected = selectedStepId === stage.id;
-          const IconComp = stage.icon;
+      {/* ── Horizontal scroll container ── */}
+      <div className="overflow-x-auto pb-2">
+        <div className="flex items-start gap-0 min-w-max">
+          {stages.map((stage, idx) => {
+            const cfg      = nodeConfig[stage.nodeType] || defaultCfg;
+            const IconComp = cfg.icon;
+            const isSelected = selectedStepId === stage.id;
 
-          return (
-            <React.Fragment key={stage.id}>
-              {/* Drop-off connector arrow between stages (from index 1 onward) */}
-              {idx > 0 && (
-                <div className="w-full flex items-center justify-center my-1 relative h-9">
-                  {/* Vertical Arrow */}
-                  <div className="w-0.5 h-full bg-gradient-to-b from-gray-600 to-gray-700 relative">
-                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2">
-                      <ChevronDown className="w-4 h-4 text-gray-400" />
+            /* Drop-off between this stage and previous */
+            const prevCount    = idx === 0 ? stage.count : stages[idx - 1].count;
+            const dropOff      = Math.max(0, prevCount - stage.count);
+            const dropOffPct   = prevCount > 0 ? ((dropOff / prevCount) * 100).toFixed(1) : "0.0";
+
+            return (
+              <div key={`${stage.id}_${idx}`} className="flex items-center">
+                {/* Stage card */}
+                <div className="flex flex-col items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onSelectStep(isSelected ? null : stage.id)}
+                    title={`Click to filter contacts at '${stage.label}'`}
+                    className={`
+                      group relative flex flex-col items-center gap-2 px-5 py-3.5 rounded-2xl
+                      border-2 transition-all duration-200 cursor-pointer shadow-sm
+                      min-w-[130px] max-w-[150px] text-center
+                      ${isSelected
+                        ? `${cfg.bg} ${cfg.text} border-transparent ring-2 ${cfg.ring} ring-offset-2 scale-105 shadow-md`
+                        : `bg-white ${cfg.text.replace("text-white","text-gray-700")} border-gray-200 hover:border-gray-300 hover:shadow-md`
+                      }
+                    `}
+                  >
+                    {/* Icon circle */}
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+                      isSelected ? "bg-white/20" : cfg.bg
+                    }`}>
+                      <IconComp className={`w-4 h-4 ${isSelected ? "text-white" : "text-white"}`} />
                     </div>
-                  </div>
 
-                  {/* Drop-off indicator pill on the right side */}
-                  <div className="absolute right-0 sm:right-4 flex items-center gap-1 bg-red-950/60 border border-red-800/60 px-2.5 py-0.5 rounded-full text-[10px] text-red-300 font-mono shadow-xs">
-                    <span className="text-red-400 font-bold">▼</span>
-                    <span>{dropOffPct}% Drop-off</span>
-                  </div>
-                </div>
-              )}
+                    {/* Label */}
+                    <span className={`text-[11px] font-bold leading-tight ${isSelected ? "text-white" : "text-gray-700"}`}>
+                      {stage.label}
+                    </span>
 
-              {/* Funnel Stage Card */}
-              <button
-                type="button"
-                onClick={() => onSelectStep(isSelected ? null : stage.id)}
-                className={`w-full max-w-sm py-2.5 px-4 rounded-xl border transition-all duration-200 cursor-pointer text-center relative overflow-hidden group shadow-md ${
-                  isSelected
-                    ? `ring-2 ring-white border-white bg-gradient-to-r ${stage.color} scale-[1.02]`
-                    : `bg-gradient-to-r ${stage.color} hover:brightness-110 ${stage.borderColor} border`
-                }`}
-                title={`Click to filter contacts at '${stage.label}'`}
-              >
-                <div className="relative z-10 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <IconComp className="w-4 h-4 text-white/90" />
-                    <span className="text-xs font-bold text-white tracking-wide">{stage.label}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-mono font-black text-base text-white">{stage.count.toLocaleString()}</span>
-                  </div>
+                    {/* Count */}
+                    <span className={`font-black font-mono text-xl leading-none ${isSelected ? "text-white" : "text-gray-900"}`}>
+                      {stage.count.toLocaleString()}
+                    </span>
+
+                    {isSelected && (
+                      <span className="absolute top-1.5 right-2 text-[8px] font-bold uppercase tracking-widest text-white/70">
+                        Filtered
+                      </span>
+                    )}
+                  </button>
                 </div>
 
-                {isSelected && (
-                  <div className="absolute top-1 right-2 text-[9px] font-bold text-white/80 uppercase tracking-widest">
-                    Filtered
+                {/* Arrow + Drop-off between stages */}
+                {idx < stages.length - 1 && (
+                  <div className="flex flex-col items-center mx-1">
+                    {/* Drop-off pill */}
+                    <div className="mb-1 px-2 py-0.5 rounded-full bg-red-50 border border-red-200 text-[9px] font-semibold text-red-500 whitespace-nowrap">
+                      ▼ {dropOffPct}%
+                    </div>
+                    {/* Arrow */}
+                    <ChevronRight className="w-5 h-5 text-gray-300" />
                   </div>
                 )}
-              </button>
-            </React.Fragment>
-          );
-        })}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
