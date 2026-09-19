@@ -282,7 +282,7 @@ export default function AutomationsPage({
                             <div className="flex items-center justify-between gap-3">
                               <div className="flex items-center gap-2">
                                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                                  ⚡ {flow.trigger_type}
+                                  {flow.trigger_type}
                                 </span>
                                 <span className="text-xs text-gray-400 font-mono">
                                   {stepCount} Steps
