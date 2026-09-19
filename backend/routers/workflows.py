@@ -133,19 +133,49 @@ def toggle_workflow_status(
     return flow
 
 
+def get_session_wa_sort_key(s: models.WorkflowSession):
+    """Calculates sorting score: sessions with the most recently dispatched WhatsApp message rank at the top."""
+    latest_wa_ts = None
+    if s.state_data and isinstance(s.state_data, dict) and s.state_data.get("last_whatsapp_sent_at"):
+        latest_wa_ts = s.state_data.get("last_whatsapp_sent_at")
+
+    if not latest_wa_ts and s.history and isinstance(s.history, list):
+        for h in reversed(s.history):
+            if isinstance(h, dict):
+                node_type = str(h.get("node_type", "")).lower()
+                label = str(h.get("label", "")).lower()
+                if "whatsapp" in node_type or "whatsapp" in label:
+                    ts = h.get("timestamp")
+                    if ts:
+                        latest_wa_ts = ts
+                        break
+
+    wa_score = 0.0
+    if latest_wa_ts:
+        try:
+            dt = datetime.fromisoformat(str(latest_wa_ts).replace("Z", "+00:00"))
+            wa_score = dt.timestamp()
+        except Exception:
+            wa_score = 1.0
+
+    upd_score = s.updated_at.timestamp() if s.updated_at else (s.created_at.timestamp() if s.created_at else float(s.id))
+    return (1 if wa_score > 0 else 0, wa_score, upd_score, s.id)
+
+
 @router.get("/{flow_id}/sessions", response_model=List[schemas.WorkflowSessionResponse])
 def get_workflow_sessions(
     flow_id: int,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Returns the enrolled customer contacts and execution sessions traversing this workflow."""
-    return (
+    """Returns the enrolled customer contacts and execution sessions traversing this workflow,
+    ordered so whichever contact was sent a WhatsApp message most recently in the automation comes at the top."""
+    sessions = (
         db.query(models.WorkflowSession)
         .filter(models.WorkflowSession.flow_id == flow_id)
-        .order_by(models.WorkflowSession.id.desc())
-        .limit(250)
         .all()
     )
+    sessions.sort(key=get_session_wa_sort_key, reverse=True)
+    return sessions[:250]
 
 

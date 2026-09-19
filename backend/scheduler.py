@@ -1164,7 +1164,10 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             new_state = dict(session.state_data or {})
             new_state["last_meta_message_id"] = sent_msg_id
             new_state["last_sent_template"] = template_name
+            new_state["last_whatsapp_sent_at"] = now.isoformat()
+            new_state["last_activity_at"] = now.isoformat()
             session.state_data = new_state
+            session.updated_at = now
 
             session.history = (session.history or []) + [{
                 "node_id": str(curr_node.get("id")),

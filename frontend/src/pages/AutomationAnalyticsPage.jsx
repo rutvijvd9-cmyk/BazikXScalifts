@@ -61,10 +61,54 @@ function StatusBadge({ status }) {
   return <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${cls}`}>{label}</span>;
 }
 
+/* ── Last WhatsApp Sent Time & Activity Helpers ── */
+export function getLastWhatsAppSentTime(s) {
+  if (!s) return 0;
+  if (s.state_data?.last_whatsapp_sent_at) {
+    const t = new Date(s.state_data.last_whatsapp_sent_at).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  const hist = Array.isArray(s.history) ? s.history : [];
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const h = hist[i];
+    if (h && typeof h === "object") {
+      const type = String(h.node_type || "").toLowerCase();
+      const label = String(h.label || "").toLowerCase();
+      if (type.includes("whatsapp") || label.includes("whatsapp")) {
+        if (h.timestamp) {
+          const t = new Date(h.timestamp).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+      }
+    }
+  }
+  return 0;
+}
+
+export function getSessionLastActivityTime(s) {
+  if (!s) return 0;
+  const wa = getLastWhatsAppSentTime(s);
+  if (wa > 0) return wa;
+  const hist = Array.isArray(s.history) ? s.history : [];
+  if (hist.length > 0 && hist[hist.length - 1]?.timestamp) {
+    const t = new Date(hist[hist.length - 1].timestamp).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  if (s.updated_at) {
+    const t = new Date(s.updated_at).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  if (s.created_at) {
+    const t = new Date(s.created_at).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  return s.id || 0;
+}
+
 /* ══════════════════════════════════════════
    FULL-PAGE AUTOMATION ANALYTICS
 ══════════════════════════════════════════ */
-export default function AutomationAnalyticsPage({ flow, sessions, loading, onBack }) {
+export default function AutomationAnalyticsPage({ flow, sessions = [], loading, onBack }) {
   const [selectedStepId, setSelectedStepId] = useState(null);
   const [activeTab, setActiveTab]           = useState("funnel");
   const [search, setSearch]                 = useState("");
@@ -78,7 +122,7 @@ export default function AutomationAnalyticsPage({ flow, sessions, loading, onBac
 
   /* Filter sessions for contacts tab */
   const term = search.toLowerCase().trim();
-  let filtered = sessions.filter(s => {
+  let filtered = (sessions || []).filter(s => {
     if (statusFilter !== "ALL" && s.status !== statusFilter) return false;
     if (!term) return true;
     return (s.customer_phone||"").toLowerCase().includes(term)
@@ -91,6 +135,23 @@ export default function AutomationAnalyticsPage({ flow, sessions, loading, onBac
       (s.history||[]).some(h => String(h.node_id) === selectedStepId)
     );
   }
+
+  // Whichever contact received a WhatsApp message last in the automation comes at the top
+  filtered.sort((a, b) => {
+    const waA = getLastWhatsAppSentTime(a);
+    const waB = getLastWhatsAppSentTime(b);
+    if (waA > 0 && waB > 0) {
+      if (waA !== waB) return waB - waA;
+    }
+    if (waA > 0 && waB === 0) return -1;
+    if (waB > 0 && waA === 0) return 1;
+
+    const actA = getSessionLastActivityTime(a);
+    const actB = getSessionLastActivityTime(b);
+    if (actA !== actB) return actB - actA;
+
+    return (b.id || 0) - (a.id || 0);
+  });
 
   return (
     <div className="h-screen max-h-screen bg-gray-50 flex flex-col overflow-hidden">
@@ -119,23 +180,28 @@ export default function AutomationAnalyticsPage({ flow, sessions, loading, onBac
         </div>
       </div>
 
-      {/* ── KPI bar ── */}
-      <div className="bg-white border-b border-gray-200 grid grid-cols-4 flex-shrink-0">
-        {[
-          { label: "Total Enrolled",  value: totalEnrolled },
-          { label: "Active in Flow",  value: activeCount + waitingCount },
-          { label: "Goal Converted",  value: goalCount },
-          { label: "Conversion Rate", value: `${convPct}%` },
-        ].map((k, i) => (
-          <div key={k.label} className={`px-8 py-4 ${i < 3 ? "border-r border-gray-100" : ""}`}>
-            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{k.label}</div>
-            <div className="text-2xl font-black font-mono text-gray-900 mt-1">{k.value}</div>
-          </div>
-        ))}
+      {/* ── Stat strip ── */}
+      <div className="grid grid-cols-4 bg-white border-b border-gray-200 divide-x divide-gray-100 flex-shrink-0">
+        <div className="px-6 py-3">
+          <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Total Enrolled</p>
+          <p className="text-xl font-black text-gray-900 mt-0.5">{totalEnrolled}</p>
+        </div>
+        <div className="px-6 py-3">
+          <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Active in Flow</p>
+          <p className="text-xl font-black text-gray-900 mt-0.5">{activeCount + waitingCount}</p>
+        </div>
+        <div className="px-6 py-3">
+          <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Goal Converted</p>
+          <p className="text-xl font-black text-emerald-600 mt-0.5">{goalCount}</p>
+        </div>
+        <div className="px-6 py-3">
+          <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Conversion Rate</p>
+          <p className="text-xl font-black text-gray-900 mt-0.5">{convPct}%</p>
+        </div>
       </div>
 
-      {/* ── Tabs ── */}
-      <div className="bg-white border-b border-gray-200 px-6 flex-shrink-0">
+      {/* ── Navigation Tabs ── */}
+      <div className="bg-white border-b border-gray-200 px-6 flex items-center gap-2 flex-shrink-0">
         {[
           { id: "funnel",   icon: GitBranch, label: "Journey Funnel" },
           { id: "contacts", icon: Users,     label: "Enrolled Contacts" },
@@ -182,9 +248,9 @@ export default function AutomationAnalyticsPage({ flow, sessions, loading, onBac
 
         {/* CONTACTS TAB */}
         {activeTab === "contacts" && (
-          <div className="flex-1 overflow-y-auto">
-            {/* Filter bar */}
-            <div className="bg-white border-b border-gray-200 px-6 py-3 flex flex-wrap items-center gap-3 sticky top-0 z-10">
+          <div className="flex-1 flex flex-col min-h-0 bg-white">
+            {/* Filter bar - fixed at top of tab */}
+            <div className="bg-white border-b border-gray-200 px-6 py-3 flex flex-wrap items-center gap-3 shrink-0 z-10">
               <div className="relative">
                 <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                 <input type="text" placeholder="Search phone, name…"
@@ -208,7 +274,7 @@ export default function AutomationAnalyticsPage({ flow, sessions, loading, onBac
                   </button>
                 ))}
               </div>
-              <span className="text-xs text-gray-400">{filtered.length} contacts</span>
+              <span className="text-xs text-gray-400 font-medium">{filtered.length} contacts</span>
               {selectedStepId && (
                 <button onClick={() => setSelectedStepId(null)}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 cursor-pointer">
@@ -218,12 +284,12 @@ export default function AutomationAnalyticsPage({ flow, sessions, loading, onBac
             </div>
 
             {loading ? (
-              <div className="py-24 flex flex-col items-center gap-2 text-gray-400">
+              <div className="flex-1 py-24 flex flex-col items-center justify-center gap-2 text-gray-400">
                 <RefreshCw className="w-6 h-6 animate-spin" />
                 <span className="text-xs">Loading contacts…</span>
               </div>
             ) : filtered.length === 0 ? (
-              <div className="py-24 text-center space-y-2">
+              <div className="flex-1 py-24 text-center space-y-2 flex flex-col items-center justify-center">
                 <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto">
                   <Users className="w-6 h-6 text-gray-400" />
                 </div>
@@ -231,43 +297,83 @@ export default function AutomationAnalyticsPage({ flow, sessions, loading, onBac
                 <p className="text-xs text-gray-400">No sessions matched your filters.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-gray-600">
-                  <thead className="bg-gray-50 text-[10px] uppercase font-semibold text-gray-500 border-b border-gray-200 sticky top-[57px] z-10">
+              <div className="flex-1 overflow-auto">
+                <table className="w-full text-left text-xs text-gray-600 min-w-[960px] border-collapse">
+                  <thead className="bg-gray-50 text-[10px] uppercase font-semibold text-gray-500 border-b border-gray-200 sticky top-0 z-10 shadow-xs">
                     <tr>
-                      <th className="px-6 py-3 whitespace-nowrap">Contact / Phone</th>
-                      <th className="px-6 py-3 whitespace-nowrap">Name</th>
-                      <th className="px-6 py-3 whitespace-nowrap">Cart Value</th>
-                      <th className="px-6 py-3 whitespace-nowrap">Enrolled Date</th>
-                      <th className="px-6 py-3 whitespace-nowrap">Status</th>
-                      <th className="px-6 py-3">Journey Path Traveled</th>
+                      <th className="px-6 py-3.5 bg-gray-50 whitespace-nowrap">Contact / Phone</th>
+                      <th className="px-6 py-3.5 bg-gray-50 whitespace-nowrap">Name</th>
+                      <th className="px-6 py-3.5 bg-gray-50 whitespace-nowrap">Cart Value</th>
+                      <th className="px-6 py-3.5 bg-gray-50 whitespace-nowrap">Last Message / Enrolled</th>
+                      <th className="px-6 py-3.5 bg-gray-50 whitespace-nowrap">Status</th>
+                      <th className="px-6 py-3.5 bg-gray-50">Journey Path Traveled</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 bg-white">
                     {filtered.map(s => {
                       const st   = s.state_data || {};
                       const hist = s.history    || [];
+                      const waTime = getLastWhatsAppSentTime(s);
+
                       return (
-                        <tr key={s.id} className="hover:bg-gray-50 transition">
-                          <td className="px-6 py-4">
+                        <tr key={s.id} className="hover:bg-gray-50/90 transition group">
+                          <td className="px-6 py-4 align-top">
                             <div className="font-bold text-gray-900 font-mono flex items-center gap-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-[#25D366] shrink-0" />
-                              {s.customer_phone}
+                              <span className="w-2 h-2 rounded-full bg-[#25D366] shrink-0" />
+                              <span className="tracking-tight">{s.customer_phone}</span>
                             </div>
+                            {waTime > 0 && (
+                              <div className="mt-1">
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full shadow-2xs">
+                                  <Send className="w-2.5 h-2.5 text-emerald-600" />
+                                  WhatsApp Sent
+                                </span>
+                              </div>
+                            )}
                           </td>
-                          <td className="px-6 py-4 text-gray-700">{st.customer_name || "Online Customer"}</td>
-                          <td className="px-6 py-4 font-mono text-emerald-600 font-semibold">
+                          <td className="px-6 py-4 align-top">
+                            <div className="font-semibold text-gray-800 text-xs">
+                              {st.customer_name || "Online Customer"}
+                            </div>
+                            {st.customer_email && (
+                              <div className="text-[10px] text-gray-400 font-mono truncate max-w-[180px]">
+                                {st.customer_email}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 align-top font-mono text-emerald-700 font-bold text-xs">
                             {st.cart_value !== undefined ? `₹${st.cart_value}` : "—"}
                           </td>
-                          <td className="px-6 py-4 font-mono text-[10px] text-gray-500 whitespace-nowrap">
-                            {formatToIST(s.created_at)}
+                          <td className="px-6 py-4 align-top whitespace-nowrap">
+                            {waTime > 0 ? (
+                              <div className="space-y-1">
+                                <div className="inline-flex items-center gap-1.5 font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded text-[10px] shadow-2xs">
+                                  <Clock className="w-3 h-3 text-emerald-600" />
+                                  <span>{formatToIST(waTime)}</span>
+                                </div>
+                                <div className="text-[10px] text-gray-400 font-mono">
+                                  Enrolled: {formatToIST(s.created_at)}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-0.5">
+                                <div className="font-mono text-[10px] text-gray-700 font-semibold">
+                                  {formatToIST(s.created_at)}
+                                </div>
+                                <span className="text-[10px] text-amber-600 italic">
+                                  Awaiting message step
+                                </span>
+                              </div>
+                            )}
                           </td>
-                          <td className="px-6 py-4"><StatusBadge status={s.status} /></td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4 align-top">
+                            <StatusBadge status={s.status} />
+                          </td>
+                          <td className="px-6 py-4 align-top">
                             {hist.length === 0 ? (
                               <span className="text-gray-400 italic text-[10px]">No steps yet</span>
                             ) : (
-                              <div className="flex flex-wrap items-center gap-1">
+                              <div className="flex flex-wrap items-center gap-1.5 max-w-3xl">
                                 {hist.map((step, i) => (
                                   <React.Fragment key={i}>
                                     <StepPill step={step} />
@@ -277,7 +383,7 @@ export default function AutomationAnalyticsPage({ flow, sessions, loading, onBac
                                 {s.status === "COMPLETED_GOAL" && (
                                   <>
                                     <ArrowRight className="w-3 h-3 text-gray-300 shrink-0" />
-                                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 border border-teal-300 text-teal-700">
+                                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 border border-teal-300 text-teal-700 shadow-2xs">
                                       <Award className="w-2.5 h-2.5 text-teal-500" />Goal 🎯
                                     </div>
                                   </>

@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { formatToIST } from "../../utils/dateUtils";
 import AnalyticsFlowCanvas from "../analytics/AnalyticsFlowCanvas";
+import { getLastWhatsAppSentTime, getSessionLastActivityTime } from "../../pages/AutomationAnalyticsPage";
 
 /* ── Node-type → pill style (light theme) ── */
 const NODE_STYLES = {
@@ -110,6 +111,19 @@ export default function JourneySessionsModal({ modalState, setModalState, onOpen
       (s.history||[]).some(h => String(h.node_id) === selectedStepId)
     );
   }
+
+  // Sort: Contacts that were sent a WhatsApp message most recently appear at the top
+  filtered = [...filtered].sort((a, b) => {
+    const waA = getLastWhatsAppSentTime(a);
+    const waB = getLastWhatsAppSentTime(b);
+    if (waA > 0 || waB > 0) {
+      if (waA !== waB) return waB - waA;
+    }
+    const actA = getSessionLastActivityTime(a);
+    const actB = getSessionLastActivityTime(b);
+    if (actA !== actB) return actB - actA;
+    return (b.id || 0) - (a.id || 0);
+  });
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -297,7 +311,7 @@ export default function JourneySessionsModal({ modalState, setModalState, onOpen
                       <tr>
                         <th className="px-5 py-3 whitespace-nowrap">Contact / Phone</th>
                         <th className="px-5 py-3 whitespace-nowrap">Name</th>
-                        <th className="px-5 py-3 whitespace-nowrap">Enrolled Date</th>
+                        <th className="px-5 py-3 whitespace-nowrap">Last Message / Enrolled</th>
                         <th className="px-5 py-3 whitespace-nowrap">Status</th>
                         <th className="px-5 py-3">Journey Path Traveled</th>
                       </tr>
@@ -306,9 +320,10 @@ export default function JourneySessionsModal({ modalState, setModalState, onOpen
                       {filtered.map(s => {
                         const st   = s.state_data || {};
                         const hist = s.history    || [];
+                        const waTime = getLastWhatsAppSentTime(s);
                         return (
                           <tr key={s.id} className="hover:bg-gray-50/80 transition">
-                            <td className="px-5 py-3.5">
+                            <td className="px-5 py-3.5 align-top">
                               <div className="font-bold text-gray-900 font-mono flex items-center gap-1.5">
                                 <span className="w-1.5 h-1.5 rounded-full bg-[#25D366] shrink-0" />
                                 {s.customer_phone}
@@ -317,12 +332,24 @@ export default function JourneySessionsModal({ modalState, setModalState, onOpen
                                 <div className="text-[10px] text-emerald-600 font-mono mt-0.5">₹{st.cart_value}</div>
                               )}
                             </td>
-                            <td className="px-5 py-3.5 text-gray-700">{st.customer_name || "Online Customer"}</td>
-                            <td className="px-5 py-3.5 font-mono text-[10px] text-gray-500 whitespace-nowrap">
-                              {formatToIST(s.created_at)}
+                            <td className="px-5 py-3.5 align-top text-gray-700">{st.customer_name || "Online Customer"}</td>
+                            <td className="px-5 py-3.5 align-top font-mono text-[10px] text-gray-500 whitespace-nowrap">
+                              {waTime > 0 ? (
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded w-fit">
+                                    <Send className="w-2.5 h-2.5" />
+                                    WA: {formatToIST(new Date(waTime).toISOString())}
+                                  </span>
+                                  <span className="text-[9px] text-gray-400">
+                                    Enrolled: {formatToIST(s.created_at)}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div>{formatToIST(s.created_at)}</div>
+                              )}
                             </td>
-                            <td className="px-5 py-3.5"><StatusBadge status={s.status} /></td>
-                            <td className="px-5 py-3.5">
+                            <td className="px-5 py-3.5 align-top"><StatusBadge status={s.status} /></td>
+                            <td className="px-5 py-3.5 align-top">
                               {hist.length === 0 ? (
                                 <span className="text-gray-400 text-[10px] italic">No steps yet</span>
                               ) : (
