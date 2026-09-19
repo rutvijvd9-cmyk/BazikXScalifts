@@ -51,62 +51,9 @@ def create_and_trigger_campaign(
             detail=f"Security verification failed: {str(auth_err)}"
         )
 
-    scheduled_dt = None
-    scheduled_dt_tz = None
-    if payload.scheduled_for:
-        try:
-            tz_kolkata = ZoneInfo(config.TIMEZONE)
-            raw = str(payload.scheduled_for).strip()
-            if raw.endswith("Z"):
-                dt_obj = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            elif "+" in raw or "-" in raw[10:]:
-                dt_obj = datetime.fromisoformat(raw)
-            else:
-                clean_str = raw.replace("T", " ")
-                naive_dt = datetime.fromisoformat(clean_str)
-                dt_obj = naive_dt.replace(tzinfo=tz_kolkata)
-            
-            scheduled_dt_tz = dt_obj.astimezone(tz_kolkata)
-            # Store local Indian Standard Time in database
-            scheduled_dt = scheduled_dt_tz.replace(tzinfo=None)
-        except Exception as parse_err:
-            logger.warning(f"Failed to parse scheduled_for '{payload.scheduled_for}': {parse_err}")
-            scheduled_dt = None
-            scheduled_dt_tz = None
-
     try:
-        now_ist = datetime.now(ZoneInfo(config.TIMEZONE))
-        is_future = scheduled_dt_tz and scheduled_dt_tz > now_ist
-        campaign = models.Campaign(
-            title=payload.title,
-            template_name=payload.template_name,
-            language=payload.language or "en",
-            target_filter=payload.target_filter or "ALL",
-            per_day_limit=payload.per_day_limit,
-            status="SCHEDULED" if is_future else "IN_PROGRESS",
-            scheduled_for=scheduled_dt
-        )
-        db.add(campaign)
-        db.commit()
-        db.refresh(campaign)
-
-        if is_future:
-            # Schedule future execution with exact Indian Standard Time (IST)
-            job_id = f"campaign_{campaign.id}"
-            scheduler.add_job(
-                func=execute_campaign_broadcast,
-                trigger=DateTrigger(run_date=scheduled_dt_tz, timezone=ZoneInfo(config.TIMEZONE)),
-                args=[campaign.id, payload.custom_phones],
-                id=job_id,
-                replace_existing=True
-            )
-            logger.info(f"📅 Campaign {campaign.id} scheduled to execute at {scheduled_dt_tz} (IST)")
-        else:
-            # Trigger campaign broadcast asynchronously in background to prevent HTTP 500 / timeout
-            logger.info(f"🚀 Queueing immediate broadcast for Campaign #{campaign.id} via BackgroundTasks")
-            background_tasks.add_task(execute_campaign_broadcast, campaign.id, payload.custom_phones)
-
-        return campaign
+        from services.campaign_service import create_and_schedule_campaign
+        return create_and_schedule_campaign(payload=payload, background_tasks=background_tasks, db=db)
     except Exception as e:
         logger.error(f"Failed to create and launch campaign: {e}", exc_info=True)
         db.rollback()

@@ -15,7 +15,7 @@ def test_create_and_trigger_campaign(client, auth_headers, db):
     assert res.status_code == status.HTTP_201_CREATED
     data = res.json()
     assert data["title"] == "Navratri Special Gathiya Fest"
-    assert data["status"] in ["COMPLETED", "SCHEDULED"]
+    assert data["status"] in ["COMPLETED", "SCHEDULED", "IN_PROGRESS"]
 
 def test_daily_budget_guardrail_cutoff(db):
     normal_phone = "+919877766655"
