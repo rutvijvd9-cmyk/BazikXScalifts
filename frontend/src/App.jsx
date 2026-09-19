@@ -1990,6 +1990,7 @@ export default function App() {
         <div className={activeTab === "chat" ? "p-3 md:p-5 flex-1 flex flex-col min-h-0 overflow-hidden" : "p-8 space-y-6"}>
           {activeTab === "dashboard" && (
             <DashboardPage
+              workflowFlows={workflowFlows}
               messageLogs={messageLogs}
               cartEvents={cartEvents}
               campaigns={campaigns}
@@ -2016,25 +2017,17 @@ export default function App() {
               handleSimulateWorkflow={handleSimulateWorkflow}
               templates={templates}
               discountCodes={discountCodes}
-              automationSubTab={automationSubTab}
-              setAutomationSubTab={setAutomationSubTab}
-              workflows={workflows}
-              automationRules={automationRules}
-              setIsWorkflowModalOpen={setIsWorkflowModalOpen}
-              setIsRuleModalOpen={setIsRuleModalOpen}
-              handleTriggerAutomation={handleTriggerAutomation}
+              workflowFlows={workflowFlows}
+              handleCleanSlate={handleCleanSlate}
+              handleOpenNewJourneyModal={handleOpenNewJourneyModal}
+              cartEvents={cartEvents}
+              messageLogs={messageLogs}
+              optOuts={optOuts}
+              campaigns={campaigns}
+              contacts={contacts}
+              handleToggleWorkflow={handleToggleWorkflow}
               handleDeleteWorkflow={handleDeleteWorkflow}
-              handleToggleRule={handleToggleRule}
-              handleDeleteRule={handleDeleteRule}
-              reEngagementRunning={reEngagementRunning}
-              reEngagementDays={reEngagementDays}
-              setReEngagementDays={setReEngagementDays}
-              reEngagementTemplate={reEngagementTemplate}
-              setReEngagementTemplate={setReEngagementTemplate}
-              handleRunReEngagementSweep={handleRunReEngagementSweep}
-              workflowSessions={workflowSessions}
-              loadingWorkflowSessions={loadingWorkflowSessions}
-              fetchWorkflowSessions={fetchWorkflowSessions}
+              handleOpenJourneySessions={handleOpenJourneySessions}
             />
           )}
 

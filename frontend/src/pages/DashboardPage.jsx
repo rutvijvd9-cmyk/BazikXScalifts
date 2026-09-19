@@ -11,6 +11,7 @@ import {
 import { formatToIST, formatScheduleDisplay } from "../utils/dateUtils";
 
 export default function DashboardPage({
+  workflowFlows = [],
   messageLogs = [],
   cartEvents = [],
   campaigns = [],

@@ -1,23 +1,9 @@
 import React from "react";
 import {
-  GitBranch,
-  Play,
-  PlayCircle,
-  Plus,
-  Zap,
-  Sliders,
-  Sparkles,
-  ToggleLeft,
-  ToggleRight,
-  Clock,
-  Trash2,
-  Tag,
-  ShieldCheck,
-  AlertTriangle,
-  RefreshCw
+  GitBranch, Play, PlayCircle, Plus, Zap, Sliders, Sparkles, ToggleLeft, ToggleRight, Clock, Trash2, Tag, ShieldCheck, AlertTriangle, RefreshCw, Activity, ShoppingCart, Radio, Send
 } from "lucide-react";
 import FlowchartCanvas from "../components/FlowchartCanvas";
-import { formatToIST } from "../utils/dateUtils";
+import { formatToIST, formatToISTDate, getTodayISTDateString } from "../utils/dateUtils";
 
 export default function AutomationsPage({
   editingWorkflow,
@@ -26,25 +12,17 @@ export default function AutomationsPage({
   handleSimulateWorkflow,
   templates = [],
   discountCodes = [],
-  automationSubTab,
-  setAutomationSubTab,
-  workflows = [],
-  automationRules = [],
-  setIsWorkflowModalOpen,
-  setIsRuleModalOpen,
-  handleTriggerAutomation,
+  workflowFlows = [],
+  handleCleanSlate,
+  handleOpenNewJourneyModal,
+  cartEvents = [],
+  messageLogs = [],
+  optOuts = [],
+  campaigns = [],
+  contacts = [],
+  handleToggleWorkflow,
   handleDeleteWorkflow,
-  handleToggleRule,
-  handleDeleteRule,
-  reEngagementRunning,
-  reEngagementDays,
-  setReEngagementDays,
-  reEngagementTemplate,
-  setReEngagementTemplate,
-  handleRunReEngagementSweep,
-  workflowSessions = [],
-  loadingWorkflowSessions,
-  fetchWorkflowSessions
+  handleOpenJourneySessions
 }) {
   return (
             editingWorkflow ? (
