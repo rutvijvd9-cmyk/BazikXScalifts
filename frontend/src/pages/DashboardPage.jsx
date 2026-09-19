@@ -39,24 +39,24 @@ export default function DashboardPage({
                   <div>
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Messages Sent</p>
                     <h3 className="text-2xl font-black text-gray-900 mt-1">{messageLogs.length}</h3>
-                    <span className="inline-flex items-center text-xs font-semibold text-[#10B981] mt-1">
+                    <span className="inline-flex items-center text-xs font-semibold text-gray-500 mt-1">
                       100% Meta Compliant
                     </span>
                   </div>
-                  <div className="w-12 h-12 rounded-xl bg-green-50 flex items-center justify-center text-[#25D366]">
+                  <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600">
                     <MessageSquare className="w-6 h-6" />
                   </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-xl border-2 border-[#F5A623]/30 shadow-xs flex items-center justify-between">
+                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
                   <div>
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Recovered Cart Value</p>
                     <h3 className="text-2xl font-black text-gray-900 mt-1">₹ {totalRecoveredValue.toFixed(2)}</h3>
-                    <span className="text-xs font-semibold text-[#F5A623] mt-1">
+                    <span className="text-xs font-semibold text-gray-500 mt-1">
                       Autonomous 30m recovery
                     </span>
                   </div>
-                  <div className="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center text-[#F5A623]">
+                  <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600">
                     <IndianRupee className="w-6 h-6" />
                   </div>
                 </div>
@@ -67,7 +67,7 @@ export default function DashboardPage({
                     <h3 className="text-2xl font-black text-gray-900 mt-1">{contacts.length}</h3>
                     <span className="text-xs text-gray-500 mt-1">Synced from custom PHP</span>
                   </div>
-                  <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+                  <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600">
                     <Users className="w-6 h-6" />
                   </div>
                 </div>
@@ -78,7 +78,7 @@ export default function DashboardPage({
                     <h3 className="text-2xl font-black text-gray-900 mt-1">{optOuts.length}</h3>
                     <span className="text-xs font-semibold text-gray-400 mt-1">Auto STOP Handler</span>
                   </div>
-                  <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center text-red-500">
+                  <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600">
                     <ShieldBan className="w-6 h-6" />
                   </div>
                 </div>

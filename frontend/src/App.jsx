@@ -1714,14 +1714,16 @@ export default function App() {
             </h2>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={fetchData}
-              disabled={loading}
-              className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition"
-              title="Refresh data"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-            </button>
+            {activeTab !== "campaigns" && (
+              <button
+                onClick={fetchData}
+                disabled={loading}
+                className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition"
+                title="Refresh data"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+              </button>
+            )}
 
             {activeTab === "automations" && (
               <button
@@ -1733,7 +1735,7 @@ export default function App() {
               </button>
             )}
 
-            {(activeTab === "campaigns" || activeTab === "dashboard") && (
+            {activeTab === "dashboard" && (
               <button
                 onClick={handleOpenCampaignModal}
                 className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-4 py-2 rounded-lg font-semibold text-sm shadow-sm transition shadow-green-500/20"

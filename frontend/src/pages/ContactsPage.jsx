@@ -83,16 +83,16 @@ export default function ContactsPage({
                   </div>
                   <button
                     onClick={handleOpenAddContact}
-                    className="flex items-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-3.5 py-1.5 rounded-lg font-bold text-xs shadow-xs transition"
+                    className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 px-3.5 py-1.5 rounded-lg font-bold text-xs shadow-xs transition"
                   >
-                    <UserPlus className="w-3.5 h-3.5" />
+                    <UserPlus className="w-3.5 h-3.5 text-gray-600" />
                     Add Contact
                   </button>
                   <button
                     onClick={() => setIsCsvModalOpen(true)}
-                    className="flex items-center gap-1.5 bg-[#111827] hover:bg-gray-800 text-[#F5A623] px-3.5 py-1.5 rounded-lg font-bold text-xs shadow-xs transition"
+                    className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 px-3.5 py-1.5 rounded-lg font-bold text-xs shadow-xs transition"
                   >
-                    <Upload className="w-3.5 h-3.5" />
+                    <Upload className="w-3.5 h-3.5 text-gray-600" />
                     Import CSV
                   </button>
                 </div>

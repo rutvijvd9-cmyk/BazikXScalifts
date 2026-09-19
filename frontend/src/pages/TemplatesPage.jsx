@@ -34,17 +34,17 @@ export default function TemplatesPage({
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => setIsTemplateModalOpen(true)}
-                    className="flex items-center gap-1.5 bg-[#F5A623] hover:bg-[#E67E22] text-black px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition"
+                    className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition"
                   >
-                    <Plus className="w-3.5 h-3.5" />
+                    <Plus className="w-3.5 h-3.5 text-gray-600" />
                     Create Template
                   </button>
                   <button
                     onClick={handleSyncMetaTemplates}
                     disabled={loading}
-                    className="flex items-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition"
+                    className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 px-3.5 py-1.5 rounded-lg text-xs font-bold shadow-xs transition"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                    <RefreshCw className={`w-3.5 h-3.5 text-gray-600 ${loading ? "animate-spin" : ""}`} />
                     Sync from Meta
                   </button>
 

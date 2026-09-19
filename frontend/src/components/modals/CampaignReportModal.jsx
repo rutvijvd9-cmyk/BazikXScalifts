@@ -136,25 +136,25 @@ export default function CampaignReportModal({
 
         {/* Analytics Summary Badges */}
         <div className="px-6 py-4 bg-white border-b border-gray-100 grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <div className="bg-gray-50 rounded-xl p-3 border border-gray-200/70">
+          <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
             <div className="text-[11px] font-semibold uppercase text-gray-500">Recipients</div>
             <div className="text-xl font-bold text-gray-900 mt-0.5">{summary.total_recipients}</div>
           </div>
-          <div className="bg-blue-50/70 rounded-xl p-3 border border-blue-100">
-            <div className="text-[11px] font-semibold uppercase text-blue-600">Dispatched (Sent)</div>
-            <div className="text-xl font-bold text-blue-700 mt-0.5">{summary.sent}</div>
+          <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+            <div className="text-[11px] font-semibold uppercase text-gray-500">Dispatched (Sent)</div>
+            <div className="text-xl font-bold text-gray-900 mt-0.5">{summary.sent}</div>
           </div>
-          <div className="bg-emerald-50/70 rounded-xl p-3 border border-emerald-100">
-            <div className="text-[11px] font-semibold uppercase text-emerald-600">Delivered</div>
-            <div className="text-xl font-bold text-emerald-700 mt-0.5">{summary.delivered}</div>
+          <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+            <div className="text-[11px] font-semibold uppercase text-gray-500">Delivered</div>
+            <div className="text-xl font-bold text-gray-900 mt-0.5">{summary.delivered}</div>
           </div>
-          <div className="bg-purple-50/70 rounded-xl p-3 border border-purple-100">
-            <div className="text-[11px] font-semibold uppercase text-purple-600">Read / Opened</div>
-            <div className="text-xl font-bold text-purple-700 mt-0.5">{summary.read}</div>
+          <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+            <div className="text-[11px] font-semibold uppercase text-gray-500">Read / Opened</div>
+            <div className="text-xl font-bold text-gray-900 mt-0.5">{summary.read}</div>
           </div>
-          <div className="bg-red-50/70 rounded-xl p-3 border border-red-100">
-            <div className="text-[11px] font-semibold uppercase text-red-600">Failed / Blocked</div>
-            <div className="text-xl font-bold text-red-700 mt-0.5">{summary.failed}</div>
+          <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+            <div className="text-[11px] font-semibold uppercase text-gray-500">Failed / Blocked</div>
+            <div className="text-xl font-bold text-gray-900 mt-0.5">{summary.failed}</div>
           </div>
         </div>
 
