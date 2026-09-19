@@ -1,11 +1,15 @@
 import React from "react";
 import {
+  Settings,
   ShieldCheck,
   ShieldAlert,
   UserPlus,
   RefreshCw,
   Trash2,
-  Key
+  Key,
+  Users,
+  Edit2,
+  BookOpen
 } from "lucide-react";
 import { formatToIST } from "../utils/dateUtils";
 
@@ -18,16 +22,18 @@ export default function SettingsPage({
   savingDailyLimit = false,
   handleUpdateDailyLimit = () => {},
   currentUserProfile,
-  setIsDisable2faModalOpen = () => {},
   setIsAddUserModalOpen = () => {},
   systemUsers = [],
   username,
   handleDeleteUser = () => {},
   userRoleUpdatingId,
+  userDeletingId = null,
   handleUpdateUserRole = () => {},
   setAdminPasswordModal = () => {},
   admin2faUpdatingId,
   handleAdminToggle2FA = () => {},
+  handleOpen2faSetup = () => {},
+  handleOpen2faDisable = () => {},
   setIsRoleInfoModalOpen = () => {},
   setAddUserError = () => {}
 }) {
@@ -372,10 +378,7 @@ export default function SettingsPage({
                                   u.is_2fa_enabled ? (
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        setDisablePassword("");
-                                        setIsDisable2faModalOpen(true);
-                                      }}
+                                      onClick={handleOpen2faDisable}
                                       className="text-xs text-red-600 hover:text-red-800 font-semibold hover:underline cursor-pointer ml-1"
                                     >
                                       Disable My 2FA
@@ -383,19 +386,7 @@ export default function SettingsPage({
                                   ) : (
                                     <button
                                       type="button"
-                                      onClick={async () => {
-                                        setSetupVerifyError("");
-                                        setSetupVerifyCode("");
-                                        try {
-                                          const res = await axios.get("/api/auth/2fa/setup", {
-                                            headers: { Authorization: `Bearer ${token}` }
-                                          });
-                                          setTwoFactorSetupData(res.data);
-                                          setIs2faModalOpen(true);
-                                        } catch (err) {
-                                          alert("Failed to initiate 2FA setup: " + (err.response?.data?.detail || err.message));
-                                        }
-                                      }}
+                                      onClick={handleOpen2faSetup}
                                       className="text-xs bg-[#25D366] hover:bg-[#1EBE5D] text-white px-2.5 py-1 rounded-md font-bold transition inline-flex items-center gap-1 shadow-xs cursor-pointer ml-1"
                                     >
                                       <ShieldCheck className="w-3 h-3" />

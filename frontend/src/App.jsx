@@ -639,6 +639,25 @@ export default function App() {
     }
   };
 
+  const handleOpen2faSetup = async () => {
+    setSetupVerifyError("");
+    setSetupVerifyCode("");
+    try {
+      const res = await axios.get("/api/auth/2fa/setup", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTwoFactorSetupData(res.data);
+      setIs2faModalOpen(true);
+    } catch (err) {
+      alert("Failed to initiate 2FA setup: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const handleOpen2faDisable = () => {
+    setDisablePassword("");
+    setIsDisable2faModalOpen(true);
+  };
+
   const testServerConnection = async (urlToTest) => {
     setServerTestStatus({ loading: true, ok: false, msg: "Testing connection..." });
     const cleanUrl = (urlToTest || "").trim().replace(/\/$/, "");
@@ -1784,16 +1803,18 @@ export default function App() {
               savingDailyLimit={savingDailyLimit}
               handleUpdateDailyLimit={handleUpdateDailyLimit}
               currentUserProfile={currentUserProfile}
-              setIsDisable2faModalOpen={setIsDisable2faModalOpen}
               setIsAddUserModalOpen={setIsAddUserModalOpen}
               systemUsers={systemUsers}
               username={username}
               handleDeleteUser={handleDeleteUser}
               userRoleUpdatingId={userRoleUpdatingId}
+              userDeletingId={userDeletingId}
               handleUpdateUserRole={handleUpdateUserRole}
               setAdminPasswordModal={setAdminPasswordModal}
               admin2faUpdatingId={admin2faUpdatingId}
               handleAdminToggle2FA={handleAdminToggle2FA}
+              handleOpen2faSetup={handleOpen2faSetup}
+              handleOpen2faDisable={handleOpen2faDisable}
               setIsRoleInfoModalOpen={setIsRoleInfoModalOpen}
               setAddUserError={setAddUserError}
             />
