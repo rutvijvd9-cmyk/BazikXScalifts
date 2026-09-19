@@ -15,6 +15,12 @@ import config
 WHATSAPP_API_TOKEN = config.WHATSAPP_API_TOKEN
 WHATSAPP_PHONE_NUMBER_ID = config.WHATSAPP_PHONE_NUMBER_ID
 DAILY_MESSAGE_SEND_LIMIT = config.DAILY_MESSAGE_SEND_LIMIT
+OPT_OUT_KEYWORDS = {
+    "stop", "unsubscribe", "dnd", "cancel",
+    "બંધ", "બંધ કરો", "સંદેશા બંધ કરો",  # Gujarati
+    "रोको", "बंद करो", "मैसेज बंद करो"      # Hindi
+}
+
 META_API_URL = (
     f"{config.META_GRAPH_BASE_URL}/{config.META_GRAPH_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
     if WHATSAPP_PHONE_NUMBER_ID
