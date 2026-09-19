@@ -38,7 +38,6 @@ export default function FlowchartCanvas({
   workflow,
   onSave,
   onClose,
-  onSimulate,
   availableTemplates = [],
   availableCoupons = []
 }) {
@@ -52,15 +51,6 @@ export default function FlowchartCanvas({
   const [pickerTarget, setPickerTarget] = useState(null); // { parentId, handle }
   const [pickerFilter, setPickerFilter] = useState("all");
   const [zoom, setZoom] = useState(1);
-  const [isSimulating, setIsSimulating] = useState(false);
-  const triggerNode = (flow.nodes || []).find((n) => n.type === "trigger");
-  const triggerMinCart = triggerNode?.data?.min_cart_value ? Number(triggerNode.data.min_cart_value) : 650;
-  const [simPhone, setSimPhone] = useState("");
-  const [simCartValue, setSimCartValue] = useState(triggerMinCart > 650 ? triggerMinCart : 650);
-  const [simLog, setSimLog] = useState([]);
-  const [simError, setSimError] = useState("");
-  const [simStepIndex, setSimStepIndex] = useState(-1);
-  const [isSimLoading, setIsSimLoading] = useState(false);
   const [templateSearchQuery, setTemplateSearchQuery] = useState("");
 
   const selectedNode = (flow.nodes || []).find((n) => n.id === selectedNodeId);
@@ -203,39 +193,6 @@ export default function FlowchartCanvas({
     });
     if (selectedNodeId === nodeId) {
       setSelectedNodeId(null);
-    }
-  };
-
-  // Run simulated step animation
-  const handleStartSimulation = async () => {
-    if (!simPhone.trim()) {
-      setSimError("Please enter a customer test phone number (e.g. +919876543210)");
-      return;
-    }
-    setIsSimLoading(true);
-    setSimError("");
-    setSimLog([]);
-    setSimStepIndex(0);
-
-    try {
-      if (onSimulate) {
-        const res = await onSimulate(flow.id, {
-          customer_phone: simPhone.trim(),
-          test_cart_value: Number(simCartValue) || 650,
-          mock_mode: true
-        });
-        if (res && res.history) {
-          setSimLog(res.history);
-        } else if (res && res.message) {
-          setSimLog([{ label: "Status", details: res.message }]);
-        }
-      }
-    } catch (err) {
-      console.error("Simulation error:", err);
-      const errMsg = err?.response?.data?.detail || err?.message || "Simulation failed. Please check phone and flow.";
-      setSimError(errMsg);
-    } finally {
-      setIsSimLoading(false);
     }
   };
 
@@ -440,19 +397,10 @@ export default function FlowchartCanvas({
             </button>
           </div>
 
-          {/* Simulate button */}
-          <button
-            onClick={() => setIsSimulating(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold hover:bg-blue-100 transition shadow-xs"
-          >
-            <Play className="w-3.5 h-3.5 fill-blue-600" />
-            Simulate Flow
-          </button>
-
           {/* Save button */}
           <button
             onClick={() => onSave(flow)}
-            className="flex items-center gap-1.5 px-4 py-1.5 bg-[#25D366] text-white rounded-xl text-xs font-bold hover:bg-[#1EBE5D] transition shadow-xs"
+            className="flex items-center gap-1.5 px-4 py-1.5 bg-[#25D366] text-white rounded-xl text-xs font-bold hover:bg-[#1EBE5D] transition shadow-xs cursor-pointer"
           >
             <Save className="w-3.5 h-3.5" />
             Save Journey
@@ -1638,107 +1586,6 @@ export default function FlowchartCanvas({
         </div>
       )}
 
-      {/* ── 🧪 LIVE FLOW SIMULATOR MODAL ── */}
-      {isSimulating && (
-        <div className="absolute inset-0 bg-black/40 backdrop-blur-xs z-40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-                  <Play className="w-4 h-4 fill-blue-600" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-gray-900 text-sm">
-                    Simulate Flow Journey
-                  </h3>
-                  <p className="text-[11px] text-gray-400">
-                    Dry-run or test real WhatsApp dispatch through this journey
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsSimulating(false)}
-                className="p-1 text-gray-400 hover:text-gray-600 rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Test Inputs */}
-            <div className="space-y-3 text-xs">
-              <div className="space-y-1">
-                <label className="font-bold text-gray-700">
-                  Recipient Test Phone Number
-                </label>
-                <input
-                  type="text"
-                  value={simPhone}
-                  onChange={(e) => setSimPhone(e.target.value)}
-                  placeholder="+919876543210"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl font-mono focus:border-blue-500 outline-none"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-bold text-gray-700">
-                  Simulated Cart Value (₹)
-                </label>
-                <input
-                  type="number"
-                  value={simCartValue}
-                  onChange={(e) => setSimCartValue(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl font-mono focus:border-blue-500 outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Simulation Trace Log */}
-            {simLog.length > 0 && (
-              <div className="space-y-2 text-xs">
-                <span className="font-bold text-gray-700">Execution Steps Log:</span>
-                <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2 font-mono text-[11px]">
-                  {simLog.map((step, idx) => (
-                    <div key={idx} className="flex items-start gap-2 text-gray-800">
-                      <span className="text-emerald-600 font-bold">✓</span>
-                      <div>
-                        <span className="font-bold text-gray-900">
-                          {step.label || step.node_type}:
-                        </span>{" "}
-                        <span className="text-gray-600">{step.details}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Error Message */}
-            {simError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium">
-                ⚠️ {simError}
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                onClick={() => setIsSimulating(false)}
-                className="px-4 py-2 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-semibold text-gray-600 transition cursor-pointer"
-              >
-                Close
-              </button>
-              <button
-                onClick={handleStartSimulation}
-                disabled={isSimLoading}
-                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
-              >
-                <Play className="w-3.5 h-3.5 fill-white" />
-                {isSimLoading ? "Simulating..." : "Run Simulation"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

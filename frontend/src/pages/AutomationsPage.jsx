@@ -10,7 +10,6 @@ export default function AutomationsPage({
   editingWorkflow,
   setEditingWorkflow,
   handleSaveWorkflow,
-  handleSimulateWorkflow,
   templates = [],
   discountCodes = [],
   workflowFlows = [],
@@ -32,7 +31,6 @@ export default function AutomationsPage({
                 workflow={editingWorkflow}
                 onSave={handleSaveWorkflow}
                 onClose={() => setEditingWorkflow(null)}
-                onSimulate={handleSimulateWorkflow}
                 availableTemplates={templates}
                 availableCoupons={discountCodes}
               />
@@ -238,13 +236,6 @@ export default function AutomationsPage({
                             <span className="text-gray-300">•</span>
                             <span>Deduplication window: <strong className="text-gray-800">3-7 Days</strong></span>
                           </div>
-                          <button
-                            onClick={handleOpenNewJourneyModal}
-                            className="text-xs font-bold text-[#25D366] hover:text-[#1EBE5D] flex items-center gap-1 cursor-pointer transition"
-                          >
-                            ⚡ Test Simulator Flow →
-                          </button>
-
                         </div>
                       </div>
 
@@ -415,14 +406,7 @@ export default function AutomationsPage({
                               )}
                               <button
                                 onClick={() => setEditingWorkflow(flow)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition shadow-xs"
-                              >
-                                <Play className="w-3.5 h-3.5 fill-blue-600" />
-                                Simulate
-                              </button>
-                              <button
-                                onClick={() => setEditingWorkflow(flow)}
-                                className="flex items-center gap-1.5 px-4 py-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white rounded-xl text-xs font-bold transition shadow-xs"
+                                className="flex items-center gap-1.5 px-4 py-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
                               >
                                 <Sliders className="w-3.5 h-3.5" />
                                 Open Flowchart Builder

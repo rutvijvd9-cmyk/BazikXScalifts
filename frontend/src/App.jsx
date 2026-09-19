@@ -1334,12 +1334,6 @@ export default function App() {
     }
   };
 
-  const handleSimulateWorkflow = async (flowId, payload) => {
-    const headers = { Authorization: `Bearer ${token}` };
-    const res = await axios.post(`/api/workflows/${flowId}/simulate`, payload, { headers });
-    return res.data;
-  };
-
   const handleCleanSlate = async () => {
     if (!window.confirm("Purge all sample workflows and rules? This will give you a 100% clean slate.")) return;
     try {
@@ -1795,7 +1789,6 @@ export default function App() {
               editingWorkflow={editingWorkflow}
               setEditingWorkflow={setEditingWorkflow}
               handleSaveWorkflow={handleSaveWorkflow}
-              handleSimulateWorkflow={handleSimulateWorkflow}
               templates={templates}
               discountCodes={discountCodes}
               workflowFlows={workflowFlows}
