@@ -26,6 +26,7 @@ export default function CampaignReportModal({
 }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
@@ -34,6 +35,7 @@ export default function CampaignReportModal({
       fetchReport();
     } else {
       setData(null);
+      setErrorMsg("");
       setSearch("");
       setStatusFilter("ALL");
     }
@@ -42,6 +44,7 @@ export default function CampaignReportModal({
   const fetchReport = async () => {
     if (!campaign?.id) return;
     setLoading(true);
+    setErrorMsg("");
     try {
       const res = await axios.get(`/api/campaigns/${campaign.id}/logs`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
@@ -49,6 +52,7 @@ export default function CampaignReportModal({
       setData(res.data);
     } catch (err) {
       console.error("Failed to load campaign logs:", err);
+      setErrorMsg(err.response?.data?.detail || err.message || "Could not fetch campaign logs");
     } finally {
       setLoading(false);
     }
@@ -185,6 +189,12 @@ export default function CampaignReportModal({
 
         {/* Recipient List Table */}
         <div className="flex-1 overflow-y-auto">
+          {errorMsg && (
+            <div className="p-4 m-4 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 text-red-600" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
           {loading ? (
             <div className="py-16 text-center text-gray-400 flex flex-col items-center justify-center gap-2">
               <RefreshCw className="w-6 h-6 animate-spin text-emerald-600" />

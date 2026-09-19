@@ -142,18 +142,27 @@ def get_campaign_logs(
         # 1. Query logs directly linked by campaign_id
         logs = db.query(models.MessageLog).filter(models.MessageLog.campaign_id == campaign_id).order_by(models.MessageLog.created_at.asc()).all()
 
-        # 2. Smart fallback for earlier campaigns run before campaign_id column addition
-        if not logs and campaign.created_at:
+        # 2. Smart fallback for campaigns run before campaign_id column addition
+        if not logs:
             from datetime import timedelta
-            # Search within a 2-hour window around campaign created_at / scheduled_for matching the template_name
+            # If scheduled_for or created_at exists, search across a generous +/- 12 hour window
+            # to prevent UTC vs IST timezone offset mismatch (5h 30m difference)
             ref_time = campaign.scheduled_for or campaign.created_at
-            window_start = ref_time - timedelta(minutes=15)
-            window_end = ref_time + timedelta(hours=2)
-            logs = db.query(models.MessageLog).filter(
-                models.MessageLog.template_name == campaign.template_name,
-                models.MessageLog.created_at >= window_start,
-                models.MessageLog.created_at <= window_end
-            ).order_by(models.MessageLog.created_at.asc()).all()
+            if ref_time:
+                window_start = ref_time - timedelta(hours=12)
+                window_end = ref_time + timedelta(hours=12)
+                logs = db.query(models.MessageLog).filter(
+                    models.MessageLog.template_name == campaign.template_name,
+                    models.MessageLog.created_at >= window_start,
+                    models.MessageLog.created_at <= window_end
+                ).order_by(models.MessageLog.created_at.asc()).all()
+
+            # 3. If still empty, match by template_name ordered closest to the campaign execution
+            if not logs:
+                logs = db.query(models.MessageLog).filter(
+                    models.MessageLog.template_name == campaign.template_name
+                ).order_by(models.MessageLog.created_at.desc()).limit(campaign.total_recipients or 50).all()
+                logs.reverse()
 
         # Build contact phone lookup map to fetch recipient names & cities
         phone_list = list(set([l.recipient_phone for l in logs]))

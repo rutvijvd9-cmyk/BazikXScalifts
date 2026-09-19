@@ -146,6 +146,8 @@ def on_startup():
         "ALTER TABLE templates ADD COLUMN IF NOT EXISTS variable_mappings JSON",
         # cart_events: open extra_data payload for dynamic ecom variables
         "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS extra_data JSON",
+        # message_logs: link to campaigns
+        "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS campaign_id INTEGER REFERENCES campaigns(id)",
         # system_settings: key-value system configuration
         "CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(50) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT NOW())",
     ]
