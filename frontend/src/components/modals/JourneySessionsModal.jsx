@@ -172,7 +172,7 @@ export default function JourneySessionsModal({ modalState, setModalState }) {
         {/* ── Modal Header ── */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#25D366] flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-gray-100 text-gray-400 flex items-center justify-center">
               <Users className="w-5 h-5" />
             </div>
             <div>
@@ -181,7 +181,7 @@ export default function JourneySessionsModal({ modalState, setModalState }) {
                   {flow?.name || "Automation Journey"} — Enrolled Contacts &amp; Analytics
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                  ⚡ {flow?.trigger_type}
+                  {flow?.trigger_type}
                 </span>
               </div>
               <p className="text-[11px] text-gray-400 mt-0.5">
@@ -203,14 +203,14 @@ export default function JourneySessionsModal({ modalState, setModalState }) {
           {/* ── TIER 1: KPI summary bar ── */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: "Total Enrolled",  value: totalEnrolled,               color: "text-blue-700",    bg: "bg-blue-50 border-blue-200" },
-              { label: "Active in Flow",  value: activeCount + waitingCount,  color: "text-indigo-700",  bg: "bg-indigo-50 border-indigo-200" },
-              { label: "Goal Converted",  value: goalCount,                   color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
-              { label: "Conversion Rate", value: `${conversionPct}%`,         color: "text-teal-700",    bg: "bg-teal-50 border-teal-200" },
+              { label: "Total Enrolled",  value: totalEnrolled              },
+              { label: "Active in Flow",  value: activeCount + waitingCount },
+              { label: "Goal Converted",  value: goalCount                  },
+              { label: "Conversion Rate", value: `${conversionPct}%`        },
             ].map(k => (
-              <div key={k.label} className={`rounded-xl border p-3 ${k.bg}`}>
+              <div key={k.label} className="rounded-xl border border-gray-200 bg-gray-50 p-3">
                 <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-0.5">{k.label}</div>
-                <div className={`text-2xl font-black font-mono ${k.color}`}>{k.value}</div>
+                <div className="text-2xl font-black font-mono text-gray-900">{k.value}</div>
               </div>
             ))}
           </div>
@@ -234,7 +234,7 @@ export default function JourneySessionsModal({ modalState, setModalState }) {
             {/* Sub-header */}
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-gray-100 bg-gray-50">
               <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-[#25D366]" />
+                <Users className="w-4 h-4 text-gray-400" />
                 <span className="text-xs font-bold text-gray-700">
                   Enrolled Contacts &amp; Step-by-Step Path Inspector
                 </span>
