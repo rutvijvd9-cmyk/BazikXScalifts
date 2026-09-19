@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  GitBranch, Play, PlayCircle, Plus, Zap, Sliders, Sparkles, ToggleLeft, ToggleRight, Clock, Trash2, Tag, ShieldCheck, AlertTriangle, RefreshCw, Activity, ShoppingCart, Radio, Send, ChevronRight, Eye, Users
+  GitBranch, Play, PlayCircle, Plus, Zap, Sliders, Sparkles, ToggleLeft, ToggleRight, Clock, Trash2, Tag, ShieldCheck, AlertTriangle, RefreshCw, Activity, ShoppingCart, Radio, Send, ChevronRight, Eye, Users, BarChart3
 } from "lucide-react";
 
 import FlowchartCanvas from "../components/FlowchartCanvas";
@@ -23,7 +23,8 @@ export default function AutomationsPage({
   contacts = [],
   handleToggleWorkflow,
   handleDeleteWorkflow,
-  handleOpenJourneySessions
+  handleOpenJourneySessions,
+  handleOpenAnalyticsPage,
 }) {
   return (
             editingWorkflow ? (
@@ -402,6 +403,16 @@ export default function AutomationsPage({
                                 <Users className="w-3.5 h-3.5" />
                                 Contacts ({flow.stats?.entered || 0})
                               </button>
+                              {handleOpenAnalyticsPage && (
+                                <button
+                                  onClick={() => handleOpenAnalyticsPage(flow)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                                  title="Open full-screen analytics for this automation"
+                                >
+                                  <BarChart3 className="w-3.5 h-3.5" />
+                                  Full Analytics
+                                </button>
+                              )}
                               <button
                                 onClick={() => setEditingWorkflow(flow)}
                                 className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition shadow-xs"

@@ -100,6 +100,7 @@ import TemplateModal from "./components/modals/TemplateModal";
 import TemplateMappingModal from "./components/modals/TemplateMappingModal";
 import NewJourneyModal from "./components/modals/NewJourneyModal";
 import JourneySessionsModal from "./components/modals/JourneySessionsModal";
+import AutomationAnalyticsPage from "./pages/AutomationAnalyticsPage";
 import { AddUserModal, AdminPasswordModal, RoleInfoModal } from "./components/modals/UserManagementModals";
 import { TwoFactorSetupModal, TwoFactorDisableModal } from "./components/modals/TwoFactorModals";
 
@@ -459,6 +460,9 @@ export default function App() {
     statusFilter: "ALL"
   });
 
+  // Full-screen analytics page state
+  const [analyticsPage, setAnalyticsPage] = useState({ open: false, flow: null, sessions: [], loading: false });
+
   const handleOpenJourneySessions = async (flow) => {
     setJourneySessionsModal({
       isOpen: true,
@@ -483,6 +487,19 @@ export default function App() {
         ...prev,
         loading: false
       }));
+    }
+  };
+
+  const handleOpenAnalyticsPage = async (flow) => {
+    setAnalyticsPage({ open: true, flow, sessions: [], loading: true });
+    try {
+      const res = await axios.get(`/api/workflows/${flow.id}/sessions`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setAnalyticsPage(prev => ({ ...prev, sessions: res.data || [], loading: false }));
+    } catch (err) {
+      console.error("Failed to fetch analytics sessions:", err);
+      setAnalyticsPage(prev => ({ ...prev, loading: false }));
     }
   };
 
@@ -1792,6 +1809,7 @@ export default function App() {
               handleToggleWorkflow={handleToggleWorkflow}
               handleDeleteWorkflow={handleDeleteWorkflow}
               handleOpenJourneySessions={handleOpenJourneySessions}
+              handleOpenAnalyticsPage={handleOpenAnalyticsPage}
             />
           )}
 
@@ -1958,6 +1976,18 @@ export default function App() {
         modalState={journeySessionsModal}
         setModalState={setJourneySessionsModal}
       />
+
+      {/* Full-screen Automation Analytics Page */}
+      {analyticsPage.open && (
+        <div className="fixed inset-0 z-50 bg-white overflow-hidden">
+          <AutomationAnalyticsPage
+            flow={analyticsPage.flow}
+            sessions={analyticsPage.sessions}
+            loading={analyticsPage.loading}
+            onBack={() => setAnalyticsPage(prev => ({ ...prev, open: false }))}
+          />
+        </div>
+      )}
 
       <NewJourneyModal
         isOpen={isNewJourneyModalOpen}
