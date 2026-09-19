@@ -81,15 +81,21 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
+        user = db.query(models.User).filter(models.User.username == username).first()
+        if user is None:
+            raise credentials_exception
+        if not user.is_active:
+            raise HTTPException(status_code=400, detail="Inactive user account")
+        return user
     except jwt.PyJWTError:
+        # Fallback: check if the provided token is a permanent, non-expiring API token
+        if token and len(token) >= 20:
+            api_user = db.query(models.User).filter(models.User.api_token == token).first()
+            if api_user:
+                if not api_user.is_active:
+                    raise HTTPException(status_code=400, detail="Inactive user account")
+                return api_user
         raise credentials_exception
-
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if user is None:
-        raise credentials_exception
-    if not user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user account")
-    return user
 
 
 def require_roles(*allowed_roles: str) -> Callable:

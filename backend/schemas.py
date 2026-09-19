@@ -208,6 +208,8 @@ class UserResponse(BaseModel):
     is_active: bool
     is_2fa_enabled: Optional[bool] = False
     role: str = "agent"
+    api_token: Optional[str] = None
+    api_token_created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

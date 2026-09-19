@@ -55,13 +55,20 @@ async def get_webhook_authenticated_user(
         svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
         return svc or models.User(username=config.ECOM_SERVICE_USERNAME, is_active=True)
 
+    # 1. Check permanent API Key from X-API-Key or query params
+    api_key_header = request.headers.get("X-API-Key", "").strip() or request.query_params.get("api_key", "").strip()
+    if api_key_header:
+        api_user = db.query(models.User).filter(models.User.api_token == api_key_header).first()
+        if api_user and api_user.is_active:
+            return api_user
+
+    # 2. Check Bearer token (supports both JWT and permanent API token)
     if auth_header.startswith("Bearer "):
         token = auth_header.split(" ", 1)[1].strip()
         try:
             user = auth.get_current_user(token=token, db=db)
-            if user.role in {"admin", "service"}:
+            if user and user.is_active:
                 return user
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Webhook access requires a service account")
         except HTTPException as he:
             raise he
         except Exception:
@@ -69,7 +76,7 @@ async def get_webhook_authenticated_user(
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Unauthorized: webhook requires a valid HMAC signature or service-account token.",
+        detail="Unauthorized: webhook requires a valid API token (Authorization: Bearer <token> or X-API-Key: <token>) or HMAC signature.",
         headers={"WWW-Authenticate": "Bearer"},
     )
 

@@ -1830,6 +1830,7 @@ export default function App() {
               handleOpen2faDisable={handleOpen2faDisable}
               setIsRoleInfoModalOpen={setIsRoleInfoModalOpen}
               setAddUserError={setAddUserError}
+              setSystemUsers={setSystemUsers}
             />
           )}
 

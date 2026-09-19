@@ -112,6 +112,8 @@ class User(Base):
     totp_secret = Column(String(64), nullable=True)
     email_recovery_code = Column(String(10), nullable=True)
     email_recovery_code_expires = Column(DateTime, nullable=True)
+    api_token = Column(String(128), unique=True, index=True, nullable=True)
+    api_token_created_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Template(Base):

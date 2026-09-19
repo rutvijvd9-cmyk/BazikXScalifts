@@ -7,6 +7,7 @@ registration status, and administrative user CRUD operations.
 import base64
 import io
 import logging
+import secrets
 from datetime import datetime
 from typing import List, Optional
 
@@ -388,3 +389,118 @@ def delete_user_account(
         "status": "success",
         "message": f"User account '{target_username}' was deleted successfully."
     }
+
+
+# ============================================================================
+# Permanent API Token Management (E-Commerce Webhooks & External Systems)
+# ============================================================================
+
+@router.get("/api/auth/api-token")
+def get_current_user_api_token(
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Retrieve the current user's non-expiring API token."""
+    return {
+        "user_id": current_user.id,
+        "username": current_user.username,
+        "api_token": current_user.api_token,
+        "api_token_created_at": current_user.api_token_created_at
+    }
+
+
+@router.post("/api/auth/api-token")
+def generate_current_user_api_token(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate or regenerate a permanent, non-expiring API token.
+    Generating a new token automatically invalidates and deletes the old token.
+    """
+    new_token = f"mb_live_{secrets.token_urlsafe(32)}"
+    current_user.api_token = new_token
+    current_user.api_token_created_at = datetime.utcnow()
+    db.commit()
+
+    logger.info(f"Generated new non-expiring API token for user '{current_user.username}'. Old token invalidated.")
+    return {
+        "status": "success",
+        "message": "Permanent API token generated successfully. Any previous token has been invalidated.",
+        "user_id": current_user.id,
+        "username": current_user.username,
+        "api_token": new_token,
+        "api_token_created_at": current_user.api_token_created_at
+    }
+
+
+@router.delete("/api/auth/api-token")
+def revoke_current_user_api_token(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Revoke/delete the current user's API token."""
+    current_user.api_token = None
+    current_user.api_token_created_at = None
+    db.commit()
+
+    logger.info(f"Revoked API token for user '{current_user.username}'.")
+    return {
+        "status": "success",
+        "message": "API token has been revoked."
+    }
+
+
+@router.post("/api/users/{user_id}/api-token")
+def generate_user_api_token_by_admin(
+    user_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Admin (or user themselves) can generate/regenerate a permanent API token for target user."""
+    if current_user.role != "admin" and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Admin permissions required to generate API tokens for other users.")
+
+    target_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    new_token = f"mb_live_{secrets.token_urlsafe(32)}"
+    target_user.api_token = new_token
+    target_user.api_token_created_at = datetime.utcnow()
+    db.commit()
+
+    logger.info(f"API token generated for user '{target_user.username}' by '{current_user.username}'. Old token invalidated.")
+    return {
+        "status": "success",
+        "message": f"Permanent API token generated for '{target_user.username}'. Any previous token has been invalidated.",
+        "user_id": target_user.id,
+        "username": target_user.username,
+        "api_token": new_token,
+        "api_token_created_at": target_user.api_token_created_at
+    }
+
+
+@router.delete("/api/users/{user_id}/api-token")
+def revoke_user_api_token_by_admin(
+    user_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Admin (or user themselves) can revoke the permanent API token for target user."""
+    if current_user.role != "admin" and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Admin permissions required to revoke API tokens.")
+
+    target_user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    target_user.api_token = None
+    target_user.api_token_created_at = None
+    db.commit()
+
+    logger.info(f"API token revoked for user '{target_user.username}' by '{current_user.username}'.")
+    return {
+        "status": "success",
+        "message": f"API token for '{target_user.username}' was revoked."
+    }
+
