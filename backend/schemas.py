@@ -33,6 +33,7 @@ class ContactUpdate(BaseModel):
     tags: Optional[str] = None
     total_orders: Optional[int] = None
     last_order_date: Optional[datetime] = None
+    assigned_user_id: Optional[int] = None
 
     @field_validator("phone")
     @classmethod
@@ -57,9 +58,39 @@ class ContactResponse(BaseModel):
     birth_day: Optional[int] = None
     birth_month: Optional[int] = None
     is_active: bool
+    assigned_user_id: Optional[int] = None
 
     class Config:
         from_attributes = True
+
+
+class ContactListItemResponse(BaseModel):
+    id: int
+    phone: str
+    name: Optional[str] = None
+    email: Optional[str] = None
+    total_orders: int = 0
+    last_order_date: Optional[datetime] = None
+    city: Optional[str] = None
+    tags: Optional[str] = None
+    birth_day: Optional[int] = None
+    birth_month: Optional[int] = None
+    is_active: bool = True
+    assigned_user_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ContactAssignRequest(BaseModel):
+    assigned_user_id: Optional[int] = Field(None, description="User ID to assign contact to (or null to unassign)")
+
+
+class ContactExportRequest(BaseModel):
+    password: str = Field(..., description="Admin account password")
+    two_factor_code: Optional[str] = Field(None, description="2FA OTP code if enabled")
+    reason: str = Field(..., min_length=5, description="Business justification for PII export")
+
 
 
 class DiscountCodeCreate(BaseModel):
@@ -247,10 +278,12 @@ class UserCreate(BaseModel):
     email: str = Field(..., max_length=120)
     password: str = Field(..., min_length=6)
     role: str = Field(default="agent", pattern="^(admin|manager|agent)$")
+    can_support_send: Optional[bool] = False
 
 
 class UserRoleUpdate(BaseModel):
     role: str = Field(..., pattern="^(admin|agent|service|manager)$")
+    can_support_send: Optional[bool] = None
 
 
 class AdminUserPasswordReset(BaseModel):
@@ -288,6 +321,7 @@ class UserResponse(BaseModel):
     is_2fa_enabled: Optional[bool] = False
     role: str = "agent"
     auth_version: int = 1
+    can_support_send: bool = False
 
     class Config:
         from_attributes = True

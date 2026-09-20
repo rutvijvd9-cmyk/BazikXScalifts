@@ -4,6 +4,7 @@ import csv
 import logging
 import hmac
 import hashlib
+import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import List, Optional
@@ -11,7 +12,8 @@ from dotenv import load_dotenv
 import httpx
 from pydantic import BaseModel
 
-
+from services.logging_config import configure_secure_logging
+configure_secure_logging()
 logger = logging.getLogger("main")
 from fastapi import FastAPI, Depends, HTTPException, Header, Request, status, UploadFile, File, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -87,13 +89,55 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    corr_id = request.headers.get("X-Correlation-ID") or request.headers.get("x-correlation-id") or str(uuid.uuid4())
+    request.state.correlation_id = corr_id
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = corr_id
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    corr_id = getattr(request.state, "correlation_id", None) or str(uuid.uuid4())
+    headers = dict(exc.headers or {})
+    headers["X-Correlation-ID"] = corr_id
+    content = {
+        "detail": exc.detail,
+        "correlation_id": corr_id
+    }
+    return JSONResponse(status_code=exc.status_code, content=content, headers=headers)
+
+
 @app.exception_handler(ResponseValidationError)
 async def response_validation_error_handler(request: Request, exc: ResponseValidationError):
-    logger.error(f"ResponseValidationError on {request.method} {request.url.path}: {exc.errors()}", exc_info=True)
+    corr_id = getattr(request.state, "correlation_id", None) or str(uuid.uuid4())
+    logger.error(f"[{corr_id}] ResponseValidationError on {request.method} {request.url.path}: {exc.errors()}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Response serialization error: {exc.errors()}"}
+        content={
+            "detail": "An internal response formatting error occurred.",
+            "correlation_id": corr_id
+        },
+        headers={"X-Correlation-ID": corr_id}
     )
+
+
+@app.exception_handler(Exception)
+async def global_unhandled_exception_handler(request: Request, exc: Exception):
+    corr_id = getattr(request.state, "correlation_id", None) or str(uuid.uuid4())
+    logger.error(f"[{corr_id}] Unhandled Exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An internal server error occurred. Please reference this correlation ID if contacting support.",
+            "correlation_id": corr_id
+        },
+        headers={"X-Correlation-ID": corr_id}
+    )
+
 
 # Enable CORS for local Vite development, Vercel production deployment & Android Capacitor
 allowed_origins_env = config.ALLOWED_ORIGINS_RAW

@@ -38,20 +38,21 @@ def test_logs_download_csv_and_json(client, auth_headers, db):
     db.add(log_entry)
     db.commit()
 
-    # Test JSON download
-    res_json = client.get("/api/message-logs/download?format=json", headers=auth_headers)
+    # Test JSON download with admin step-up auth
+    res_json = client.get("/api/message-logs/download?format=json&password=SecretPassword123!&reason=ComplianceAudit", headers=auth_headers)
     assert res_json.status_code == status.HTTP_200_OK
     assert res_json.headers["content-type"] == "application/json"
     json_data = res_json.json()
     assert isinstance(json_data, list)
     assert any(item.get("recipient_phone") == "+919999988888" and item.get("sender_user") == "admin" for item in json_data)
 
-    # Test CSV download
-    res_csv = client.get("/api/message-logs/download?format=csv", headers=auth_headers)
+    # Test CSV download with admin step-up auth
+    res_csv = client.get("/api/message-logs/download?format=csv&password=SecretPassword123!&reason=ComplianceAudit", headers=auth_headers)
     assert res_csv.status_code == status.HTTP_200_OK
     assert "text/csv" in res_csv.headers["content-type"]
     assert "+919999988888" in res_csv.text
     assert "admin" in res_csv.text
+
 
 
 def test_logs_retention_deletion(client, auth_headers, db):

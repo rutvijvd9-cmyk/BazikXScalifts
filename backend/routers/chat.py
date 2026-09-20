@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 import logging
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
@@ -12,6 +12,7 @@ import schemas
 import auth
 from whatsapp_service import send_whatsapp_free_text, check_daily_limit, get_effective_daily_limit
 from services.phone_service import normalize_phone, InvalidPhoneNumberError
+from services import pii_service
 
 logger = logging.getLogger("chat_router")
 
@@ -26,7 +27,14 @@ def list_conversations(
     """
     Returns active conversation threads grouped by customer phone,
     with unread counts, contact details, and last message snippet.
+    Agents can only view conversations for contacts assigned to them.
     """
+    # If agent, pre-fetch their assigned contact phones
+    agent_assigned_phones = None
+    if current_user.role == "agent":
+        agent_contacts = db.query(models.Contact.phone).filter(models.Contact.assigned_user_id == current_user.id).all()
+        agent_assigned_phones = set(p[0] for p in agent_contacts if p[0])
+
     # Ensure broadcast recipients from MessageLog have chat records
     recent_broadcast_phones = (
         db.query(models.MessageLog.recipient_phone)
@@ -71,6 +79,10 @@ def list_conversations(
         if not cust_phone:
             continue
 
+        # Enforce agent scope: skip if not assigned to this agent
+        if agent_assigned_phones is not None and cust_phone not in agent_assigned_phones:
+            continue
+
         # Get contact info if available
         contact = db.query(models.Contact).filter(models.Contact.phone == cust_phone).first()
 
@@ -110,6 +122,7 @@ def list_conversations(
 
 
 @router.get("/history/{phone}", response_model=List[schemas.ChatMessageResponse])
+@router.get("/messages/{phone}", response_model=List[schemas.ChatMessageResponse])
 def get_chat_history(
     phone: str,
     current_user: models.User = Depends(auth.get_current_user),
@@ -118,11 +131,15 @@ def get_chat_history(
     """
     Retrieves full chronological message history for a specific customer phone.
     Marks customer messages as read.
+    Enforces record-level access check for agents.
     """
     try:
         clean_phone = normalize_phone(phone)
     except InvalidPhoneNumberError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Enforce record scope
+    pii_service.verify_conversation_access(db, current_user, clean_phone)
 
     # Ensure any past marketing template dispatches from MessageLog are present in ChatMessage
     historical_logs = (
@@ -180,15 +197,19 @@ def send_agent_reply(
     db: Session = Depends(get_db)
 ):
     """
-    Allows store owner/agent to send an outbound text reply to a customer's WhatsApp.
-    Enforces DND/Opt-Out, Meta's 24-hour customer service window, and daily spending guardrails.
+    Allows authorized support users to send an outbound text reply to a customer's WhatsApp.
+    Enforces DND/Opt-Out, Meta's 24-hour customer service window, support_send permission,
+    and daily spending guardrails.
     """
     try:
         clean_phone = normalize_phone(payload.customer_phone)
     except InvalidPhoneNumberError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # 1. Strict DND / Opt-Out Check
+    # 1. Verify support_send capability and record scope
+    pii_service.verify_support_send_permission(db, current_user, clean_phone)
+
+    # 2. Strict DND / Opt-Out Check
     is_opted_out = db.query(models.OptOut).filter(models.OptOut.phone == clean_phone).first()
     if is_opted_out:
         logger.warning(f"🚫 [Chat Blocked] Attempted outbound message to opted-out recipient {clean_phone} by '{current_user.username}'.")
@@ -197,9 +218,7 @@ def send_agent_reply(
             detail=f"Customer {clean_phone} has opted out of WhatsApp messages (DND list). Outbound messages are prohibited."
         )
 
-    # 2. Meta 24-Hour Customer Service Window Check
-    # Free-form customer service replies are only allowed within 24 hours of the customer's last inbound message.
-    # Outside this window, Meta prohibits free text and requires an approved WhatsApp template.
+    # 3. Meta 24-Hour Customer Service Window Check
     twenty_four_hours_ago = datetime.utcnow() - timedelta(hours=24)
     last_inbound_msg = (
         db.query(models.ChatMessage)
@@ -219,7 +238,7 @@ def send_agent_reply(
             detail="Outside Meta's 24-hour customer service window. Free-form text is prohibited; please initiate contact using an approved WhatsApp template."
         )
 
-    # 3. Daily Send Limit Guardrail
+    # 4. Daily Send Limit Guardrail
     under_limit, count_today = check_daily_limit(db)
     if not under_limit:
         effective_limit = get_effective_daily_limit(db)
@@ -242,7 +261,8 @@ def send_agent_reply(
         text=payload.text,
         meta_message_id=msg_id,
         status=status_str,
-        is_read=True
+        is_read=True,
+        assigned_user_id=current_user.id
     )
     db.add(chat_entry)
 

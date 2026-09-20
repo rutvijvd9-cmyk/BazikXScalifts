@@ -1,6 +1,8 @@
 """
 Contacts Router
-Handles contact listing, creation, updates, deletion, and CSV import.
+Handles contact listing, creation, updates, deletion, assignment, and CSV import/export.
+Enforces PII record-scope authorization (agents only access assigned contacts),
+masked list DTOs, strict pagination bounds, and admin step-up authentication for exports.
 """
 
 import csv
@@ -9,7 +11,7 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 import auth
@@ -18,6 +20,7 @@ import schemas
 from database import get_db
 from services.phone_service import normalize_phone, InvalidPhoneNumberError
 from services.policy_service import record_consent
+from services import pii_service
 
 logger = logging.getLogger("contacts_router")
 
@@ -37,6 +40,7 @@ def create_or_get_contact(
 
     contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()
     if contact:
+        pii_service.verify_contact_access(current_user, contact)
         if payload.name:
             contact.name = payload.name
         if payload.email:
@@ -57,6 +61,9 @@ def create_or_get_contact(
         db.refresh(contact)
         return contact
     
+    # If agent creates contact, automatically assign to them
+    assigned_user = current_user.id if current_user.role == "agent" else None
+
     new_contact = models.Contact(
         phone=clean_phone,
         name=payload.name,
@@ -66,7 +73,8 @@ def create_or_get_contact(
         total_orders=payload.total_orders or 0,
         last_order_date=payload.last_order_date,
         birth_day=payload.birth_day,
-        birth_month=payload.birth_month
+        birth_month=payload.birth_month,
+        assigned_user_id=assigned_user
     )
     db.add(new_contact)
     record_consent(
@@ -80,6 +88,76 @@ def create_or_get_contact(
     return new_contact
 
 
+@router.get("", response_model=List[schemas.ContactListItemResponse])
+def list_contacts(
+    search: Optional[str] = None,
+    tag: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Lists contacts with enforced pagination (max 100).
+    Non-admin list DTOs mask phones (+91******3210) and emails (m***@domain.com).
+    Agents can only list contacts assigned to their account.
+    """
+    effective_limit = min(max(1, limit), 100)
+    query = db.query(models.Contact)
+    
+    # Enforce agent record scope
+    query = pii_service.filter_contacts_for_user(query, current_user)
+
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.filter(
+            (models.Contact.phone.ilike(search_pattern)) |
+            (models.Contact.name.ilike(search_pattern)) |
+            (models.Contact.email.ilike(search_pattern)) |
+            (models.Contact.city.ilike(search_pattern))
+        )
+    if tag:
+        query = query.filter(models.Contact.tags.ilike(f"%{tag}%"))
+
+    contacts = query.order_by(models.Contact.id.desc()).offset(skip).limit(effective_limit).all()
+
+    return [
+        schemas.ContactListItemResponse(
+            id=c.id,
+            phone=pii_service.mask_phone(c.phone),
+            name=c.name,
+            email=pii_service.mask_email(c.email),
+            total_orders=c.total_orders or 0,
+            last_order_date=c.last_order_date,
+            city=c.city,
+            tags=c.tags,
+            birth_day=c.birth_day,
+            birth_month=c.birth_month,
+            is_active=c.is_active,
+            assigned_user_id=c.assigned_user_id
+        )
+        for c in contacts
+    ]
+
+
+@router.get("/{contact_id}", response_model=schemas.ContactResponse)
+def get_contact_detail(
+    contact_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns full unmasked contact details only if the user has record-level scope
+    (admin, manager, or the agent assigned to this contact).
+    """
+    contact = db.query(models.Contact).filter(models.Contact.id == contact_id).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    pii_service.verify_contact_access(current_user, contact)
+    return contact
+
+
 @router.put("/{contact_id}", response_model=schemas.ContactResponse)
 def update_contact(
     contact_id: int,
@@ -90,6 +168,21 @@ def update_contact(
     contact = db.query(models.Contact).filter(models.Contact.id == contact_id).first()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")
+
+    pii_service.verify_contact_access(current_user, contact)
+
+    # Re-assignment restricted to admin and manager
+    if payload.assigned_user_id is not None:
+        if current_user.role not in ("admin", "manager"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admins and managers can reassign contacts."
+            )
+        if payload.assigned_user_id != contact.assigned_user_id:
+            assigned_user = db.query(models.User).filter(models.User.id == payload.assigned_user_id).first()
+            if not assigned_user:
+                raise HTTPException(status_code=400, detail="Target user for assignment does not exist.")
+            contact.assigned_user_id = payload.assigned_user_id
 
     if payload.phone:
         try:
@@ -120,10 +213,47 @@ def update_contact(
     return contact
 
 
+@router.post("/{contact_id}/assign", response_model=schemas.ContactResponse)
+def assign_contact(
+    contact_id: int,
+    payload: schemas.ContactAssignRequest,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    """
+    Explicit assignment endpoint for managers/admins to map a contact to a support agent.
+    Creates an immutable AuditEvent record.
+    """
+    contact = db.query(models.Contact).filter(models.Contact.id == contact_id).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    if payload.assigned_user_id is not None:
+        target_user = db.query(models.User).filter(models.User.id == payload.assigned_user_id).first()
+        if not target_user:
+            raise HTTPException(status_code=400, detail=f"User ID {payload.assigned_user_id} does not exist.")
+
+    contact.assigned_user_id = payload.assigned_user_id
+    db.commit()
+    db.refresh(contact)
+
+    audit = models.AuditEvent(
+        actor_user_id=current_user.id,
+        action="assign_contact",
+        target_type="contact",
+        target_id=str(contact_id),
+        metadata_json={"assigned_user_id": payload.assigned_user_id}
+    )
+    db.add(audit)
+    db.commit()
+
+    return contact
+
+
 @router.delete("/{contact_id}")
 def delete_contact(
     contact_id: int,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     contact = db.query(models.Contact).filter(models.Contact.id == contact_id).first()
@@ -135,39 +265,14 @@ def delete_contact(
     return {"status": "success", "message": f"Contact {contact.phone} deleted successfully"}
 
 
-@router.get("", response_model=List[schemas.ContactResponse])
-def list_contacts(
-    search: Optional[str] = None,
-    tag: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 5000,
-    current_user: models.User = Depends(auth.get_current_user),
-    db: Session = Depends(get_db)
-):
-    query = db.query(models.Contact)
-    if search:
-        search_pattern = f"%{search}%"
-        query = query.filter(
-            (models.Contact.phone.ilike(search_pattern)) |
-            (models.Contact.name.ilike(search_pattern)) |
-            (models.Contact.email.ilike(search_pattern)) |
-            (models.Contact.city.ilike(search_pattern))
-        )
-    if tag:
-        query = query.filter(models.Contact.tags.ilike(f"%{tag}%"))
-
-    return query.order_by(models.Contact.id.desc()).offset(skip).limit(limit).all()
-
-
 @router.post("/import-csv")
 async def import_contacts_csv(
     file: UploadFile = File(...),
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     """
-    Imports contacts from a CSV file. Expected columns (case-insensitive):
-    phone, name, email, city, tags, total_orders
+    Imports contacts from a CSV file. Restricted to admin/manager.
     """
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only .csv files are supported")
@@ -187,7 +292,6 @@ async def import_contacts_csv(
 
     reader = csv.DictReader(io.StringIO(decoded))
     
-    # 1. Deduplicate queue in memory first (keeps last seen data for duplicate rows in CSV)
     queue_contacts = {}
     for row in reader:
         norm_row = {k.strip().lower(): v.strip() for k, v in row.items() if k}
@@ -233,12 +337,10 @@ async def import_contacts_csv(
     updated_count = 0
     BATCH_SIZE = 500
 
-    # 2. Process queue in batches of 500
     phone_keys = list(queue_contacts.keys())
     for i in range(0, len(phone_keys), BATCH_SIZE):
         batch_chunk = phone_keys[i:i + BATCH_SIZE]
         
-        # Pre-fetch existing contacts for this 500-item batch
         existing_contacts = {
             c.phone: c for c in db.query(models.Contact).filter(models.Contact.phone.in_(batch_chunk)).all()
         }
@@ -283,4 +385,50 @@ async def import_contacts_csv(
         "updated": updated_count,
         "total_queued": len(queue_contacts),
         "message": f"Queue batch processed: {imported_count} new contacts added, {updated_count} existing contacts updated ({len(queue_contacts)} unique)."
+    }
+
+
+@router.post("/export")
+def export_contacts(
+    payload: schemas.ContactExportRequest,
+    current_user: models.User = Depends(auth.require_roles("admin")),
+    db: Session = Depends(get_db)
+):
+    """
+    🔐 Step-Up Auth Protected Contact Export:
+    Strictly restricted to admin. Requires password, 2FA code, and valid business justification.
+    Records an immutable AuditEvent.
+    """
+    auth.verify_user_stepup_auth(current_user, payload.password, payload.two_factor_code, db)
+
+    contacts = db.query(models.Contact).order_by(models.Contact.id.asc()).limit(1000).all()
+
+    audit = models.AuditEvent(
+        actor_user_id=current_user.id,
+        action="export_contacts",
+        target_type="contacts",
+        metadata_json={
+            "reason": payload.reason,
+            "record_count": len(contacts)
+        }
+    )
+    db.add(audit)
+    db.commit()
+
+    return {
+        "status": "success",
+        "total": len(contacts),
+        "contacts": [
+            {
+                "id": c.id,
+                "phone": c.phone,
+                "name": c.name,
+                "email": c.email,
+                "city": c.city,
+                "total_orders": c.total_orders,
+                "tags": c.tags,
+                "assigned_user_id": c.assigned_user_id,
+            }
+            for c in contacts
+        ]
     }

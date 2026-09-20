@@ -14,7 +14,7 @@ from typing import List, Optional
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -354,20 +354,22 @@ def remove_opt_out(
 @router.get("/api/cart-events")
 def list_cart_events(
     limit: int = 50,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
-    return db.query(models.CartEvent).order_by(models.CartEvent.created_at.desc()).limit(limit).all()
+    effective_limit = min(max(1, limit), 100)
+    return db.query(models.CartEvent).order_by(models.CartEvent.created_at.desc()).limit(effective_limit).all()
 
 
 @router.get("/api/message-logs")
 def get_message_logs(
-    limit: int = 200,
-    current_user: models.User = Depends(auth.get_current_user),
+    limit: int = 50,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
-    """Returns the WhatsApp message audit trail ordered by most recent."""
-    logs = db.query(models.MessageLog).order_by(models.MessageLog.created_at.desc()).limit(limit).all()
+    """Returns the WhatsApp message audit trail ordered by most recent (max 100)."""
+    effective_limit = min(max(1, limit), 100)
+    logs = db.query(models.MessageLog).order_by(models.MessageLog.created_at.desc()).limit(effective_limit).all()
     return logs
 
 
@@ -404,18 +406,38 @@ def delete_message_logs(
 
 @router.get("/api/message-logs/download")
 def download_message_logs(
-    format: str = "csv",
-    current_user: models.User = Depends(auth.get_current_user),
+    password: str = Query(..., description="Admin account password for step-up verification"),
+    reason: str = Query(..., min_length=5, description="Business justification for exporting message logs"),
+    two_factor_code: Optional[str] = Query(None, description="2FA OTP code if enabled"),
+    format: str = Query("csv"),
+    current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     """
-    Exports and downloads message audit trail logs as CSV or JSON.
+    🔐 Step-Up Auth Protected Message Log Export:
+    Strictly restricted to admin. Requires password, 2FA code, and valid business justification.
+    Records an immutable AuditEvent.
     """
+    auth.verify_user_stepup_auth(current_user, password, two_factor_code, db)
+
     import csv
     import io
     from fastapi.responses import Response, JSONResponse
 
-    logs = db.query(models.MessageLog).order_by(models.MessageLog.created_at.desc()).all()
+    logs = db.query(models.MessageLog).order_by(models.MessageLog.created_at.desc()).limit(1000).all()
+
+    audit = models.AuditEvent(
+        actor_user_id=current_user.id,
+        action="export_message_logs",
+        target_type="message_logs",
+        metadata_json={
+            "reason": reason,
+            "format": format,
+            "record_count": len(logs)
+        }
+    )
+    db.add(audit)
+    db.commit()
 
     if format.lower() == "json":
         data = [

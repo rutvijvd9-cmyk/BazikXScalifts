@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
 @router.get("", response_model=List[schemas.WorkflowFlowResponse])
 def list_workflow_flows(
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     """Lists all visual journey workflows with execution metrics."""
@@ -56,7 +56,7 @@ def create_workflow_flow(
 @router.get("/{flow_id}", response_model=schemas.WorkflowFlowResponse)
 def get_workflow_flow(
     flow_id: int,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     """Retrieves a single workflow with its complete node and edge graph."""
@@ -165,7 +165,7 @@ def get_session_wa_sort_key(s: models.WorkflowSession):
 @router.get("/{flow_id}/sessions", response_model=List[schemas.WorkflowSessionResponse])
 def get_workflow_sessions(
     flow_id: int,
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
     """Returns the enrolled customer contacts and execution sessions traversing this workflow,

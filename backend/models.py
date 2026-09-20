@@ -17,6 +17,7 @@ class Contact(Base):
     birth_day = Column(Integer, nullable=True)  # 1-31
     birth_month = Column(Integer, nullable=True)  # 1-12
     is_active = Column(Boolean, default=True)
+    assigned_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -136,6 +137,7 @@ class User(Base):
     email_recovery_code = Column(String(10), nullable=True)
     email_recovery_code_expires = Column(DateTime, nullable=True)
     auth_version = Column(Integer, default=1, nullable=False)
+    can_support_send = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def __init__(self, **kwargs):
@@ -223,6 +225,7 @@ class ChatMessage(Base):
     meta_message_id = Column(String(100), nullable=True, unique=True, index=True)
     status = Column(String(30), default="DELIVERED")      # RECEIVED, SENT, DELIVERED, READ, FAILED
     is_read = Column(Boolean, default=False)
+    assigned_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
