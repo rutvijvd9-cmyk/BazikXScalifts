@@ -8,6 +8,7 @@ import base64
 import io
 import logging
 import secrets
+import hashlib
 from datetime import datetime
 from typing import List, Optional
 
@@ -88,12 +89,23 @@ def login(request: Request, payload: schemas.UserLogin, db: Session = Depends(ge
             "access_token": "",
             "token_type": "bearer",
             "username": user.username,
+            "role": user.role,
             "requires_2fa": True,
             "temp_token": temp_token
         }
 
-    access_token = auth.create_access_token(data={"sub": user.username})
-    return {"access_token": access_token, "token_type": "bearer", "username": user.username, "requires_2fa": False}
+    access_token = auth.create_access_token(
+        data={"sub": user.username, "role": user.role, "auth_version": user.auth_version}
+    )
+    raw_rt, _ = auth.create_refresh_token_for_user(db, user)
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "username": user.username,
+        "role": user.role,
+        "requires_2fa": False,
+        "refresh_token": raw_rt
+    }
 
 
 @router.post("/api/auth/2fa/verify", response_model=schemas.Token)
@@ -105,7 +117,7 @@ def verify_two_factor_code(
 ):
     """
     Verifies a 6-digit TOTP Google Authenticator code OR an emergency email recovery code.
-    Issues the full 24-hour access token upon success.
+    Issues short-lived access token and refresh token upon success.
     """
     client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown").split(",")[0].strip()
     
@@ -142,12 +154,17 @@ def verify_two_factor_code(
 
     FAILED_LOGIN_ATTEMPTS.pop(f"2fa_{client_ip}", None)
 
-    access_token = auth.create_access_token(data={"sub": user.username})
+    access_token = auth.create_access_token(
+        data={"sub": user.username, "role": user.role, "auth_version": user.auth_version}
+    )
+    raw_rt, _ = auth.create_refresh_token_for_user(db, user)
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "username": user.username,
-        "requires_2fa": False
+        "role": user.role,
+        "requires_2fa": False,
+        "refresh_token": raw_rt
     }
 
 
@@ -309,6 +326,7 @@ def update_user_role(
             )
 
     target_user.role = payload.role
+    auth.revoke_all_user_sessions(db, target_user)
     db.commit()
     db.refresh(target_user)
     return target_user
@@ -326,10 +344,11 @@ def admin_reset_user_password(
         raise HTTPException(status_code=404, detail="User account not found")
 
     target_user.hashed_password = auth.get_password_hash(payload.new_password)
+    auth.revoke_all_user_sessions(db, target_user)
     db.commit()
     return {
         "status": "success",
-        "message": f"Password for {target_user.username} has been successfully updated by Admin."
+        "message": f"Password for {target_user.username} has been successfully updated by Admin. All existing sessions revoked."
     }
 
 
@@ -350,11 +369,12 @@ def admin_toggle_user_2fa(
         target_user.email_recovery_code = None
         target_user.email_recovery_code_expires = None
 
+    auth.revoke_all_user_sessions(db, target_user)
     db.commit()
     action = "enabled" if payload.enabled else "disabled"
     return {
         "status": "success",
-        "message": f"2FA has been {action} for {target_user.username}.",
+        "message": f"2FA has been {action} for {target_user.username}. All existing sessions revoked.",
         "is_2fa_enabled": target_user.is_2fa_enabled
     }
 
@@ -382,6 +402,7 @@ def delete_user_account(
         )
 
     target_username = target_user.username
+    auth.revoke_all_user_sessions(db, target_user)
     db.delete(target_user)
     db.commit()
 
@@ -392,115 +413,72 @@ def delete_user_account(
 
 
 # ============================================================================
-# Permanent API Token Management (E-Commerce Webhooks & External Systems)
+# Token Lifecycle & Session Revocation Routes (WP4)
 # ============================================================================
 
-@router.get("/api/auth/api-token")
-def get_current_user_api_token(
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    """Retrieve the current user's non-expiring API token."""
-    return {
-        "user_id": current_user.id,
-        "username": current_user.username,
-        "api_token": current_user.api_token,
-        "api_token_created_at": current_user.api_token_created_at
-    }
-
-
-@router.post("/api/auth/api-token")
-def generate_current_user_api_token(
-    current_user: models.User = Depends(auth.get_current_user),
+@router.post("/api/auth/refresh", response_model=schemas.Token)
+@limiter.limit("30/minute")
+def refresh_token_endpoint(
+    request: Request,
+    payload: Optional[schemas.RefreshTokenRequest] = None,
     db: Session = Depends(get_db)
 ):
     """
-    Generate or regenerate a permanent, non-expiring API token.
-    Generating a new token automatically invalidates and deletes the old token.
+    Rotates a refresh token and returns a new short-lived access token + new refresh token.
+    Detects reuse and invalidates the entire family upon reuse attempt.
     """
-    new_token = f"mb_live_{secrets.token_urlsafe(32)}"
-    current_user.api_token = new_token
-    current_user.api_token_created_at = datetime.utcnow()
-    db.commit()
+    raw_rt = None
+    if payload and payload.refresh_token:
+        raw_rt = payload.refresh_token
+    else:
+        raw_rt = request.cookies.get("refresh_token")
 
-    logger.info(f"Generated new non-expiring API token for user '{current_user.username}'. Old token invalidated.")
+    if not raw_rt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Refresh token required in request body or cookie"
+        )
+
+    try:
+        new_access_token, new_refresh_token = auth.rotate_refresh_token(db, raw_rt)
+    except auth.RefreshTokenReuseError as e:
+        logger.warning(f"Security: Refresh token reuse detected: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session compromised: Refresh token reuse detected. All sessions terminated."
+        )
+    except auth.RefreshTokenInvalidError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e)
+        )
+
     return {
-        "status": "success",
-        "message": "Permanent API token generated successfully. Any previous token has been invalidated.",
-        "user_id": current_user.id,
-        "username": current_user.username,
-        "api_token": new_token,
-        "api_token_created_at": current_user.api_token_created_at
+        "access_token": new_access_token,
+        "token_type": "bearer",
+        "refresh_token": new_refresh_token
     }
 
 
-@router.delete("/api/auth/api-token")
-def revoke_current_user_api_token(
-    current_user: models.User = Depends(auth.get_current_user),
+@router.post("/api/auth/logout")
+def logout_endpoint(
+    request: Request,
+    payload: Optional[schemas.RefreshTokenRequest] = None,
     db: Session = Depends(get_db)
 ):
-    """Revoke/delete the current user's API token."""
-    current_user.api_token = None
-    current_user.api_token_created_at = None
-    db.commit()
+    """Revokes the given refresh token session."""
+    raw_rt = None
+    if payload and payload.refresh_token:
+        raw_rt = payload.refresh_token
+    else:
+        raw_rt = request.cookies.get("refresh_token")
 
-    logger.info(f"Revoked API token for user '{current_user.username}'.")
-    return {
-        "status": "success",
-        "message": "API token has been revoked."
-    }
+    if raw_rt:
+        token_hash = hashlib.sha256(raw_rt.encode("utf-8")).hexdigest()
+        rec = db.query(models.RefreshToken).filter(models.RefreshToken.token_hash == token_hash).first()
+        if rec:
+            rec.is_revoked = True
+            db.commit()
 
-
-@router.post("/api/users/{user_id}/api-token")
-def generate_user_api_token_by_admin(
-    user_id: int,
-    current_user: models.User = Depends(auth.get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Admin (or user themselves) can generate/regenerate a permanent API token for target user."""
-    if current_user.role != "admin" and current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Admin permissions required to generate API tokens for other users.")
-
-    target_user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not target_user:
-        raise HTTPException(status_code=404, detail="User account not found")
-
-    new_token = f"mb_live_{secrets.token_urlsafe(32)}"
-    target_user.api_token = new_token
-    target_user.api_token_created_at = datetime.utcnow()
-    db.commit()
-
-    logger.info(f"API token generated for user '{target_user.username}' by '{current_user.username}'. Old token invalidated.")
-    return {
-        "status": "success",
-        "message": f"Permanent API token generated for '{target_user.username}'. Any previous token has been invalidated.",
-        "user_id": target_user.id,
-        "username": target_user.username,
-        "api_token": new_token,
-        "api_token_created_at": target_user.api_token_created_at
-    }
-
-
-@router.delete("/api/users/{user_id}/api-token")
-def revoke_user_api_token_by_admin(
-    user_id: int,
-    current_user: models.User = Depends(auth.get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Admin (or user themselves) can revoke the permanent API token for target user."""
-    if current_user.role != "admin" and current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Admin permissions required to revoke API tokens.")
-
-    target_user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not target_user:
-        raise HTTPException(status_code=404, detail="User account not found")
-
-    target_user.api_token = None
-    target_user.api_token_created_at = None
-    db.commit()
-
-    logger.info(f"API token revoked for user '{target_user.username}' by '{current_user.username}'.")
-    return {
-        "status": "success",
-        "message": f"API token for '{target_user.username}' was revoked."
-    }
+    return {"status": "success", "message": "Logged out successfully"}
 

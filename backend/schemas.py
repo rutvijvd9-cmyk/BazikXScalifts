@@ -269,9 +269,15 @@ class UserLogin(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    username: str
+    username: Optional[str] = None
+    role: Optional[str] = None
     requires_2fa: Optional[bool] = False
     temp_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: Optional[str] = None
 
 
 class UserResponse(BaseModel):
@@ -281,8 +287,7 @@ class UserResponse(BaseModel):
     is_active: bool
     is_2fa_enabled: Optional[bool] = False
     role: str = "agent"
-    api_token: Optional[str] = None
-    api_token_created_at: Optional[datetime] = None
+    auth_version: int = 1
 
     class Config:
         from_attributes = True

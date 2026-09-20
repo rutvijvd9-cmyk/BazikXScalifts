@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import axios, { getApiBaseUrl } from "../api";
 import { formatToIST } from "../utils/dateUtils";
-import { ApiTokenModal } from "../components/modals/UserManagementModals";
 
 export default function SettingsPage({
   systemSettings = {},
@@ -41,55 +40,18 @@ export default function SettingsPage({
   setIsRoleInfoModalOpen = () => {},
   setAddUserError = () => {}
 }) {
-  const [apiTokenModal, setApiTokenModal] = useState({ isOpen: false, user: null });
-  const [tokenCopied, setTokenCopied] = useState(false);
-  const [showSelfToken, setShowSelfToken] = useState(false);
-  const [selfTokenLoading, setSelfTokenLoading] = useState(false);
-  const [selfTokenError, setSelfTokenError] = useState("");
-  const [selfTokenSuccess, setSelfTokenSuccess] = useState("");
-  const [confirmSelfRegen, setConfirmSelfRegen] = useState(false);
+  const [webhookCopied, setWebhookCopied] = useState(false);
 
   const loggedInUser = systemUsers.find(u => u.username === username) || (currentUserProfile ? { ...currentUserProfile, username } : null);
   const rawBase = getApiBaseUrl() || (typeof window !== "undefined" ? window.location.origin : "");
   const apiBaseUrl = rawBase.replace(/\/+$/, "");
   const webhookUrl = `${apiBaseUrl}/api/webhooks/cart-event`;
 
-  const handleSelfGenerateToken = async () => {
-    if (!loggedInUser) return;
-    setSelfTokenLoading(true);
-    setSelfTokenError("");
-    setSelfTokenSuccess("");
-    try {
-      const token = localStorage.getItem("token") || "";
-      const res = await axios.post(
-        `/api/users/${loggedInUser.id}/api-token`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (res.data?.api_token) {
-        setSystemUsers((prev) =>
-          prev.map((usr) => (usr.id === loggedInUser.id ? { ...usr, api_token: res.data.api_token, api_token_created_at: res.data.api_token_created_at } : usr))
-        );
-        setShowSelfToken(true);
-        setConfirmSelfRegen(false);
-        setSelfTokenSuccess(
-          loggedInUser.api_token
-            ? "New permanent API token generated! Previous token was deleted and invalidated."
-            : "Permanent API token generated successfully!"
-        );
-      }
-    } catch (err) {
-      setSelfTokenError(err.response?.data?.detail || "Failed to generate API token.");
-    } finally {
-      setSelfTokenLoading(false);
-    }
-  };
-
-  const handleCopySelfToken = (val) => {
+  const handleCopyWebhookUrl = (val) => {
     if (!val) return;
     navigator.clipboard.writeText(val);
-    setTokenCopied(true);
-    setTimeout(() => setTokenCopied(false), 2200);
+    setWebhookCopied(true);
+    setTimeout(() => setWebhookCopied(false), 2200);
   };
 
   return (
@@ -234,16 +196,6 @@ export default function SettingsPage({
                                 <span className="truncate">{u.username}</span>
                                 {u.username === username && (
                                   <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded font-mono font-normal shrink-0">You</span>
-                                )}
-                                {u.api_token && (
-                                  <span
-                                    onClick={() => setApiTokenModal({ isOpen: true, user: u })}
-                                    className="inline-flex items-center gap-0.5 text-[10px] bg-amber-50 text-amber-800 border border-amber-300 px-1.5 py-0.2 rounded font-mono font-medium shrink-0 cursor-pointer hover:bg-amber-100 transition shadow-2xs"
-                                    title="Active Non-Expiring API Token (Click to view)"
-                                  >
-                                    <Key className="w-2.5 h-2.5 text-amber-600" />
-                                    API Key
-                                  </span>
                                 )}
                               </div>
                             </td>
@@ -438,164 +390,50 @@ export default function SettingsPage({
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-gray-900 text-base">E-Commerce Permanent API Token</h3>
+                        <h3 className="font-bold text-gray-900 text-base">Storefront & E-Commerce Webhooks</h3>
                         <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          Never Expires
+                          HMAC-SHA256 Authenticated
                         </span>
                       </div>
                       <p className="text-xs text-gray-500">
-                        Permanent credentials for Shopify, WooCommerce, or custom storefronts to send cart events without session expiration
+                        Secure, signature-verified webhook endpoints for your PHP custom store, WooCommerce, or Shopify. Permanent API tokens have been retired in favor of cryptographic request signing.
                       </p>
                     </div>
                   </div>
-                  {loggedInUser && (
-                    <button
-                      type="button"
-                      onClick={() => setApiTokenModal({ isOpen: true, user: loggedInUser })}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition cursor-pointer shadow-2xs"
-                    >
-                      <Key className="w-3.5 h-3.5 text-amber-700" />
-                      {loggedInUser.api_token ? "Manage My API Token" : "Generate API Token"}
-                    </button>
-                  )}
                 </div>
 
-                {/* Feedback messages */}
-                {selfTokenError && (
-                  <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
-                    <span>{selfTokenError}</span>
-                  </div>
-                )}
-                {selfTokenSuccess && (
-                  <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
-                    <Check className="w-4 h-4 shrink-0 text-emerald-600" />
-                    <span>{selfTokenSuccess}</span>
-                  </div>
-                )}
-
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                  {/* Left Column: Token Controls */}
-                  <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 space-y-4">
+                  {/* Left Column: Webhook Security Status */}
+                  <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase text-gray-700">Account API Token ({loggedInUser?.username || "You"})</span>
-                      {loggedInUser?.api_token ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-full border border-emerald-200">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                          Active • Never Expires
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-gray-400 font-medium">No token generated</span>
-                      )}
+                      <span className="text-xs font-bold uppercase text-gray-700">Webhook Authentication Policy</span>
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-full border border-emerald-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        HMAC Signature Enforced
+                      </span>
                     </div>
 
-                    {loggedInUser?.api_token ? (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type={showSelfToken ? "text" : "password"}
-                            readOnly
-                            value={loggedInUser.api_token}
-                            className="w-full font-mono text-xs px-3.5 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-800 focus:outline-none select-all shadow-2xs"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowSelfToken(!showSelfToken)}
-                            className="px-3 py-2.5 bg-white hover:bg-gray-100 text-gray-700 rounded-lg text-xs font-semibold border border-gray-300 transition cursor-pointer"
-                            title={showSelfToken ? "Hide token" : "Show token"}
-                          >
-                            {showSelfToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleCopySelfToken(loggedInUser.api_token)}
-                            className={`px-3 py-2.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-2xs ${
-                              tokenCopied
-                                ? "bg-emerald-600 text-white"
-                                : "bg-[#25D366] hover:bg-[#1EBE5D] text-white"
-                            }`}
-                          >
-                            {tokenCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                            <span>{tokenCopied ? "Copied" : "Copy"}</span>
-                          </button>
-                        </div>
-
-                        {loggedInUser.api_token_created_at && (
-                          <p className="text-[11px] text-gray-400 font-mono">
-                            Created on: {formatToIST(loggedInUser.api_token_created_at)}
-                          </p>
-                        )}
-
-                        {confirmSelfRegen ? (
-                          <div className="p-3 rounded-lg bg-amber-50 border border-amber-300 space-y-2">
-                            <div className="flex items-start gap-2">
-                              <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                              <p className="text-[11px] text-amber-900 leading-tight">
-                                <strong>Regenerating will delete and invalidate the previous token immediately.</strong> Your online store must be updated with the new token.
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2 pt-1">
-                              <button
-                                type="button"
-                                disabled={selfTokenLoading}
-                                onClick={handleSelfGenerateToken}
-                                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white transition disabled:opacity-50 cursor-pointer flex items-center gap-1"
-                              >
-                                {selfTokenLoading && <RefreshCw className="w-3 h-3 animate-spin" />}
-                                Confirm & Replace Token
-                              </button>
-                              <button
-                                type="button"
-                                disabled={selfTokenLoading}
-                                onClick={() => setConfirmSelfRegen(false)}
-                                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-200 hover:bg-gray-300 text-gray-700 transition cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-between pt-1">
-                            <span className="text-[11px] text-gray-500">Need to rotate credentials?</span>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmSelfRegen(true)}
-                              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition cursor-pointer flex items-center gap-1 shadow-2xs"
-                            >
-                              <RefreshCw className="w-3 h-3 text-amber-700" />
-                              Regenerate Token
-                            </button>
-                          </div>
-                        )}
+                    <div className="space-y-2 text-xs text-gray-600">
+                      <p>
+                        Incoming cart and store events must be signed with your configured shared HMAC secret. Requests without a valid cryptographic signature or with timestamp drift &gt; 5 minutes are rejected.
+                      </p>
+                      <div className="p-3 bg-white rounded-lg border border-gray-200 font-mono text-[11px] text-gray-700 space-y-1">
+                        <div><span className="text-indigo-600 font-semibold">Signature Header:</span> X-WC-Webhook-Signature</div>
+                        <div><span className="text-gray-500 font-semibold">Algorithm:</span> HMAC-SHA256 (Base64 raw payload)</div>
                       </div>
-                    ) : (
-                      <div className="text-center py-4 space-y-3">
-                        <p className="text-xs text-gray-500">
-                          You don't have a permanent API token yet. Generate one to allow your store to send automated WhatsApp abandoned cart events.
-                        </p>
-                        <button
-                          type="button"
-                          disabled={selfTokenLoading}
-                          onClick={handleSelfGenerateToken}
-                          className="px-4 py-2 rounded-lg text-xs font-bold bg-[#25D366] hover:bg-[#1EBE5D] text-white transition disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
-                        >
-                          {selfTokenLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Key className="w-3.5 h-3.5" />}
-                          Generate Permanent Token
-                        </button>
-                      </div>
-                    )}
+                    </div>
                   </div>
 
-                  {/* Right Column: Webhook Integration Details */}
+                  {/* Right Column: Webhook Ingress Details */}
                   <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 space-y-3">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-gray-800">
                       <Code className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>E-Commerce Webhook Endpoint & Headers</span>
+                      <span>Ingress Webhook Endpoints</span>
                     </div>
 
                     <div className="space-y-2 text-xs">
                       <div>
-                        <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1">Target Webhook URL</label>
+                        <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1">Abandoned Cart Event URL</label>
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
@@ -605,39 +443,42 @@ export default function SettingsPage({
                           />
                           <button
                             type="button"
-                            onClick={() => handleCopySelfToken(webhookUrl)}
-                            className="px-2.5 py-1.5 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 rounded-lg text-xs font-semibold shrink-0 cursor-pointer"
+                            onClick={() => handleCopyWebhookUrl(webhookUrl)}
+                            className={`px-2.5 py-1.5 border rounded-lg text-xs font-semibold shrink-0 cursor-pointer transition ${
+                              webhookCopied
+                                ? "bg-emerald-600 text-white border-emerald-600"
+                                : "bg-white hover:bg-gray-100 text-gray-700 border-gray-300"
+                            }`}
                             title="Copy Webhook URL"
                           >
-                            <Copy className="w-3.5 h-3.5" />
+                            {webhookCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                           </button>
                         </div>
                       </div>
 
-                      <div className="pt-1">
-                        <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1">Supported Authentication Headers</label>
-                        <div className="bg-white p-2.5 rounded-lg border border-gray-200 font-mono text-[11px] text-gray-700 space-y-1">
-                          <div><span className="text-indigo-600 font-semibold">Authorization:</span> Bearer &lt;permanent_token&gt;</div>
-                          <div><span className="text-emerald-600 font-semibold">X-API-Key:</span> &lt;permanent_token&gt;</div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1">General Store Event URL</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            readOnly
+                            value={`${apiBaseUrl}/api/webhooks/store-event`}
+                            className="w-full font-mono text-xs px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-gray-800 focus:outline-none select-all shadow-2xs"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleCopyWebhookUrl(`${apiBaseUrl}/api/webhooks/store-event`)}
+                            className="px-2.5 py-1.5 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 rounded-lg text-xs font-semibold shrink-0 cursor-pointer"
+                            title="Copy Store Event URL"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-
-              {/* API Token Management Modal */}
-              <ApiTokenModal
-                isOpen={apiTokenModal.isOpen}
-                onClose={() => setApiTokenModal({ isOpen: false, user: null })}
-                targetUser={apiTokenModal.user}
-                onTokenUpdated={(updatedUser) => {
-                  setApiTokenModal((prev) => ({ ...prev, user: updatedUser }));
-                  setSystemUsers((prev) =>
-                    prev.map((usr) => (usr.id === updatedUser.id ? { ...usr, ...updatedUser } : usr))
-                  );
-                }}
-              />
             </div>
   );
 }

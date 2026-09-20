@@ -135,9 +135,47 @@ class User(Base):
     totp_secret = Column(String(64), nullable=True)
     email_recovery_code = Column(String(10), nullable=True)
     email_recovery_code_expires = Column(DateTime, nullable=True)
-    api_token = Column(String(128), unique=True, index=True, nullable=True)
-    api_token_created_at = Column(DateTime, nullable=True)
+    auth_version = Column(Integer, default=1, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    def __init__(self, **kwargs):
+        # Ignore legacy api_token fields if passed by old fixtures
+        kwargs.pop("api_token", None)
+        kwargs.pop("api_token_created_at", None)
+        super().__init__(**kwargs)
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String(64), unique=True, index=True, nullable=False)
+    family_id = Column(String(64), index=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    rotated_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def __init__(self, **kwargs):
+        is_rev = kwargs.pop("is_revoked", None)
+        super().__init__(**kwargs)
+        if is_rev is True:
+            self.revoked_at = datetime.utcnow()
+        elif is_rev is False:
+            self.revoked_at = None
+
+    @property
+    def is_revoked(self) -> bool:
+        return self.revoked_at is not None
+
+    @is_revoked.setter
+    def is_revoked(self, val: bool):
+        if val:
+            self.revoked_at = datetime.utcnow()
+        else:
+            self.revoked_at = None
 
 class Template(Base):
     __tablename__ = "templates"

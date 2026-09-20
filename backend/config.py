@@ -27,7 +27,7 @@ if not SECRET_KEY:
     SECRET_KEY = "dev_secret_key_change_in_production_environment"
 
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", str(60 * 24)))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 
 # Webhook secret for HMAC / API Key verification of external e-commerce requests
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
