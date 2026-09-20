@@ -16,6 +16,7 @@ import auth
 import models
 import schemas
 from database import get_db
+from services.phone_service import normalize_phone, InvalidPhoneNumberError
 
 logger = logging.getLogger("contacts_router")
 
@@ -28,9 +29,10 @@ def create_or_get_contact(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    clean_phone = payload.phone.strip()
-    if not clean_phone.startswith("+"):
-        clean_phone = "+" + clean_phone
+    try:
+        clean_phone = normalize_phone(payload.phone)
+    except InvalidPhoneNumberError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()
     if contact:
@@ -83,9 +85,10 @@ def update_contact(
         raise HTTPException(status_code=404, detail="Contact not found")
 
     if payload.phone:
-        clean_phone = payload.phone.strip()
-        if not clean_phone.startswith("+"):
-            clean_phone = "+" + clean_phone
+        try:
+            clean_phone = normalize_phone(payload.phone)
+        except InvalidPhoneNumberError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         # Check if phone is taken by another contact
         existing = db.query(models.Contact).filter(models.Contact.phone == clean_phone, models.Contact.id != contact_id).first()
         if existing:
@@ -185,9 +188,10 @@ async def import_contacts_csv(
         if not raw_phone:
             continue
 
-        phone = raw_phone.strip().replace(" ", "").replace("-", "")
-        if not phone.startswith("+"):
-            phone = "+" + phone
+        try:
+            phone = normalize_phone(raw_phone)
+        except InvalidPhoneNumberError:
+            continue
 
         name = norm_row.get("name") or norm_row.get("full_name") or "Valued Customer"
         email = norm_row.get("email")

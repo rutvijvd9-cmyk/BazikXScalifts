@@ -11,6 +11,7 @@ logger = logging.getLogger("whatsapp_service")
 logging.basicConfig(level=logging.INFO)
 
 import config
+from services.phone_service import normalize_phone, InvalidPhoneNumberError
 
 WHATSAPP_API_TOKEN = config.WHATSAPP_API_TOKEN
 WHATSAPP_PHONE_NUMBER_ID = config.WHATSAPP_PHONE_NUMBER_ID
@@ -70,6 +71,12 @@ def send_whatsapp_template(
     """
     db = SessionLocal()
     try:
+        try:
+            recipient_phone = normalize_phone(recipient_phone)
+        except InvalidPhoneNumberError as pe:
+            logger.error(f"🚨 [Invalid Phone] Cannot send message: {pe}")
+            return {"status": "error", "message": f"Invalid recipient phone: {pe}"}
+
         # Normalize language code for Meta API (e.g. EN_US -> en_US)
         if language:
             parts = language.split("_")
@@ -368,9 +375,11 @@ def send_whatsapp_free_text(recipient_phone: str, message_text: str) -> dict:
     Sends a free-form customer service text message (used within Meta's 24-hour service window).
     Falls back to simulation mode if API credentials are not set.
     """
-    clean_phone = recipient_phone.strip().replace(" ", "").replace("-", "")
-    if not clean_phone.startswith("+"):
-        clean_phone = "+" + clean_phone
+    try:
+        clean_phone = normalize_phone(recipient_phone)
+    except InvalidPhoneNumberError as pe:
+        logger.error(f"🚨 [Invalid Phone] Cannot send chat message: {pe}")
+        return {"status": "error", "message": f"Invalid recipient phone: {pe}"}
 
     # Check if simulated or live
     if not WHATSAPP_API_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, JSON, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, JSON, ForeignKey, UniqueConstraint
 from database import Base
 
 
@@ -53,10 +53,18 @@ class CartEvent(Base):
 
 class WebhookEvent(Base):
     __tablename__ = "webhook_events"
+    __table_args__ = (
+        UniqueConstraint("source", "external_event_id", name="uq_webhook_events_source_external_event_id"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
+    source = Column(String(50), nullable=False, default="store", index=True)  # 'store', 'meta', 'internal_sim'
     event_type = Column(String(50), nullable=False)
+    external_event_id = Column(String(150), nullable=True, index=True)
     idempotency_key = Column(String(150), unique=True, index=True, nullable=False)
+    hmac_validated = Column(Boolean, default=False, nullable=False)
+    correlation_id = Column(String(64), nullable=True, index=True)
+    received_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

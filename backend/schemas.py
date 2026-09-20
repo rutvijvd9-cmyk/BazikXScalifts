@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from services.phone_service import normalize_phone, InvalidPhoneNumberError
 
 
 class ContactCreate(BaseModel):
@@ -14,6 +16,14 @@ class ContactCreate(BaseModel):
     birth_day: Optional[int] = Field(None, ge=1, le=31)
     birth_month: Optional[int] = Field(None, ge=1, le=12)
 
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        try:
+            return normalize_phone(v)
+        except InvalidPhoneNumberError as e:
+            raise ValueError(str(e))
+
 
 class ContactUpdate(BaseModel):
     phone: Optional[str] = None
@@ -23,6 +33,16 @@ class ContactUpdate(BaseModel):
     tags: Optional[str] = None
     total_orders: Optional[int] = None
     last_order_date: Optional[datetime] = None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        try:
+            return normalize_phone(v)
+        except InvalidPhoneNumberError as e:
+            raise ValueError(str(e))
 
 
 class ContactResponse(BaseModel):
@@ -78,6 +98,14 @@ class CartEventPayload(BaseModel):
     delivery_address: Optional[str] = None
     extra_data: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Arbitrary key-value store payload fields")
 
+    @field_validator("customer_phone")
+    @classmethod
+    def validate_customer_phone(cls, v: str) -> str:
+        try:
+            return normalize_phone(v)
+        except InvalidPhoneNumberError as e:
+            raise ValueError(str(e))
+
 
 class ExternalDataSourceCreate(BaseModel):
     name: str = Field(..., max_length=100)
@@ -119,6 +147,14 @@ class OptOutRequest(BaseModel):
     phone: str = Field(...)
     reason: Optional[str] = "USER_REQUEST"
 
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        try:
+            return normalize_phone(v)
+        except InvalidPhoneNumberError as e:
+            raise ValueError(str(e))
+
 class CampaignCreate(BaseModel):
     title: str = Field(..., max_length=150)
     template_name: str = Field(..., max_length=100)
@@ -130,6 +166,19 @@ class CampaignCreate(BaseModel):
     # 🔐 Security step-up authentication fields
     password: Optional[str] = None
     two_factor_code: Optional[str] = None
+
+    @field_validator("custom_phones")
+    @classmethod
+    def validate_custom_phones(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if not v:
+            return v
+        normalized = []
+        for p in v:
+            try:
+                normalized.append(normalize_phone(p))
+            except InvalidPhoneNumberError as e:
+                raise ValueError(f"Invalid phone in custom_phones list '{p}': {e}")
+        return normalized
 
 
 class RuleApproveRequest(BaseModel):
@@ -258,6 +307,14 @@ class AutomationRuleUpdate(BaseModel):
 class ChatSendMessageRequest(BaseModel):
     customer_phone: str = Field(..., description="Customer WhatsApp phone number e.g. +919876543210")
     text: str = Field(..., min_length=1, description="Message text content to send to customer")
+
+    @field_validator("customer_phone")
+    @classmethod
+    def validate_customer_phone(cls, v: str) -> str:
+        try:
+            return normalize_phone(v)
+        except InvalidPhoneNumberError as e:
+            raise ValueError(str(e))
 
 
 class ChatMessageResponse(BaseModel):

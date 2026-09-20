@@ -30,17 +30,17 @@ def test_webhook_hmac_only_enforcement(client, auth_headers):
         "items": []
     }
 
-    # 1. Missing signature -> 404
+    # 1. Missing signature -> 401
     res_no_sig = client.post("/api/webhooks/cart-event", json=payload)
-    assert res_no_sig.status_code == status.HTTP_404_NOT_FOUND
+    assert res_no_sig.status_code == status.HTTP_401_UNAUTHORIZED
 
-    # 2. Bearer JWT -> 404
+    # 2. Bearer JWT -> 401
     res_bearer = client.post("/api/webhooks/cart-event", json=payload, headers=auth_headers)
-    assert res_bearer.status_code == status.HTTP_404_NOT_FOUND
+    assert res_bearer.status_code == status.HTTP_401_UNAUTHORIZED
 
-    # 3. Permanent user X-API-Key -> 404
+    # 3. Permanent user X-API-Key -> 401
     res_api_key = client.post("/api/webhooks/cart-event", json=payload, headers={"X-API-Key": "permanent_secret"})
-    assert res_api_key.status_code == status.HTTP_404_NOT_FOUND
+    assert res_api_key.status_code == status.HTTP_401_UNAUTHORIZED
 
     # 4. Valid HMAC -> 202 Accepted
     raw_body, headers = make_hmac_headers(payload)

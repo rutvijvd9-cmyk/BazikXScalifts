@@ -11,6 +11,7 @@ import models
 import schemas
 import auth
 from whatsapp_service import send_whatsapp_free_text, check_daily_limit, get_effective_daily_limit
+from services.phone_service import normalize_phone, InvalidPhoneNumberError
 
 logger = logging.getLogger("chat_router")
 
@@ -29,85 +30,86 @@ def list_conversations(
     # Ensure broadcast recipients from MessageLog have chat records
     recent_broadcast_phones = (
         db.query(models.MessageLog.recipient_phone)
-        .filter(models.MessageLog.status.in_(["SENT", "SENT_SIMULATED", "DELIVERED", "READ"]))
+        .distinct()
+        .order_by(desc(models.MessageLog.recipient_phone))
+        .limit(100)
+        .all()
+    )
+    for (b_phone,) in recent_broadcast_phones:
+        if not b_phone:
+            continue
+        exists = db.query(models.ChatMessage).filter(models.ChatMessage.customer_phone == b_phone).first()
+        if not exists:
+            last_log = (
+                db.query(models.MessageLog)
+                .filter(models.MessageLog.recipient_phone == b_phone)
+                .order_by(models.MessageLog.created_at.desc())
+                .first()
+            )
+            if last_log:
+                db.add(models.ChatMessage(
+                    customer_phone=b_phone,
+                    sender_type="AGENT",
+                    message_type="TEMPLATE",
+                    text=f"[Template: {last_log.template_name}]",
+                    meta_message_id=last_log.meta_message_id,
+                    status=last_log.status,
+                    is_read=True,
+                    created_at=last_log.created_at
+                ))
+    db.commit()
+
+    # Query all distinct customer phones
+    phones = (
+        db.query(models.ChatMessage.customer_phone)
         .distinct()
         .all()
     )
-    for (r_phone,) in recent_broadcast_phones:
-        if r_phone:
-            has_chat = db.query(models.ChatMessage).filter(models.ChatMessage.customer_phone == r_phone).first()
-            if not has_chat:
-                last_log = (
-                    db.query(models.MessageLog)
-                    .filter(models.MessageLog.recipient_phone == r_phone)
-                    .order_by(models.MessageLog.created_at.desc())
-                    .first()
-                )
-                if last_log and last_log.meta_message_id:
-                    tmpl = db.query(models.Template).filter(models.Template.template_name == last_log.template_name).first()
-                    content = tmpl.body_text if tmpl and tmpl.body_text else f"📢 WhatsApp Template: {last_log.template_name}"
-                    db.add(models.ChatMessage(
-                        customer_phone=r_phone,
-                        sender_type="AGENT",
-                        message_type="template",
-                        text=content,
-                        meta_message_id=last_log.meta_message_id,
-                        status=last_log.status,
-                        is_read=True,
-                        created_at=last_log.created_at
-                    ))
-    db.commit()
 
-    # Get distinct customer phones ordered by latest message
-    subquery = (
-        db.query(
-            models.ChatMessage.customer_phone,
-            func.max(models.ChatMessage.created_at).label("latest_time")
-        )
-        .group_by(models.ChatMessage.customer_phone)
-        .order_by(desc("latest_time"))
-        .all()
-    )
+    summaries = []
+    for (cust_phone,) in phones:
+        if not cust_phone:
+            continue
 
-    results = []
-    for phone, latest_time in subquery:
-        # Fetch last message
-        last_msg = (
-            db.query(models.ChatMessage)
-            .filter(models.ChatMessage.customer_phone == phone)
-            .order_by(models.ChatMessage.created_at.desc())
-            .first()
-        )
-        # Unread count (customer messages not yet read by agent)
+        # Get contact info if available
+        contact = db.query(models.Contact).filter(models.Contact.phone == cust_phone).first()
+
+        # Unread incoming messages count
         unread = (
-            db.query(models.ChatMessage)
+            db.query(func.count(models.ChatMessage.id))
             .filter(
-                models.ChatMessage.customer_phone == phone,
+                models.ChatMessage.customer_phone == cust_phone,
                 models.ChatMessage.sender_type == "CUSTOMER",
                 models.ChatMessage.is_read == False
             )
-            .count()
-        )
-        # Contact metadata
-        contact = db.query(models.Contact).filter(models.Contact.phone == phone).first()
+            .scalar()
+        ) or 0
 
-        results.append(
-            schemas.ChatConversationSummary(
-                customer_phone=phone,
-                customer_name=contact.name if contact and contact.name else "Customer",
-                customer_city=contact.city if contact else None,
-                total_orders=contact.total_orders if contact else 0,
-                unread_count=unread,
-                last_message_text=last_msg.text if last_msg else None,
-                last_message_time=latest_time,
-                last_sender=last_msg.sender_type if last_msg else None
-            )
+        # Latest message
+        last_msg = (
+            db.query(models.ChatMessage)
+            .filter(models.ChatMessage.customer_phone == cust_phone)
+            .order_by(desc(models.ChatMessage.created_at))
+            .first()
         )
 
-    return results
+        summaries.append(schemas.ChatConversationSummary(
+            customer_phone=cust_phone,
+            customer_name=contact.name if contact else "Customer",
+            customer_city=contact.city if contact else None,
+            total_orders=contact.total_orders if contact else 0,
+            unread_count=unread,
+            last_message_text=last_msg.text if last_msg else None,
+            last_message_time=last_msg.created_at if last_msg else None,
+            last_sender=last_msg.sender_type if last_msg else None
+        ))
+
+    # Sort: most recent message first
+    summaries.sort(key=lambda s: s.last_message_time or datetime.min, reverse=True)
+    return summaries
 
 
-@router.get("/messages/{phone}", response_model=List[schemas.ChatMessageResponse])
+@router.get("/history/{phone}", response_model=List[schemas.ChatMessageResponse])
 def get_chat_history(
     phone: str,
     current_user: models.User = Depends(auth.get_current_user),
@@ -117,9 +119,10 @@ def get_chat_history(
     Retrieves full chronological message history for a specific customer phone.
     Marks customer messages as read.
     """
-    clean_phone = phone.strip()
-    if not clean_phone.startswith("+"):
-        clean_phone = "+" + clean_phone
+    try:
+        clean_phone = normalize_phone(phone)
+    except InvalidPhoneNumberError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Ensure any past marketing template dispatches from MessageLog are present in ChatMessage
     historical_logs = (
@@ -180,9 +183,10 @@ def send_agent_reply(
     Allows store owner/agent to send an outbound text reply to a customer's WhatsApp.
     Enforces DND/Opt-Out, Meta's 24-hour customer service window, and daily spending guardrails.
     """
-    clean_phone = payload.customer_phone.strip()
-    if not clean_phone.startswith("+"):
-        clean_phone = "+" + clean_phone
+    try:
+        clean_phone = normalize_phone(payload.customer_phone)
+    except InvalidPhoneNumberError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # 1. Strict DND / Opt-Out Check
     is_opted_out = db.query(models.OptOut).filter(models.OptOut.phone == clean_phone).first()

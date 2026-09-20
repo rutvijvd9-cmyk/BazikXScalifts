@@ -50,13 +50,13 @@ def test_store_webhook_requires_valid_signature(client, auth_headers):
     )
     assert accepted.status_code == status.HTTP_202_ACCEPTED
 
-    # Calling with no auth / bad auth must return 404
+    # Calling with no auth / bad auth must return 401
     rejected_no_auth = client.post("/api/webhooks/cart-event", json=payload)
-    assert rejected_no_auth.status_code == status.HTTP_404_NOT_FOUND
+    assert rejected_no_auth.status_code == status.HTTP_401_UNAUTHORIZED
 
-    # Calling with generic Bearer JWT must also be rejected with 404 (H-01 remediation)
+    # Calling with generic Bearer JWT must also be rejected with 401 (H-01 remediation)
     rejected_bearer = client.post("/api/webhooks/cart-event", json=payload, headers=auth_headers)
-    assert rejected_bearer.status_code == status.HTTP_404_NOT_FOUND
+    assert rejected_bearer.status_code == status.HTTP_401_UNAUTHORIZED
 
 
 def test_order_completion_cancels_recovery(client, db):

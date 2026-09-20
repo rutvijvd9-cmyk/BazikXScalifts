@@ -26,6 +26,7 @@ from database import get_db
 from rate_limiter import limiter
 from scheduler import run_thirty_day_reengagement_sweep
 from whatsapp_service import send_whatsapp_template
+from services.phone_service import normalize_phone, InvalidPhoneNumberError
 
 logger = logging.getLogger("marketing_router")
 
@@ -516,9 +517,10 @@ def send_direct_test_message(
     current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
-    clean_phone = payload.phone.strip()
-    if not clean_phone.startswith("+"):
-        clean_phone = "+" + clean_phone
+    try:
+        clean_phone = normalize_phone(payload.phone)
+    except InvalidPhoneNumberError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     tmpl = db.query(models.Template).filter(models.Template.template_name == payload.template_name).first()
     lang = payload.language

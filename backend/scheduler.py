@@ -14,6 +14,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from database import DATABASE_URL, SessionLocal
 import models
 from whatsapp_service import send_whatsapp_template
+from services.phone_service import normalize_phone
 
 import config
 from zoneinfo import ZoneInfo
@@ -77,7 +78,10 @@ def fetch_external_api_value(field_key: str, phone: str, source_id: int = None, 
             headers[h_name] = source.api_key
 
         param_name = source.lookup_param or "phone"
-        clean_phone = re.sub(r"[^\d+]", "", str(phone)).strip()
+        try:
+            clean_phone = normalize_phone(phone)
+        except Exception:
+            clean_phone = re.sub(r"[^\d+]", "", str(phone)).strip()
         params = {param_name: clean_phone}
 
         logger.info(f"🌐 [External API Pull] Querying {source.endpoint_url} for {clean_phone}")

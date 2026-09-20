@@ -3,23 +3,23 @@ from datetime import datetime, timedelta, timezone
 from fastapi import status
 import models
 
-def test_unauthenticated_api_call_returns_404(client):
+def test_unauthenticated_api_call_returns_401(client):
     """
-    Test that calls without valid token or signature return 404 (Not Found)
-    for stealth/security as requested.
+    Test that webhook calls without valid signature return 401 (Unauthorized)
+    per WP1 security specification.
     """
     res = client.post("/api/webhooks/cart-event", json={"cart_token": "abc", "customer_phone": "123"})
-    assert res.status_code == status.HTTP_404_NOT_FOUND
+    assert res.status_code == status.HTTP_401_UNAUTHORIZED
 
     res_invalid_auth = client.post(
         "/api/webhooks/cart-event",
         json={"cart_token": "abc", "customer_phone": "123"},
         headers={"Authorization": "Bearer invalid-or-garbage-token"}
     )
-    assert res_invalid_auth.status_code == status.HTTP_404_NOT_FOUND
+    assert res_invalid_auth.status_code == status.HTTP_401_UNAUTHORIZED
 
     res_order = client.post("/api/webhooks/order-completed", json={"cart_token": "abc"})
-    assert res_order.status_code == status.HTTP_404_NOT_FOUND
+    assert res_order.status_code == status.HTTP_401_UNAUTHORIZED
 
 
 def test_logs_download_csv_and_json(client, auth_headers, db):

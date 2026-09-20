@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import logging
 from typing import Optional
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
@@ -21,6 +22,7 @@ import schemas
 from database import get_db
 from rate_limiter import limiter
 from scheduler import schedule_cart_recovery
+from services.phone_service import normalize_phone
 from whatsapp_service import send_whatsapp_template
 
 logger = logging.getLogger("webhooks_router")
@@ -39,14 +41,37 @@ async def get_webhook_authenticated_user(
     db: Session = Depends(get_db)
 ) -> models.User:
     """
-    Validates e-commerce HMAC signatures for external requests. Dashboard
-    simulations may use an admin or service JWT, but arbitrary user JWTs and
-    raw shared-secret headers are never accepted.
+    Validates e-commerce HMAC signatures for external requests.
+    Missing or invalid signatures are recorded in WebhookEvent and rejected with HTTP 401.
     """
+    correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
     signature = request.headers.get("X-Hub-Signature-256", "").strip()
+
+    def _record_failure():
+        failed_event = models.WebhookEvent(
+            source="store",
+            event_type="store_auth_failure",
+            external_event_id=None,
+            idempotency_key=f"auth_failure:{correlation_id}",
+            hmac_validated=False,
+            correlation_id=correlation_id,
+            received_at=datetime.utcnow()
+        )
+        db.add(failed_event)
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed to record failed webhook audit event: {e}")
+
     if not signature or not config.WEBHOOK_SECRET:
         logger.warning("🚨 [Webhook Security] Store webhook rejected: missing HMAC signature or WEBHOOK_SECRET.")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+        _record_failure()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing HMAC signature",
+            headers={"WWW-Authenticate": "HMAC-SHA256"}
+        )
 
     raw_body = await request.body()
     expected = "sha256=" + hmac.new(
@@ -55,7 +80,12 @@ async def get_webhook_authenticated_user(
 
     if not hmac.compare_digest(expected, signature):
         logger.warning("🚨 [Webhook Security] Store webhook rejected: HMAC signature mismatch.")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+        _record_failure()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing HMAC signature",
+            headers={"WWW-Authenticate": "HMAC-SHA256"}
+        )
 
     svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
     return svc or models.User(username=config.ECOM_SERVICE_USERNAME, is_active=True)
@@ -71,14 +101,26 @@ async def receive_cart_webhook(
     current_user: models.User = Depends(get_webhook_authenticated_user),
     db: Session = Depends(get_db)
 ):
+    correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+    external_event_id = str(payload.cart_token)
     idempotency_key = request.headers.get("X-Idempotency-Key") or f"cart:{payload.cart_token}"
+
     existing_event = db.query(models.WebhookEvent).filter(
-        models.WebhookEvent.idempotency_key == idempotency_key
+        (models.WebhookEvent.idempotency_key == idempotency_key) |
+        ((models.WebhookEvent.source == "store") & (models.WebhookEvent.external_event_id == external_event_id) & (models.WebhookEvent.hmac_validated == True))
     ).first()
     if existing_event:
         return {"status": "duplicate", "message": "Webhook event was already processed."}
 
-    db.add(models.WebhookEvent(event_type="cart", idempotency_key=idempotency_key))
+    db.add(models.WebhookEvent(
+        source="store",
+        event_type="cart",
+        external_event_id=external_event_id,
+        idempotency_key=idempotency_key,
+        hmac_validated=True,
+        correlation_id=correlation_id,
+        received_at=datetime.utcnow()
+    ))
     try:
         db.flush()
     except IntegrityError:
@@ -186,22 +228,38 @@ async def receive_order_completed_webhook(
     current_user: models.User = Depends(get_webhook_authenticated_user),
     db: Session = Depends(get_db)
 ):
+    try:
+        clean_phone = normalize_phone(customer_phone)
+    except ValueError:
+        clean_phone = customer_phone.strip()
+        if not clean_phone.startswith("+"):
+            clean_phone = "+" + clean_phone
+
+    correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+    external_event_id = f"order:{cart_token}"
     idempotency_key = request.headers.get("X-Idempotency-Key") or f"order:{cart_token}"
+
     existing_event = db.query(models.WebhookEvent).filter(
-        models.WebhookEvent.idempotency_key == idempotency_key
+        (models.WebhookEvent.idempotency_key == idempotency_key) |
+        ((models.WebhookEvent.source == "store") & (models.WebhookEvent.external_event_id == external_event_id) & (models.WebhookEvent.hmac_validated == True))
     ).first()
     if existing_event:
         return {"status": "duplicate", "message": "Webhook event was already processed."}
-    db.add(models.WebhookEvent(event_type="order", idempotency_key=idempotency_key))
+
+    db.add(models.WebhookEvent(
+        source="store",
+        event_type="order",
+        external_event_id=external_event_id,
+        idempotency_key=idempotency_key,
+        hmac_validated=True,
+        correlation_id=correlation_id,
+        received_at=datetime.utcnow()
+    ))
     try:
         db.flush()
     except IntegrityError:
         db.rollback()
         return {"status": "duplicate", "message": "Webhook event was already processed."}
-
-    clean_phone = customer_phone.strip()
-    if not clean_phone.startswith("+"):
-        clean_phone = "+" + clean_phone
 
     # 1. Update contact order statistics
     contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()
@@ -244,7 +302,7 @@ async def receive_order_completed_webhook(
     # 3. Mark cart as RECOVERED if associated with a pending cart event
     cart = db.query(models.CartEvent).filter(
         models.CartEvent.cart_token == cart_token,
-        models.CartEvent.customer_phone == customer_phone
+        models.CartEvent.customer_phone.in_([clean_phone, customer_phone])
     ).first()
 
     if cart:
@@ -299,12 +357,27 @@ async def receive_inbound_whatsapp_message(
     2. Incoming messages saved into ChatMessage for real-time 2-Way Chat.
     """
     signature = request.headers.get("X-Hub-Signature-256", "")
+    correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
     if config.META_APP_SECRET:
         raw_body = await request.body()
         expected_signature = "sha256=" + hmac.new(
             config.META_APP_SECRET.encode(), raw_body, hashlib.sha256
         ).hexdigest()
         if not signature or not hmac.compare_digest(expected_signature, signature):
+            failed_event = models.WebhookEvent(
+                source="meta",
+                event_type="meta_auth_failure",
+                external_event_id=None,
+                idempotency_key=f"meta_auth_failure:{correlation_id}",
+                hmac_validated=False,
+                correlation_id=correlation_id,
+                received_at=datetime.utcnow()
+            )
+            db.add(failed_event)
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
             raise HTTPException(status_code=401, detail="Invalid Meta webhook signature")
 
     try:
@@ -346,10 +419,39 @@ async def receive_inbound_whatsapp_message(
 
     any_opt_out = False
     for msg in messages:
-        sender_phone = "+" + msg.get("from", "").strip("+")
+        meta_id = msg.get("id", "")
+        if meta_id:
+            existing_meta_event = db.query(models.WebhookEvent).filter(
+                (models.WebhookEvent.idempotency_key == f"meta_msg:{meta_id}") |
+                ((models.WebhookEvent.source == "meta") & (models.WebhookEvent.external_event_id == meta_id))
+            ).first()
+            if existing_meta_event:
+                logger.info(f"Duplicate Meta message received and skipped: {meta_id}")
+                continue
+
+            db.add(models.WebhookEvent(
+                source="meta",
+                event_type="inbound_message",
+                external_event_id=meta_id,
+                idempotency_key=f"meta_msg:{meta_id}",
+                hmac_validated=True,
+                correlation_id=correlation_id,
+                received_at=datetime.utcnow()
+            ))
+            try:
+                db.flush()
+            except IntegrityError:
+                db.rollback()
+                logger.info(f"Duplicate Meta message skipped on flush: {meta_id}")
+                continue
+
+        raw_from = msg.get("from", "")
+        try:
+            sender_phone = normalize_phone(raw_from)
+        except ValueError:
+            sender_phone = "+" + raw_from.strip("+")
         msg_type = msg.get("type", "text")
         raw_body = ""
-        meta_id = msg.get("id", "")
 
         if msg_type == "text":
             raw_body = msg.get("text", {}).get("body", "").strip()
