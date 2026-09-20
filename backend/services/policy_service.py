@@ -96,6 +96,20 @@ def revoke_consent(
         rec.status = "REVOKED"
         rec.revoked_at = now
 
+    if not active_records:
+        existing_revoked = db.query(models.ConsentRecord).filter(
+            models.ConsentRecord.phone == clean_phone,
+            models.ConsentRecord.status == "REVOKED"
+        ).first()
+        if not existing_revoked:
+            db.add(models.ConsentRecord(
+                phone=clean_phone,
+                status="REVOKED",
+                source=reason[:50] if reason else "OPT_OUT",
+                proof_details=reason,
+                revoked_at=now
+            ))
+
     # Ensure phone is in opt_outs table
     opt_out = db.query(models.OptOut).filter(models.OptOut.phone == clean_phone).first()
     if not opt_out:

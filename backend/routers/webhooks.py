@@ -400,135 +400,192 @@ async def receive_inbound_whatsapp_message(
     except Exception:
         return {"status": "ignored", "reason": "invalid json"}
 
-    entry = data.get("entry", [])
-    if not entry:
+    entries = data.get("entry", [])
+    if not entries:
         return {"status": "ok"}
 
-    changes = entry[0].get("changes", [])
-    if not changes:
-        return {"status": "ok"}
+    processed_messages_count = 0
+    processed_statuses_count = 0
+    any_opt_out = False
 
-    value = changes[0].get("value", {})
-    messages = value.get("messages", [])
+    for entry in entries:
+        changes = entry.get("changes", [])
+        for chg in changes:
+            value = chg.get("value", {})
+            if not isinstance(value, dict):
+                continue
 
-    if not messages:
-        statuses = value.get("statuses", [])
-        if statuses:
+            # 1. Process Status Updates (DELIVERED, READ, FAILED, SENT)
+            statuses = value.get("statuses", [])
             for st in statuses:
                 wamid = st.get("id")
                 new_status = st.get("status", "").upper()
-                if wamid:
-                    chat_msg = db.query(models.ChatMessage).filter(models.ChatMessage.meta_message_id == wamid).first()
-                    if chat_msg:
-                        chat_msg.status = new_status
+                if not wamid:
+                    continue
 
-                    msg_log = db.query(models.MessageLog).filter(models.MessageLog.meta_message_id == wamid).first()
-                    if msg_log:
-                        msg_log.status = new_status
-                        errors = st.get("errors", [])
-                        if errors:
-                            msg_log.error_message = str(errors)
+                status_event_id = f"meta_status:{wamid}:{new_status}"
+                existing_status_event = db.query(models.InboundWebhookEvent).filter(
+                    models.InboundWebhookEvent.provider == "meta",
+                    models.InboundWebhookEvent.provider_event_id == status_event_id
+                ).first()
+                if existing_status_event:
+                    continue
 
+                status_record = models.InboundWebhookEvent(
+                    provider="meta",
+                    provider_event_id=status_event_id,
+                    event_type="status_update",
+                    correlation_id=correlation_id,
+                    processed_at=datetime.utcnow()
+                )
+                db.add(status_record)
+
+                chat_msg = db.query(models.ChatMessage).filter(models.ChatMessage.meta_message_id == wamid).first()
+                if chat_msg:
+                    chat_msg.status = new_status
+
+                msg_log = db.query(models.MessageLog).filter(models.MessageLog.meta_message_id == wamid).first()
+                if msg_log:
+                    msg_log.status = new_status
+                    errors = st.get("errors", [])
+                    if errors:
+                        msg_log.error_message = str(errors)
+
+                try:
                     db.commit()
-        return {"status": "status_update_acknowledged"}
+                    processed_statuses_count += 1
+                except Exception as e:
+                    db.rollback()
+                    logger.warning(f"Error updating status for {wamid}: {e}")
 
-    any_opt_out = False
-    for msg in messages:
-        meta_id = msg.get("id", "")
-        if meta_id:
-            existing_meta_event = db.query(models.WebhookEvent).filter(
-                (models.WebhookEvent.idempotency_key == f"meta_msg:{meta_id}") |
-                ((models.WebhookEvent.source == "meta") & (models.WebhookEvent.external_event_id == meta_id))
-            ).first()
-            if existing_meta_event:
-                logger.info(f"Duplicate Meta message received and skipped: {meta_id}")
-                continue
+            # 2. Process Messages (Inbound customer messages & DND requests)
+            messages = value.get("messages", [])
+            for msg in messages:
+                raw_meta_id = msg.get("id")
+                meta_id = raw_meta_id or f"inbound_{uuid.uuid4().hex}"
 
-            db.add(models.WebhookEvent(
-                source="meta",
-                event_type="inbound_message",
-                external_event_id=meta_id,
-                idempotency_key=f"meta_msg:{meta_id}",
-                hmac_validated=True,
-                correlation_id=correlation_id,
-                received_at=datetime.utcnow()
-            ))
-            try:
-                db.flush()
-            except IntegrityError:
-                db.rollback()
-                logger.info(f"Duplicate Meta message skipped on flush: {meta_id}")
-                continue
+                # Deduplicate: check InboundWebhookEvent
+                existing_inbound = db.query(models.InboundWebhookEvent).filter(
+                    models.InboundWebhookEvent.provider == "meta",
+                    models.InboundWebhookEvent.provider_event_id == meta_id
+                ).first()
+                if existing_inbound:
+                    logger.info(f"Duplicate Meta message replay skipped: {meta_id}")
+                    continue
 
-        raw_from = msg.get("from", "")
-        try:
-            sender_phone = normalize_phone(raw_from)
-        except ValueError:
-            sender_phone = "+" + raw_from.strip("+")
-        msg_type = msg.get("type", "text")
-        raw_body = ""
+                # Deduplicate: check existing ChatMessage
+                existing_chat = db.query(models.ChatMessage).filter(
+                    models.ChatMessage.meta_message_id == meta_id
+                ).first()
+                if existing_chat:
+                    logger.info(f"ChatMessage already exists for meta_id: {meta_id}")
+                    continue
 
-        if msg_type == "text":
-            raw_body = msg.get("text", {}).get("body", "").strip()
-        elif msg_type == "button":
-            raw_body = msg.get("button", {}).get("text", "")
-        elif msg_type == "interactive":
-            interactive = msg.get("interactive", {})
-            raw_body = interactive.get("button_reply", {}).get("title") or interactive.get("list_reply", {}).get("title") or "Interactive Response"
-        else:
-            raw_body = f"[{msg_type.upper()} message received]"
+                db.add(models.InboundWebhookEvent(
+                    provider="meta",
+                    provider_event_id=meta_id,
+                    event_type="inbound_message",
+                    correlation_id=correlation_id,
+                    processed_at=datetime.utcnow()
+                ))
+                db.add(models.WebhookEvent(
+                    source="meta",
+                    event_type="inbound_message",
+                    external_event_id=meta_id,
+                    idempotency_key=f"meta_msg:{meta_id}",
+                    hmac_validated=True,
+                    correlation_id=correlation_id,
+                    received_at=datetime.utcnow()
+                ))
 
-        is_opt_out = any(keyword in raw_body.lower() for keyword in OPT_OUT_KEYWORDS)
+                try:
+                    db.flush()
+                except IntegrityError:
+                    db.rollback()
+                    logger.info(f"Duplicate Meta message skipped on flush: {meta_id}")
+                    continue
 
-        if is_opt_out:
-            any_opt_out = True
-            revoke_consent(db, sender_phone, reason=f"INBOUND_REPLY: {raw_body}")
-            logger.info(f"🛑 [AUTO-DND] Customer {sender_phone} texted '{raw_body}'. Added to Opt-Out DND list and consent revoked.")
-        else:
-            record_consent(db, sender_phone, source="inbound_message", proof_details=f"meta_msg:{meta_id}")
+                raw_from = msg.get("from", "")
+                try:
+                    sender_phone = normalize_phone(raw_from)
+                except ValueError:
+                    sender_phone = "+" + raw_from.strip("+")
 
-        new_chat_msg = models.ChatMessage(
-            customer_phone=sender_phone,
-            sender_type="CUSTOMER",
-            message_type=msg_type,
-            text=raw_body,
-            meta_message_id=meta_id,
-            status="RECEIVED",
-            is_read=False
-        )
-        db.add(new_chat_msg)
+                msg_type = msg.get("type", "text")
+                raw_body = ""
 
-        recent_outbound_logs = db.query(models.MessageLog).filter(
-            models.MessageLog.recipient_phone == sender_phone,
-            models.MessageLog.status.in_(["SENT", "SENT_SIMULATED", "DELIVERED"])
-        ).order_by(models.MessageLog.id.desc()).limit(3).all()
-        for out_log in recent_outbound_logs:
-            out_log.status = "READ"
+                if msg_type == "text":
+                    raw_body = msg.get("text", {}).get("body", "").strip()
+                elif msg_type == "button":
+                    raw_body = msg.get("button", {}).get("text", "")
+                elif msg_type == "interactive":
+                    interactive = msg.get("interactive", {})
+                    raw_body = interactive.get("button_reply", {}).get("title") or interactive.get("list_reply", {}).get("title") or "Interactive Response"
+                else:
+                    raw_body = f"[{msg_type.upper()} message received]"
 
-        recent_outbound_chats = db.query(models.ChatMessage).filter(
-            models.ChatMessage.customer_phone == sender_phone,
-            models.ChatMessage.sender_type.in_(["AGENT", "SYSTEM", "BOT"]),
-            models.ChatMessage.status.in_(["SENT", "DELIVERED"])
-        ).order_by(models.ChatMessage.id.desc()).limit(3).all()
-        for out_chat in recent_outbound_chats:
-            out_chat.status = "READ"
+                is_opt_out = any(keyword in raw_body.lower() for keyword in OPT_OUT_KEYWORDS)
 
-        existing_contact = db.query(models.Contact).filter(models.Contact.phone == sender_phone).first()
-        if not existing_contact:
-            contacts_list = value.get("contacts") or []
-            profile_name = "New WhatsApp Lead"
-            if isinstance(contacts_list, list) and len(contacts_list) > 0 and isinstance(contacts_list[0], dict):
-                profile_name = contacts_list[0].get("profile", {}).get("name") or "New WhatsApp Lead"
+                if is_opt_out:
+                    any_opt_out = True
+                    revoke_consent(db, sender_phone, reason=f"INBOUND_REPLY: {raw_body}")
+                    logger.info(f"🛑 [AUTO-DND] Customer {sender_phone} texted '{raw_body}'. Added to Opt-Out DND list and consent revoked.")
+                else:
+                    record_consent(db, sender_phone, source="inbound_message", proof_details=f"meta_msg:{meta_id}")
 
-            new_contact = models.Contact(
-                phone=sender_phone,
-                name=profile_name,
-                total_orders=0,
-                tags="Inbound Lead",
-                city="WhatsApp"
-            )
-            db.add(new_contact)
+                new_chat_msg = models.ChatMessage(
+                    customer_phone=sender_phone,
+                    sender_type="CUSTOMER",
+                    message_type=msg_type,
+                    text=raw_body,
+                    meta_message_id=meta_id,
+                    status="RECEIVED",
+                    is_read=False
+                )
+                db.add(new_chat_msg)
 
-        db.commit()
+                recent_outbound_logs = db.query(models.MessageLog).filter(
+                    models.MessageLog.recipient_phone == sender_phone,
+                    models.MessageLog.status.in_(["SENT", "SENT_SIMULATED", "DELIVERED"])
+                ).order_by(models.MessageLog.id.desc()).limit(3).all()
+                for out_log in recent_outbound_logs:
+                    out_log.status = "READ"
 
-    return {"status": "opted_out" if any_opt_out else "message_processed"}
+                recent_outbound_chats = db.query(models.ChatMessage).filter(
+                    models.ChatMessage.customer_phone == sender_phone,
+                    models.ChatMessage.sender_type.in_(["AGENT", "SYSTEM", "BOT"]),
+                    models.ChatMessage.status.in_(["SENT", "DELIVERED"])
+                ).order_by(models.ChatMessage.id.desc()).limit(3).all()
+                for out_chat in recent_outbound_chats:
+                    out_chat.status = "READ"
+
+                existing_contact = db.query(models.Contact).filter(models.Contact.phone == sender_phone).first()
+                if not existing_contact:
+                    contacts_list = value.get("contacts") or []
+                    profile_name = "New WhatsApp Lead"
+                    if isinstance(contacts_list, list) and len(contacts_list) > 0 and isinstance(contacts_list[0], dict):
+                        profile_name = contacts_list[0].get("profile", {}).get("name") or "New WhatsApp Lead"
+
+                    new_contact = models.Contact(
+                        phone=sender_phone,
+                        name=profile_name,
+                        total_orders=0,
+                        tags="Inbound Lead",
+                        city="WhatsApp"
+                    )
+                    db.add(new_contact)
+
+                try:
+                    db.commit()
+                    processed_messages_count += 1
+                except IntegrityError:
+                    db.rollback()
+                    logger.info(f"Duplicate ChatMessage skipped on commit: {meta_id}")
+
+    if any_opt_out:
+        return {"status": "opted_out", "messages_processed": processed_messages_count, "statuses_processed": processed_statuses_count}
+    if processed_messages_count > 0:
+        return {"status": "message_processed", "messages_processed": processed_messages_count, "statuses_processed": processed_statuses_count}
+    if processed_statuses_count > 0:
+        return {"status": "status_update_acknowledged", "statuses_processed": processed_statuses_count}
+    return {"status": "ok"}

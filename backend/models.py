@@ -220,7 +220,7 @@ class ChatMessage(Base):
     sender_type = Column(String(20), default="CUSTOMER")  # "CUSTOMER" (inbound) or "AGENT" (outbound)
     message_type = Column(String(20), default="text")      # text, template, image, document
     text = Column(Text, nullable=True)
-    meta_message_id = Column(String(100), nullable=True, index=True)
+    meta_message_id = Column(String(100), nullable=True, unique=True, index=True)
     status = Column(String(30), default="DELIVERED")      # RECEIVED, SENT, DELIVERED, READ, FAILED
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -319,4 +319,20 @@ class SystemSetting(Base):
     key = Column(String(50), primary_key=True, index=True)
     value = Column(Text, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class InboundWebhookEvent(Base):
+    __tablename__ = "inbound_webhook_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    provider = Column(String(50), nullable=False, index=True)
+    provider_event_id = Column(String(128), nullable=False, index=True)
+    event_type = Column(String(50), nullable=True)
+    payload_hash = Column(String(64), nullable=True)
+    correlation_id = Column(String(64), nullable=True)
+    processed_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_event_id", name="uq_inbound_provider_event"),
+    )
 
