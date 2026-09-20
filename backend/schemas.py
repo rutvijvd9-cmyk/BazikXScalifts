@@ -110,11 +110,14 @@ class CartEventPayload(BaseModel):
 class ExternalDataSourceCreate(BaseModel):
     name: str = Field(..., max_length=100)
     endpoint_url: str = Field(..., description="Full URL e.g. https://store.example.com/api/crm-customer")
-    auth_method: Optional[str] = "api_key"
-    api_key: Optional[str] = None
-    header_name: Optional[str] = "X-CRM-Token"
+    auth_method: Optional[str] = "bearer"  # bearer, x_api_key, basic, none
+    api_key: Optional[str] = None         # Secret to encrypt (never returned or saved plaintext)
+    approved_hostname: Optional[str] = None
+    purpose: Optional[str] = "customer_lookup"
     lookup_param: Optional[str] = "phone"
     is_active: Optional[bool] = True
+    password: Optional[str] = None
+    two_factor_code: Optional[str] = None
 
 
 class ExternalDataSourceUpdate(BaseModel):
@@ -122,9 +125,12 @@ class ExternalDataSourceUpdate(BaseModel):
     endpoint_url: Optional[str] = None
     auth_method: Optional[str] = None
     api_key: Optional[str] = None
-    header_name: Optional[str] = None
+    approved_hostname: Optional[str] = None
+    purpose: Optional[str] = None
     lookup_param: Optional[str] = None
     is_active: Optional[bool] = None
+    password: Optional[str] = None
+    two_factor_code: Optional[str] = None
 
 
 class ExternalDataSourceResponse(BaseModel):
@@ -132,14 +138,31 @@ class ExternalDataSourceResponse(BaseModel):
     name: str
     endpoint_url: str
     auth_method: str
+    secret_reference: Optional[str] = None
+    approved_hostname: Optional[str] = None
+    purpose: Optional[str] = None
+    has_secret: bool = False
     has_api_key: bool = False
-    header_name: str
     lookup_param: str
     is_active: bool
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class ExternalDataSourceTestRequest(BaseModel):
+    test_phone: Optional[str] = "+919876543210"
+    password: Optional[str] = None
+    two_factor_code: Optional[str] = None
+
+
+class ExternalDataSourceTestResponse(BaseModel):
+    status_code: int
+    is_success: bool
+    latency_ms: float
+    correlation_id: str
+    message: str
 
 
 

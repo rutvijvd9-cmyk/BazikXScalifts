@@ -26,8 +26,18 @@ from database import get_db
 from rate_limiter import limiter
 from scheduler import run_thirty_day_reengagement_sweep
 from whatsapp_service import send_whatsapp_template
+import uuid
 from services.phone_service import normalize_phone, InvalidPhoneNumberError
 from services.policy_service import record_consent, revoke_consent
+from services.secret_store import store_secret, get_secret, delete_secret
+from services.integration_gateway import (
+    validate_ssrf_safe_url,
+    dispatch_external_request,
+    SSRFSecurityError,
+    HostNotAllowedError,
+    CredentialMismatchError,
+    CredentialMode
+)
 
 logger = logging.getLogger("marketing_router")
 
@@ -91,90 +101,15 @@ def delete_discount_code(
 # ==========================================
 
 # ==========================================
-# 🌐 EXTERNAL DATA SOURCES & SSRF GUARD
+# 🌐 SECURE INTEGRATION GATEWAY & DATA SOURCES
 # ==========================================
-
-def validate_ssrf_safe_url(url: str) -> None:
-    """
-    Validates that a URL uses HTTPS and does not resolve to private,
-    loopback, link-local, multicast, or cloud-metadata IP addresses (SSRF mitigation).
-    """
-    parsed = urlparse(url)
-    if parsed.scheme.lower() != "https":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid endpoint URL: Only secure HTTPS endpoints are permitted."
-        )
-
-    hostname = parsed.hostname
-    if not hostname:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid endpoint URL: Hostname is required."
-        )
-
-    # Check for direct IP literal strings attempting loopback/private/metadata bypass
-    try:
-        direct_ip = ipaddress.ip_address(hostname)
-        if (
-            direct_ip.is_loopback
-            or direct_ip.is_private
-            or direct_ip.is_link_local
-            or direct_ip.is_multicast
-            or direct_ip.is_reserved
-            or direct_ip.is_unspecified
-            or str(direct_ip) == "169.254.169.254"
-        ):
-            logger.warning(f"🚨 [SSRF Blocked] Direct IP literal forbidden: {direct_ip}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Access denied: Requests to internal, loopback, private, or metadata addresses are prohibited."
-            )
-    except ValueError:
-        pass  # Hostname is a domain name, proceed to DNS resolution
-
-    port = parsed.port or 443
-    try:
-        addr_info = socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
-    except socket.gaierror:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid endpoint URL: Unable to resolve hostname '{hostname}'."
-        )
-
-    for item in addr_info:
-        sockaddr = item[4]
-        ip_str = sockaddr[0]
-        try:
-            ip_obj = ipaddress.ip_address(ip_str)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid endpoint URL: Unrecognized IP address format for '{hostname}'."
-            )
-
-        if (
-            ip_obj.is_loopback
-            or ip_obj.is_private
-            or ip_obj.is_link_local
-            or ip_obj.is_multicast
-            or ip_obj.is_reserved
-            or ip_obj.is_unspecified
-            or str(ip_obj) == "169.254.169.254"
-        ):
-            logger.warning(f"🚨 [SSRF Blocked] Host '{hostname}' resolved to forbidden IP {ip_str}.")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Access denied: Requests to internal, loopback, private, or metadata network addresses are prohibited."
-            )
-
 
 @router.get("/api/external-data-sources", response_model=List[schemas.ExternalDataSourceResponse])
 def list_external_data_sources(
-    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
-    """Lists all configured external e-commerce REST API data sources (api_key redacted)."""
+    """Lists all configured external e-commerce REST API data sources (admin only, secrets hidden)."""
     return db.query(models.ExternalDataSource).order_by(models.ExternalDataSource.id.asc()).all()
 
 
@@ -184,20 +119,45 @@ def create_external_data_source(
     current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
-    """Registers a new external API endpoint with mandatory HTTPS and SSRF verification."""
+    """Registers a new external API endpoint with mandatory HTTPS, SSRF check, host allowlisting, and step-up auth."""
     clean_url = payload.endpoint_url.strip()
-    validate_ssrf_safe_url(clean_url)
+    try:
+        validate_ssrf_safe_url(clean_url)
+    except (SSRFSecurityError, HostNotAllowedError) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    auth.verify_user_stepup_auth(current_user, payload.password, payload.two_factor_code, db)
+
+    parsed_host = (urlparse(clean_url).hostname or "").strip().lower()
+    approved_host = (payload.approved_hostname or parsed_host).strip().lower()
+
+    secret_ref = None
+    if payload.api_key and payload.api_key.strip():
+        secret_ref = f"sec_ref_{uuid.uuid4().hex[:12]}"
+        store_secret(db, secret_ref, payload.api_key.strip(), purpose=payload.purpose or "customer_lookup")
 
     src = models.ExternalDataSource(
         name=payload.name.strip(),
         endpoint_url=clean_url,
-        auth_method=payload.auth_method or "api_key",
-        api_key=payload.api_key.strip() if payload.api_key else None,
-        header_name=payload.header_name.strip() if payload.header_name else "X-CRM-Token",
+        auth_method=payload.auth_method or "bearer",
+        secret_reference=secret_ref,
+        approved_hostname=approved_host,
+        purpose=payload.purpose or "customer_lookup",
         lookup_param=payload.lookup_param.strip() if payload.lookup_param else "phone",
         is_active=payload.is_active if payload.is_active is not None else True
     )
     db.add(src)
+    db.flush()
+
+    # Audit log
+    db.add(models.AuditEvent(
+        actor_user_id=current_user.id,
+        action="CREATE_EXTERNAL_DATA_SOURCE",
+        target_type="external_data_source",
+        target_id=str(src.id),
+        correlation_id=f"audit-{uuid.uuid4().hex[:8]}",
+        metadata_json={"name": src.name, "approved_hostname": src.approved_hostname, "auth_method": src.auth_method}
+    ))
     db.commit()
     db.refresh(src)
     return src
@@ -210,28 +170,52 @@ def update_external_data_source(
     current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
+    """Updates an external API endpoint with step-up verification and audit logging."""
+    auth.verify_user_stepup_auth(current_user, payload.password, payload.two_factor_code, db)
+
     src = db.query(models.ExternalDataSource).filter(models.ExternalDataSource.id == source_id).first()
     if not src:
         raise HTTPException(status_code=404, detail="Data source not found")
 
     if payload.endpoint_url is not None:
         clean_url = payload.endpoint_url.strip()
-        validate_ssrf_safe_url(clean_url)
+        try:
+            validate_ssrf_safe_url(clean_url)
+        except (SSRFSecurityError, HostNotAllowedError) as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         src.endpoint_url = clean_url
+        if not payload.approved_hostname:
+            src.approved_hostname = (urlparse(clean_url).hostname or "").strip().lower()
 
     if payload.name is not None:
         src.name = payload.name.strip()
     if payload.auth_method is not None:
         src.auth_method = payload.auth_method
-    if payload.api_key is not None:
-        src.api_key = payload.api_key.strip()
-    if payload.header_name is not None:
-        src.header_name = payload.header_name.strip()
+    if payload.approved_hostname is not None:
+        src.approved_hostname = payload.approved_hostname.strip().lower()
+    if payload.purpose is not None:
+        src.purpose = payload.purpose.strip()
     if payload.lookup_param is not None:
         src.lookup_param = payload.lookup_param.strip()
     if payload.is_active is not None:
         src.is_active = payload.is_active
 
+    if payload.api_key is not None and payload.api_key.strip():
+        if src.secret_reference:
+            store_secret(db, src.secret_reference, payload.api_key.strip(), purpose=src.purpose or "customer_lookup")
+        else:
+            sec_ref = f"sec_ref_{uuid.uuid4().hex[:12]}"
+            store_secret(db, sec_ref, payload.api_key.strip(), purpose=src.purpose or "customer_lookup")
+            src.secret_reference = sec_ref
+
+    db.add(models.AuditEvent(
+        actor_user_id=current_user.id,
+        action="UPDATE_EXTERNAL_DATA_SOURCE",
+        target_type="external_data_source",
+        target_id=str(src.id),
+        correlation_id=f"audit-{uuid.uuid4().hex[:8]}",
+        metadata_json={"name": src.name, "approved_hostname": src.approved_hostname}
+    ))
     db.commit()
     db.refresh(src)
     return src
@@ -243,56 +227,77 @@ def delete_external_data_source(
     current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
+    """Deletes an external data source, cleans up its encrypted secret, and logs audit record."""
     src = db.query(models.ExternalDataSource).filter(models.ExternalDataSource.id == source_id).first()
     if not src:
         raise HTTPException(status_code=404, detail="Data source not found")
+
+    if src.secret_reference:
+        delete_secret(db, src.secret_reference)
+
+    source_name = src.name
     db.delete(src)
+
+    db.add(models.AuditEvent(
+        actor_user_id=current_user.id,
+        action="DELETE_EXTERNAL_DATA_SOURCE",
+        target_type="external_data_source",
+        target_id=str(source_id),
+        correlation_id=f"audit-{uuid.uuid4().hex[:8]}",
+        metadata_json={"name": source_name}
+    ))
     db.commit()
-    return {"status": "success", "message": f"External data source '{src.name}' removed."}
+    return {"status": "success", "message": f"External data source '{source_name}' removed."}
 
 
-@router.post("/api/external-data-sources/{source_id}/test")
+@router.post("/api/external-data-sources/{source_id}/test", response_model=schemas.ExternalDataSourceTestResponse)
 def test_external_data_source(
     source_id: int,
-    test_phone: Optional[str] = "+919876543210",
+    payload: schemas.ExternalDataSourceTestRequest = schemas.ExternalDataSourceTestRequest(),
     current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
+    """Tests external API connectivity through the secure integration gateway. Upstream payload is sanitized."""
+    auth.verify_user_stepup_auth(current_user, payload.password, payload.two_factor_code, db)
+
     src = db.query(models.ExternalDataSource).filter(models.ExternalDataSource.id == source_id).first()
     if not src:
         raise HTTPException(status_code=404, detail="Data source not found")
 
-    validate_ssrf_safe_url(src.endpoint_url)
+    secret_val = get_secret(db, src.secret_reference) if src.secret_reference else None
+    corr_id = f"test-{uuid.uuid4().hex[:8]}"
 
-    headers = {}
-    if src.auth_method == "bearer" and src.api_key:
-        headers["Authorization"] = f"Bearer {src.api_key}"
-    elif src.api_key:
-        headers[src.header_name or "X-CRM-Token"] = src.api_key
-
-    params = {src.lookup_param or "phone": test_phone}
-    start_time = time.time()
     try:
-        # Strict security: follow_redirects=False prevents open redirect SSRF bypass,
-        # and upstream response content is never returned to the client to prevent exfiltration.
-        with httpx.Client(timeout=8.0, follow_redirects=False) as client:
-            resp = client.get(src.endpoint_url, params=params, headers=headers)
-            elapsed_ms = (time.time() - start_time) * 1000.0
-            return {
-                "status_code": resp.status_code,
-                "is_success": resp.status_code == 200,
-                "latency_ms": round(elapsed_ms, 2),
-                "message": "Connection verified successfully." if resp.status_code == 200 else f"Upstream endpoint responded with status {resp.status_code}."
-            }
-    except Exception as err:
-        elapsed_ms = (time.time() - start_time) * 1000.0
-        logger.warning(f"⚠️ [Integration Test] Connectivity test error for source #{source_id}: {err}")
-        return {
-            "status_code": 0,
-            "is_success": False,
-            "latency_ms": round(elapsed_ms, 2),
-            "message": "Connection attempt failed or timed out."
-        }
+        gw_res = dispatch_external_request(
+            endpoint_url=src.endpoint_url,
+            approved_hostname=src.approved_hostname,
+            credential_mode=src.auth_method or "bearer",
+            secret_value=secret_val,
+            params={src.lookup_param or "phone": payload.test_phone or "+919876543210"},
+            correlation_id=corr_id
+        )
+    except (SSRFSecurityError, HostNotAllowedError, CredentialMismatchError) as err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
+
+    # Audit log test attempt
+    db.add(models.AuditEvent(
+        actor_user_id=current_user.id,
+        action="TEST_EXTERNAL_DATA_SOURCE",
+        target_type="external_data_source",
+        target_id=str(src.id),
+        correlation_id=corr_id,
+        metadata_json={"status_code": gw_res["status_code"], "is_success": gw_res["is_success"]}
+    ))
+    db.commit()
+
+    # Strictly sanitized response: never leaks upstream body, headers, or exceptions
+    return schemas.ExternalDataSourceTestResponse(
+        status_code=gw_res["status_code"],
+        is_success=gw_res["is_success"],
+        latency_ms=gw_res["latency_ms"],
+        correlation_id=corr_id,
+        message=gw_res["message"]
+    )
 
 
 

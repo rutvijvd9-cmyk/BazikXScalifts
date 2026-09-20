@@ -15,6 +15,8 @@ from database import DATABASE_URL, SessionLocal
 import models
 from whatsapp_service import send_whatsapp_template
 from services.phone_service import normalize_phone
+from services.secret_store import get_secret
+from services.integration_gateway import dispatch_external_request, SSRFSecurityError, HostNotAllowedError, CredentialMismatchError
 
 import config
 from zoneinfo import ZoneInfo
@@ -70,13 +72,6 @@ def fetch_external_api_value(field_key: str, phone: str, source_id: int = None, 
             logger.info(f"No active ExternalDataSource found to pull field '{field_key}' for {phone}")
             return ""
 
-        headers = {}
-        if source.auth_method == "bearer" and source.api_key:
-            headers["Authorization"] = f"Bearer {source.api_key}"
-        elif source.api_key:
-            h_name = source.header_name or "X-CRM-Token"
-            headers[h_name] = source.api_key
-
         param_name = source.lookup_param or "phone"
         try:
             clean_phone = normalize_phone(phone)
@@ -84,18 +79,28 @@ def fetch_external_api_value(field_key: str, phone: str, source_id: int = None, 
             clean_phone = re.sub(r"[^\d+]", "", str(phone)).strip()
         params = {param_name: clean_phone}
 
-        logger.info(f"🌐 [External API Pull] Querying {source.endpoint_url} for {clean_phone}")
-        with httpx.Client(timeout=config.HTTP_TIMEOUT_SECONDS) as client:
-            resp = client.get(source.endpoint_url, params=params, headers=headers)
-            if resp.status_code == 200:
-                resp_json = resp.json()
-                if isinstance(resp_json, dict):
-                    # Cache result for 60 seconds
-                    _api_cache[cache_key] = (resp_json, now_ts + 60.0)
-                    val = resp_json.get(field_key)
-                    return str(val) if val is not None else ""
+        logger.info(f"🌐 [External API Pull] Querying {source.endpoint_url} via Integration Gateway for {clean_phone}")
+        secret_val = get_secret(db, source.secret_reference) if source.secret_reference else None
+        
+        try:
+            gw_resp = dispatch_external_request(
+                endpoint_url=source.endpoint_url,
+                approved_hostname=source.approved_hostname,
+                credential_mode=source.auth_method or "bearer",
+                secret_value=secret_val,
+                params=params,
+                timeout=config.HTTP_TIMEOUT_SECONDS
+            )
+            if gw_resp.get("is_success") and isinstance(gw_resp.get("data"), dict):
+                resp_json = gw_resp["data"]
+                # Cache result for 60 seconds
+                _api_cache[cache_key] = (resp_json, now_ts + 60.0)
+                val = resp_json.get(field_key)
+                return str(val) if val is not None else ""
             else:
-                logger.warning(f"External API returned {resp.status_code}: {resp.text[:200]}")
+                logger.warning(f"External API returned {gw_resp.get('status_code')}: {gw_resp.get('message')}")
+        except (SSRFSecurityError, HostNotAllowedError, CredentialMismatchError) as sec_err:
+            logger.error(f"🚨 [Integration Gateway Blocked] Security policy denied external fetch: {sec_err}")
     except Exception as e:
         logger.error(f"Error pulling from external API: {e}")
     finally:

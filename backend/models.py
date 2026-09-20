@@ -219,22 +219,59 @@ class WorkflowSession(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class IntegrationSecret(Base):
+    __tablename__ = "integration_secrets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    secret_reference = Column(String(100), unique=True, index=True, nullable=False)
+    encrypted_value = Column(Text, nullable=False)
+    nonce = Column(String(64), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    actor_user_id = Column(Integer, nullable=True, index=True)
+    action = Column(String(100), nullable=False, index=True)
+    target_type = Column(String(100), nullable=True)
+    target_id = Column(String(100), nullable=True)
+    correlation_id = Column(String(64), nullable=True, index=True)
+    metadata_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 class ExternalDataSource(Base):
     __tablename__ = "external_data_sources"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False)          # e.g. "Store Live Customer API", "Shipping API"
-    endpoint_url = Column(Text, nullable=False)          # e.g. https://store.example.com/api/crm-customer
-    auth_method = Column(String(30), default="api_key")  # api_key, bearer, none
-    api_key = Column(Text, nullable=True)               # API secret token passed in headers
-    header_name = Column(String(100), default="X-CRM-Token") # Header key name e.g. X-CRM-Token or Authorization
-    lookup_param = Column(String(30), default="phone")  # query param key name (e.g. ?phone=...)
+    name = Column(String(100), nullable=False)               # e.g. "Store Live Customer API", "Shipping API"
+    endpoint_url = Column(Text, nullable=False)               # e.g. https://store.example.com/api/crm-customer
+    auth_method = Column(String(30), default="bearer")        # bearer, x_api_key, basic, none
+    secret_reference = Column(String(100), nullable=True)     # Reference to encrypted integration_secrets table
+    approved_hostname = Column(String(255), nullable=True)    # Exact approved hostname for credential binding
+    purpose = Column(String(100), nullable=True, default="customer_lookup")
+    lookup_param = Column(String(30), default="phone")       # query param key name (e.g. ?phone=...)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    def __init__(self, **kwargs):
+        # Support legacy kwargs for backward compatibility in existing fixtures/tests
+        api_key = kwargs.pop("api_key", None)
+        header_name = kwargs.pop("header_name", None)
+        if api_key and not kwargs.get("secret_reference"):
+            kwargs["secret_reference"] = f"sec_ref_legacy_{abs(hash(api_key))}"
+        super().__init__(**kwargs)
+
+    @property
+    def has_secret(self) -> bool:
+        return bool(self.secret_reference and self.secret_reference.strip())
+
     @property
     def has_api_key(self) -> bool:
-        return bool(self.api_key and self.api_key.strip())
+        return self.has_secret
 
 
 

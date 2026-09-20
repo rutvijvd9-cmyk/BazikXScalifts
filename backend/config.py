@@ -82,12 +82,27 @@ ECOM_SERVICE_USERNAME = os.getenv("ECOM_SERVICE_USERNAME", "ecom_service").strip
 ECOM_SERVICE_PASSWORD = os.getenv("ECOM_SERVICE_PASSWORD")
 ECOM_SERVICE_EMAIL = os.getenv("ECOM_SERVICE_EMAIL", "ecommerce@manubhaigathiyawala.com").strip()
 
+# ── Integration Gateway & Secret Storage ──
+INTEGRATION_ALLOWED_HOSTS_RAW = os.getenv("INTEGRATION_ALLOWED_HOSTS", "")
+INTEGRATION_ALLOWED_HOSTS = [
+    h.strip().lower() for h in INTEGRATION_ALLOWED_HOSTS_RAW.split(",") if h.strip()
+]
+
+APP_ENCRYPTION_KEY = os.getenv("APP_ENCRYPTION_KEY")
+if not APP_ENCRYPTION_KEY:
+    if ENVIRONMENT == "production":
+        raise RuntimeError("FATAL: APP_ENCRYPTION_KEY environment variable is mandatory in production!")
+    APP_ENCRYPTION_KEY = SECRET_KEY  # Ephemeral development fallback
+
 if ENVIRONMENT == "production":
     required_secrets = {
         "WEBHOOK_SECRET": WEBHOOK_SECRET,
         "WHATSAPP_VERIFY_TOKEN": WHATSAPP_VERIFY_TOKEN,
         "META_APP_SECRET": META_APP_SECRET,
+        "APP_ENCRYPTION_KEY": APP_ENCRYPTION_KEY,
     }
     missing_secrets = [name for name, value in required_secrets.items() if not value]
     if missing_secrets:
         raise RuntimeError(f"FATAL: Missing required production secrets: {', '.join(missing_secrets)}")
+    if not INTEGRATION_ALLOWED_HOSTS:
+        raise RuntimeError("FATAL: INTEGRATION_ALLOWED_HOSTS environment variable is mandatory in production!")
