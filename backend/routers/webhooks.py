@@ -23,6 +23,7 @@ from database import get_db
 from rate_limiter import limiter
 from scheduler import schedule_cart_recovery
 from services.phone_service import normalize_phone
+from services.policy_service import record_consent, revoke_consent
 from whatsapp_service import send_whatsapp_template
 
 logger = logging.getLogger("webhooks_router")
@@ -140,6 +141,13 @@ async def receive_cart_webhook(
         extra_payload.setdefault("delivery_address", payload.delivery_address)
 
     resolved_cust_name = payload.first_name or payload.customer_name or "Valued Customer"
+
+    record_consent(
+        db=db,
+        phone=payload.customer_phone,
+        source="store_checkout",
+        proof_details=f"cart:{payload.cart_token}"
+    )
 
     cart_record = models.CartEvent(
         cart_token=payload.cart_token,
@@ -262,6 +270,13 @@ async def receive_order_completed_webhook(
         return {"status": "duplicate", "message": "Webhook event was already processed."}
 
     # 1. Update contact order statistics
+    record_consent(
+        db=db,
+        phone=clean_phone,
+        source="store_checkout",
+        proof_details=f"order:{cart_token}"
+    )
+
     contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()
     if not contact:
         contact = models.Contact(phone=clean_phone, total_orders=1, last_order_date=datetime.utcnow())
@@ -467,12 +482,10 @@ async def receive_inbound_whatsapp_message(
 
         if is_opt_out:
             any_opt_out = True
-            existing_opt = db.query(models.OptOut).filter(models.OptOut.phone == sender_phone).first()
-            if not existing_opt:
-                opt_record = models.OptOut(phone=sender_phone, reason=f"INBOUND_REPLY: {raw_body}")
-                db.add(opt_record)
-                db.commit()
-                print(f"🛑 [AUTO-DND] Customer {sender_phone} texted '{raw_body}'. Added to Opt-Out DND list.")
+            revoke_consent(db, sender_phone, reason=f"INBOUND_REPLY: {raw_body}")
+            logger.info(f"🛑 [AUTO-DND] Customer {sender_phone} texted '{raw_body}'. Added to Opt-Out DND list and consent revoked.")
+        else:
+            record_consent(db, sender_phone, source="inbound_message", proof_details=f"meta_msg:{meta_id}")
 
         new_chat_msg = models.ChatMessage(
             customer_phone=sender_phone,

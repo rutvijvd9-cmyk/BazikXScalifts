@@ -12,6 +12,7 @@ logging.basicConfig(level=logging.INFO)
 
 import config
 from services.phone_service import normalize_phone, InvalidPhoneNumberError
+from services.policy_service import authorize_outbound_message
 
 WHATSAPP_API_TOKEN = config.WHATSAPP_API_TOKEN
 WHATSAPP_PHONE_NUMBER_ID = config.WHATSAPP_PHONE_NUMBER_ID
@@ -91,10 +92,18 @@ def send_whatsapp_template(
             if tmpl_record and tmpl_record.language:
                 language = tmpl_record.language
 
-        # Guardrail 1: Check if recipient is in DND/Opt-Out list
-        is_opted_out = db.query(models.OptOut).filter(models.OptOut.phone == recipient_phone).first()
-        if is_opted_out:
-            logger.info(f"🚫 [Opt-Out Blocked] Cannot send message to {recipient_phone} (User opted out).")
+        # Central Policy Bottleneck Check
+        is_auth, auth_reason = authorize_outbound_message(
+            db=db,
+            recipient_phone=recipient_phone,
+            message_type="template",
+            template_name=template_name,
+            campaign_id=campaign_id,
+            sender_user=sender_user,
+            enforce_quiet_hours=True
+        )
+        if not is_auth:
+            logger.info(f"🚫 [Policy Blocked] Message to {recipient_phone} blocked: {auth_reason}")
             try:
                 log_entry = models.MessageLog(
                     recipient_phone=recipient_phone,
@@ -103,37 +112,13 @@ def send_whatsapp_template(
                     language=language,
                     sender_user=sender_user,
                     status="FAILED",
-                    error_message="Customer opted out / on DND list"
+                    error_message=auth_reason
                 )
                 db.add(log_entry)
                 db.commit()
             except Exception:
-                pass
-            return {"status": "blocked", "reason": "Customer opted out / on DND list"}
-
-        # Guardrail 2: Hard Daily Spend Limit
-        under_limit, count_today = check_daily_limit(db)
-        effective_limit = get_effective_daily_limit(db)
-        if not under_limit:
-            logger.error(f"🚨 [BUDGET GUARD] Daily send limit ({effective_limit}) reached! Current today: {count_today}. Message blocked to protect spend.")
-            try:
-                log_entry = models.MessageLog(
-                    recipient_phone=recipient_phone,
-                    template_name=template_name,
-                    campaign_id=campaign_id,
-                    language=language,
-                    sender_user=sender_user,
-                    status="FAILED",
-                    error_message=f"Daily budget limit reached ({count_today}/{effective_limit} sent today)"
-                )
-                db.add(log_entry)
-                db.commit()
-            except Exception:
-                pass
-            return {
-                "status": "blocked",
-                "reason": f"Daily budget ceiling reached ({count_today}/{effective_limit} messages sent today)."
-            }
+                db.rollback()
+            return {"status": "blocked", "reason": auth_reason}
 
         # Safe local mock mode when Meta credentials are empty
         if not WHATSAPP_API_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
@@ -370,44 +355,63 @@ def create_meta_template(
         return {"error": str(e), "status": "FAILED"}
 
 
-def send_whatsapp_free_text(recipient_phone: str, message_text: str) -> dict:
+def send_whatsapp_free_text(recipient_phone: str, message_text: str, sender_user: str = "Agent") -> dict:
     """
     Sends a free-form customer service text message (used within Meta's 24-hour service window).
     Falls back to simulation mode if API credentials are not set.
     """
+    db = SessionLocal()
     try:
+        is_auth, auth_reason = authorize_outbound_message(
+            db=db,
+            recipient_phone=recipient_phone,
+            message_type="free_text",
+            sender_user=sender_user
+        )
+        if not is_auth:
+            logger.warning(f"🚫 [Policy Blocked] Free-text to {recipient_phone} blocked: {auth_reason}")
+            try:
+                log_entry = models.MessageLog(
+                    recipient_phone=recipient_phone,
+                    template_name="free_text_reply",
+                    sender_user=sender_user,
+                    status="FAILED",
+                    error_message=auth_reason
+                )
+                db.add(log_entry)
+                db.commit()
+            except Exception:
+                db.rollback()
+            return {"status": "blocked", "reason": auth_reason}
+
         clean_phone = normalize_phone(recipient_phone)
-    except InvalidPhoneNumberError as pe:
-        logger.error(f"🚨 [Invalid Phone] Cannot send chat message: {pe}")
-        return {"status": "error", "message": f"Invalid recipient phone: {pe}"}
 
-    # Check if simulated or live
-    if not WHATSAPP_API_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
-        mock_id = f"sim_chat_{int(datetime.utcnow().timestamp())}"
-        logger.info(f"💬 [SIMULATED 2-WAY CHAT] Agent sent to {clean_phone}: '{message_text}'")
-        return {
-            "status": "success_simulated",
-            "message_id": mock_id,
-            "info": "Simulated locally without live Meta credentials"
+        # Check if simulated or live
+        if not WHATSAPP_API_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
+            mock_id = f"sim_chat_{int(datetime.utcnow().timestamp())}"
+            logger.info(f"💬 [SIMULATED 2-WAY CHAT] Agent sent to {clean_phone}: '{message_text}'")
+            return {
+                "status": "success_simulated",
+                "message_id": mock_id,
+                "info": "Simulated locally without live Meta credentials"
+            }
+
+        headers = {
+            "Authorization": f"Bearer {WHATSAPP_API_TOKEN}",
+            "Content-Type": "application/json"
         }
 
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_API_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": clean_phone.replace("+", ""),
-        "type": "text",
-        "text": {
-            "preview_url": False,
-            "body": message_text
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": clean_phone.replace("+", ""),
+            "type": "text",
+            "text": {
+                "preview_url": False,
+                "body": message_text
+            }
         }
-    }
 
-    try:
         with httpx.Client(timeout=config.HTTP_TIMEOUT_SECONDS) as client:
             resp = client.post(META_API_URL, headers=headers, json=payload)
             data = resp.json()
@@ -421,5 +425,7 @@ def send_whatsapp_free_text(recipient_phone: str, message_text: str) -> dict:
     except Exception as e:
         logger.error(f"Error in send_whatsapp_free_text: {e}")
         return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
 
 

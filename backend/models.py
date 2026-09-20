@@ -77,6 +77,19 @@ class OptOut(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class ConsentRecord(Base):
+    __tablename__ = "consent_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    phone = Column(String(20), index=True, nullable=False)
+    source = Column(String(50), nullable=False, default="store_checkout")  # store_checkout, inbound_message, manual_import, csv_import
+    status = Column(String(20), nullable=False, default="ACTIVE")          # ACTIVE, REVOKED
+    proof_details = Column(Text, nullable=True)
+    consent_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class MessageLog(Base):
     __tablename__ = "message_logs"
 

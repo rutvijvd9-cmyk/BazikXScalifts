@@ -65,10 +65,13 @@ def test_webhook_audit_bad_signature_returns_401(client, db):
 
 
 def test_webhook_audit_valid_signature_creates_verified_event(client, db):
+    import random
     token = f"audit_ok_{uuid.uuid4().hex[:8]}"
+    suffix = random.randint(1000000, 9999999)
+    test_phone = f"+91988{suffix}"
     payload = {
         "cart_token": token,
-        "customer_phone": "9876543210",
+        "customer_phone": test_phone,
         "cart_value": 500.0,
         "items": []
     }

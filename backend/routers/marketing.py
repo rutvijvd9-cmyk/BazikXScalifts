@@ -27,6 +27,7 @@ from rate_limiter import limiter
 from scheduler import run_thirty_day_reengagement_sweep
 from whatsapp_service import send_whatsapp_template
 from services.phone_service import normalize_phone, InvalidPhoneNumberError
+from services.policy_service import record_consent, revoke_consent
 
 logger = logging.getLogger("marketing_router")
 
@@ -307,11 +308,8 @@ def register_opt_out(
     current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db),
 ):
-    existing = db.query(models.OptOut).filter(models.OptOut.phone == payload.phone).first()
-    if not existing:
-        opt_out = models.OptOut(phone=payload.phone, reason=payload.reason)
-        db.add(opt_out)
-        db.commit()
+    revoke_consent(db, payload.phone, reason=payload.reason or "ADMIN_REVOKED")
+    db.commit()
     return {"status": "success", "message": f"{payload.phone} added to DND list."}
 
 
@@ -330,12 +328,18 @@ def remove_opt_out(
     current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
-    record = db.query(models.OptOut).filter(models.OptOut.phone == phone).first()
+    try:
+        clean_phone = normalize_phone(phone)
+    except InvalidPhoneNumberError:
+        clean_phone = phone.strip()
+
+    record = db.query(models.OptOut).filter(models.OptOut.phone == clean_phone).first()
     if not record:
         raise HTTPException(status_code=404, detail="Opt-out record not found")
     db.delete(record)
+    record_consent(db, clean_phone, source="manual_import", proof_details=f"unblocked_by:{current_user.username}")
     db.commit()
-    return {"status": "success", "message": f"{phone} removed from DND list."}
+    return {"status": "success", "message": f"{clean_phone} removed from DND list."}
 
 
 # ==========================================

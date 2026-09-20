@@ -1,0 +1,222 @@
+"""
+Policy Service
+Centralized outbound message authorization, consent ledger management,
+and compliance guardrails (DND, Quiet Hours, 24-Hour Customer Window, Daily Limits).
+"""
+
+from datetime import datetime, timedelta
+import logging
+from typing import Optional, Tuple
+from sqlalchemy.orm import Session
+
+import config
+import models
+from services.phone_service import normalize_phone, InvalidPhoneNumberError
+
+logger = logging.getLogger("policy_service")
+
+FIXED_DAILY_LIMIT = 200
+
+# Transactional templates exempt from promotional quiet hours
+TRANSACTIONAL_TEMPLATES = {
+    "cart_recovery_reminder",
+    "milestone_reward_offer",
+    "order_confirmation",
+    "shipping_update",
+    "account_alert"
+}
+
+
+def is_quiet_hours(now_utc: Optional[datetime] = None) -> bool:
+    """
+    Checks if current time falls within TRAI / Consumer quiet hours:
+    21:00 (9 PM) to 09:00 (9 AM) Indian Standard Time (IST = UTC + 5:30).
+    """
+    if now_utc is None:
+        now_utc = datetime.utcnow()
+    ist_time = now_utc + timedelta(hours=5, minutes=30)
+    hour = ist_time.hour
+    return hour >= 21 or hour < 9
+
+
+def record_consent(
+    db: Session,
+    phone: str,
+    source: str = "store_checkout",
+    proof_details: Optional[str] = None
+) -> models.ConsentRecord:
+    """
+    Records or updates affirmative customer consent in the Consent Ledger.
+    """
+    clean_phone = normalize_phone(phone)
+    active_record = (
+        db.query(models.ConsentRecord)
+        .filter(models.ConsentRecord.phone == clean_phone, models.ConsentRecord.status == "ACTIVE")
+        .first()
+    )
+    if active_record:
+        active_record.proof_details = proof_details or active_record.proof_details
+        active_record.consent_timestamp = datetime.utcnow()
+        db.flush()
+        return active_record
+
+    record = models.ConsentRecord(
+        phone=clean_phone,
+        source=source,
+        status="ACTIVE",
+        proof_details=proof_details,
+        consent_timestamp=datetime.utcnow()
+    )
+    db.add(record)
+    db.flush()
+    return record
+
+
+def revoke_consent(
+    db: Session,
+    phone: str,
+    reason: str = "OPT_OUT"
+) -> None:
+    """
+    Revokes customer consent across the Consent Ledger and ensures an entry in opt_outs.
+    """
+    try:
+        clean_phone = normalize_phone(phone)
+    except InvalidPhoneNumberError:
+        clean_phone = phone.strip()
+
+    # Update active consent records to REVOKED
+    active_records = (
+        db.query(models.ConsentRecord)
+        .filter(models.ConsentRecord.phone == clean_phone, models.ConsentRecord.status == "ACTIVE")
+        .all()
+    )
+    now = datetime.utcnow()
+    for rec in active_records:
+        rec.status = "REVOKED"
+        rec.revoked_at = now
+
+    # Ensure phone is in opt_outs table
+    opt_out = db.query(models.OptOut).filter(models.OptOut.phone == clean_phone).first()
+    if not opt_out:
+        db.add(models.OptOut(phone=clean_phone, reason=reason))
+
+    db.flush()
+    logger.info(f"🛑 [Consent Revoked] Phone {clean_phone} revoked: {reason}")
+
+
+def has_active_consent(db: Session, phone: str) -> bool:
+    """
+    Returns True if recipient has active consent and is not opted out.
+    """
+    try:
+        clean_phone = normalize_phone(phone)
+    except InvalidPhoneNumberError:
+        return False
+
+    is_opted_out = db.query(models.OptOut).filter(models.OptOut.phone == clean_phone).first()
+    if is_opted_out:
+        return False
+
+    has_active = (
+        db.query(models.ConsentRecord)
+        .filter(models.ConsentRecord.phone == clean_phone, models.ConsentRecord.status == "ACTIVE")
+        .first()
+    )
+    return bool(has_active)
+
+
+def authorize_outbound_message(
+    db: Session,
+    recipient_phone: str,
+    message_type: str = "template",  # "template", "free_text"
+    template_name: Optional[str] = None,
+    campaign_id: Optional[int] = None,
+    sender_user: Optional[str] = "System",
+    enforce_quiet_hours: bool = True
+) -> Tuple[bool, str]:
+    """
+    Central Outbound Message Policy Bottleneck.
+    Evaluates:
+    1. Valid E.164 Phone format
+    2. DND / Opt-Out List
+    3. Consent Ledger status
+    4. Meta 24-Hour Customer Service Window (for free-text chat replies)
+    5. Daily Outbound Message Quota (fixed 200/day)
+    6. Quiet Hours (21:00 - 09:00 IST) for promotional/campaign broadcasts
+
+    Returns (is_authorized, reason)
+    """
+    # 1. Phone validation
+    try:
+        clean_phone = normalize_phone(recipient_phone)
+    except InvalidPhoneNumberError as e:
+        return False, f"Invalid recipient phone: {e}"
+
+    # 2. Strict DND / Opt-Out Check
+    is_opted_out = db.query(models.OptOut).filter(models.OptOut.phone == clean_phone).first()
+    if is_opted_out:
+        return False, "Customer opted out / on DND list"
+
+    # 3. Consent check
+    # Check if consent was explicitly revoked
+    revoked_consent = (
+        db.query(models.ConsentRecord)
+        .filter(models.ConsentRecord.phone == clean_phone, models.ConsentRecord.status == "REVOKED")
+        .order_by(models.ConsentRecord.id.desc())
+        .first()
+    )
+    active_consent = (
+        db.query(models.ConsentRecord)
+        .filter(models.ConsentRecord.phone == clean_phone, models.ConsentRecord.status == "ACTIVE")
+        .order_by(models.ConsentRecord.id.desc())
+        .first()
+    )
+    if revoked_consent and (not active_consent or revoked_consent.id > active_consent.id):
+        return False, "Customer consent revoked"
+
+    # For promotional campaign broadcasts, ensure active consent exists or contact exists
+    if campaign_id is not None:
+        if not active_consent:
+            contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()
+            if not contact:
+                return False, "No active consent on file for campaign recipient"
+
+    # 4. Meta 24-Hour Customer Service Window (for free_text / agent chat)
+    if message_type == "free_text":
+        twenty_four_hours_ago = datetime.utcnow() - timedelta(hours=24)
+        last_inbound_msg = (
+            db.query(models.ChatMessage)
+            .filter(
+                models.ChatMessage.customer_phone == clean_phone,
+                models.ChatMessage.sender_type == "CUSTOMER",
+                models.ChatMessage.created_at >= twenty_four_hours_ago
+            )
+            .first()
+        )
+        if config.WHATSAPP_API_TOKEN and config.WHATSAPP_PHONE_NUMBER_ID and not last_inbound_msg:
+            return False, "Outside Meta's 24-hour customer service window"
+
+    # 5. Fixed Daily Outbound Send Limit (Max 200/day hard budget ceiling)
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    current_count = (
+        db.query(models.MessageLog)
+        .filter(
+            models.MessageLog.created_at >= today_start,
+            models.MessageLog.status.in_(["SENT", "SENT_SIMULATED", "DELIVERED", "READ"])
+        )
+        .count()
+    )
+    import whatsapp_service
+    effective_limit = min(FIXED_DAILY_LIMIT, getattr(whatsapp_service, "DAILY_MESSAGE_SEND_LIMIT", FIXED_DAILY_LIMIT))
+    if current_count >= effective_limit:
+        return False, f"Daily budget ceiling reached ({current_count}/{effective_limit} messages sent today)."
+
+    # 6. Quiet Hours Enforcement (21:00 - 09:00 IST)
+    # Broadcast campaigns and promotional templates are held during quiet hours.
+    # Transactional messages (cart recovery, order confirmation) are exempt.
+    is_promotional = campaign_id is not None or (template_name and template_name not in TRANSACTIONAL_TEMPLATES)
+    if enforce_quiet_hours and is_promotional and is_quiet_hours():
+        return False, "Promotional message blocked: Quiet hours in effect (21:00 - 09:00 IST)"
+
+    return True, "Authorized"
