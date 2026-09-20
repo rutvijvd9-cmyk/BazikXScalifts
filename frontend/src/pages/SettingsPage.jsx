@@ -24,12 +24,6 @@ import { ApiTokenModal } from "../components/modals/UserManagementModals";
 
 export default function SettingsPage({
   systemSettings = {},
-  dailyLimitInput,
-  setDailyLimitInput,
-  isEditingDailyLimit = false,
-  setIsEditingDailyLimit = () => {},
-  savingDailyLimit = false,
-  handleUpdateDailyLimit = () => {},
   currentUserProfile,
   setIsAddUserModalOpen = () => {},
   systemUsers = [],
@@ -115,55 +109,16 @@ export default function SettingsPage({
                   <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border border-gray-200">
                     <div>
                       <h4 className="font-bold text-gray-900">Daily Outbound Message Limit (Spending Guardrail)</h4>
-                      <p className="text-xs text-gray-500 mt-0.5">Maximum WhatsApp messages the system is allowed to send per 24 hours</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Maximum WhatsApp messages the system is allowed to send per 24 hours (Fixed)</p>
                     </div>
-                    {isEditingDailyLimit ? (
-                      <form onSubmit={handleUpdateDailyLimit} className="flex items-center gap-2">
-                        <div className="flex items-center bg-white border border-emerald-300 rounded-lg px-2.5 py-1 focus-within:ring-2 focus-within:ring-[#25D366]">
-                          <input
-                            type="number"
-                            min="1"
-                            max="500000"
-                            value={dailyLimitInput}
-                            onChange={(e) => setDailyLimitInput(e.target.value)}
-                            className="w-24 font-mono font-bold text-base text-gray-900 focus:outline-none"
-                            autoFocus
-                          />
-                          <span className="text-xs text-gray-400 font-semibold ml-1">/ Day</span>
-                        </div>
-                        <button
-                          type="submit"
-                          disabled={savingDailyLimit}
-                          className="bg-[#25D366] hover:bg-[#1EBE5D] text-white px-3 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-50"
-                        >
-                          {savingDailyLimit ? "Saving..." : "Save"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setIsEditingDailyLimit(false)}
-                          className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition"
-                        >
-                          Cancel
-                        </button>
-                      </form>
-                    ) : (
-                      <div className="flex items-center gap-2.5">
-                        <span className="font-mono font-bold text-base text-[#10B981] bg-white px-3 py-1 rounded-lg border border-gray-200">
-                          {systemSettings.daily_limit || 500} / Day
-                        </span>
-                        <button
-                          onClick={() => {
-                            setDailyLimitInput(systemSettings.daily_limit || 500);
-                            setIsEditingDailyLimit(true);
-                          }}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 rounded-lg transition shadow-xs"
-                          title="Edit daily outbound message limit"
-                        >
-                          <Edit2 className="w-3 h-3 text-gray-500" />
-                          Edit
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-base text-[#10B981] bg-white px-3 py-1 rounded-lg border border-gray-200 shadow-xs">
+                        200 / Day
+                      </span>
+                      <span className="text-[11px] font-semibold text-gray-500 bg-gray-200/80 px-2 py-0.5 rounded-md border border-gray-300/60">
+                        Fixed
+                      </span>
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border border-gray-200">

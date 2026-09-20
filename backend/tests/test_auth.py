@@ -41,4 +41,12 @@ def test_system_settings_reflects_config(client, auth_headers):
     res = client.get("/api/settings", headers=auth_headers)
     assert res.status_code == status.HTTP_200_OK
     data = res.json()
-    assert data["daily_limit"] == config.DAILY_MESSAGE_SEND_LIMIT
+    assert data["daily_limit"] == 200
+
+
+def test_daily_limit_is_fixed_and_cannot_be_edited(client, auth_headers):
+    # Attempting to edit daily limit must be rejected with 400 Bad Request
+    res = client.put("/api/settings/daily-limit", json={"daily_limit": 500}, headers=auth_headers)
+    assert res.status_code == status.HTTP_400_BAD_REQUEST
+    assert "fixed" in res.json()["detail"].lower()
+

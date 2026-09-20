@@ -236,10 +236,6 @@ export default function App() {
   const lastProcessedMessageIdRef = useRef(null);
   const isInitialChatLoadRef = useRef(true);
 
-  // Settings Daily Limit Editing States
-  const [isEditingDailyLimit, setIsEditingDailyLimit] = useState(false);
-  const [dailyLimitInput, setDailyLimitInput] = useState(500);
-  const [savingDailyLimit, setSavingDailyLimit] = useState(false);
 
   // Pleasant Web Audio Chime for Live Chat Incoming Messages (Zero external MP3 dependencies)
   const playIncomingMessageSound = () => {
@@ -931,32 +927,6 @@ export default function App() {
       if (!silent) console.error("Failed to fetch messages for " + phone, err);
     } finally {
       if (!silent) setChatLoading(false);
-    }
-  };
-
-  const handleUpdateDailyLimit = async (e) => {
-    e?.preventDefault();
-    const parsed = parseInt(dailyLimitInput, 10);
-    if (isNaN(parsed) || parsed < 1) {
-      alert("Please enter a valid daily message limit (minimum 1).");
-      return;
-    }
-    setSavingDailyLimit(true);
-    try {
-      const res = await axios.put(
-        "/api/settings/daily-limit",
-        { daily_limit: parsed },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setSystemSettings((prev) => ({ ...prev, daily_limit: parsed }));
-      setIsEditingDailyLimit(false);
-      setActionSuccessMsg(`✅ ${res.data.message || "Daily message limit updated successfully!"}`);
-      fetchData(true);
-      setTimeout(() => setActionSuccessMsg(""), 5000);
-    } catch (err) {
-      alert("Failed to update daily message limit: " + (err.response?.data?.detail || err.message));
-    } finally {
-      setSavingDailyLimit(false);
     }
   };
 
@@ -1809,12 +1779,6 @@ export default function App() {
           {activeTab === "settings" && (
             <SettingsPage
               systemSettings={systemSettings}
-              dailyLimitInput={dailyLimitInput}
-              setDailyLimitInput={setDailyLimitInput}
-              isEditingDailyLimit={isEditingDailyLimit}
-              setIsEditingDailyLimit={setIsEditingDailyLimit}
-              savingDailyLimit={savingDailyLimit}
-              handleUpdateDailyLimit={handleUpdateDailyLimit}
               currentUserProfile={currentUserProfile}
               setIsAddUserModalOpen={setIsAddUserModalOpen}
               systemUsers={systemUsers}

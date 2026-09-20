@@ -41,8 +41,8 @@ WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
 # Subscription / Multi-tenant user limit (e.g. maximum 5 team members)
 MAX_USERS_LIMIT = int(os.getenv("MAX_USERS_LIMIT", "5"))
 
-# Daily guardrail on maximum outbound WhatsApp message sends (default 10,000 to support high-volume campaigns)
-DAILY_MESSAGE_SEND_LIMIT = int(os.getenv("DAILY_MESSAGE_SEND_LIMIT", "10000"))
+# Daily guardrail on maximum outbound WhatsApp message sends (fixed to 200 per day)
+DAILY_MESSAGE_SEND_LIMIT = 200
 
 # Default promo coupon code and discount terms
 DEFAULT_COUPON_CODE = os.getenv("DEFAULT_COUPON_CODE", "WELCOME")

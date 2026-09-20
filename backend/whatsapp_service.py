@@ -28,14 +28,11 @@ META_API_URL = (
 )
 
 
-def get_effective_daily_limit(db) -> int:
-    """Returns the effective daily limit from DB SystemSetting, falling back to config."""
-    try:
-        setting = db.query(models.SystemSetting).filter(models.SystemSetting.key == "daily_limit").first()
-        if setting and setting.value:
-            return int(setting.value)
-    except Exception:
-        pass
+FIXED_DAILY_LIMIT = 200
+
+
+def get_effective_daily_limit(db=None) -> int:
+    """Returns the fixed daily limit of 200 outbound messages per day."""
     return DAILY_MESSAGE_SEND_LIMIT
 
 

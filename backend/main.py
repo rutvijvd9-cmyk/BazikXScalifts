@@ -167,8 +167,20 @@ def on_startup():
     except Exception as _mig_err:
         print(f"⚠️  [DB] Migration step error (non-fatal): {_mig_err}")
 
-    # ── Admin user sync ───────────────────────────────────────────────────────
+    # ── Fixed Daily Limit Sync (200 messages / day) ───────────────────────────
     db = next(get_db())
+    try:
+        limit_setting = db.query(models.SystemSetting).filter(models.SystemSetting.key == "daily_limit").first()
+        if limit_setting:
+            limit_setting.value = "200"
+        else:
+            db.add(models.SystemSetting(key="daily_limit", value="200"))
+        db.commit()
+    except Exception as _set_err:
+        db.rollback()
+        print(f"⚠️  [Settings] Daily limit sync note: {_set_err}")
+
+    # ── Admin user sync ───────────────────────────────────────────────────────
     initial_user = config.INITIAL_ADMIN_USERNAME
     initial_pass = config.INITIAL_ADMIN_PASSWORD
     initial_email = config.INITIAL_ADMIN_EMAIL
