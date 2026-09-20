@@ -104,7 +104,7 @@ class ExternalDataSourceResponse(BaseModel):
     name: str
     endpoint_url: str
     auth_method: str
-    api_key: Optional[str] = None
+    has_api_key: bool = False
     header_name: str
     lookup_param: str
     is_active: bool
@@ -112,6 +112,7 @@ class ExternalDataSourceResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 
 class OptOutRequest(BaseModel):

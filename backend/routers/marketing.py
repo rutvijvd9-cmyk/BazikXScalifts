@@ -4,10 +4,14 @@ Handles discount codes, external e-commerce data sources, opt-out management,
 direct test WhatsApp messages, and 30-day customer re-engagement sweep trigger.
 """
 
+import ipaddress
 import logging
 import re
+import socket
+import time
 from datetime import datetime, timedelta
 from typing import List, Optional
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -84,25 +88,107 @@ def delete_discount_code(
 # 🌐 EXTERNAL DATA SOURCES
 # ==========================================
 
+# ==========================================
+# 🌐 EXTERNAL DATA SOURCES & SSRF GUARD
+# ==========================================
+
+def validate_ssrf_safe_url(url: str) -> None:
+    """
+    Validates that a URL uses HTTPS and does not resolve to private,
+    loopback, link-local, multicast, or cloud-metadata IP addresses (SSRF mitigation).
+    """
+    parsed = urlparse(url)
+    if parsed.scheme.lower() != "https":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid endpoint URL: Only secure HTTPS endpoints are permitted."
+        )
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid endpoint URL: Hostname is required."
+        )
+
+    # Check for direct IP literal strings attempting loopback/private/metadata bypass
+    try:
+        direct_ip = ipaddress.ip_address(hostname)
+        if (
+            direct_ip.is_loopback
+            or direct_ip.is_private
+            or direct_ip.is_link_local
+            or direct_ip.is_multicast
+            or direct_ip.is_reserved
+            or direct_ip.is_unspecified
+            or str(direct_ip) == "169.254.169.254"
+        ):
+            logger.warning(f"🚨 [SSRF Blocked] Direct IP literal forbidden: {direct_ip}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Access denied: Requests to internal, loopback, private, or metadata addresses are prohibited."
+            )
+    except ValueError:
+        pass  # Hostname is a domain name, proceed to DNS resolution
+
+    port = parsed.port or 443
+    try:
+        addr_info = socket.getaddrinfo(hostname, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except socket.gaierror:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid endpoint URL: Unable to resolve hostname '{hostname}'."
+        )
+
+    for item in addr_info:
+        sockaddr = item[4]
+        ip_str = sockaddr[0]
+        try:
+            ip_obj = ipaddress.ip_address(ip_str)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid endpoint URL: Unrecognized IP address format for '{hostname}'."
+            )
+
+        if (
+            ip_obj.is_loopback
+            or ip_obj.is_private
+            or ip_obj.is_link_local
+            or ip_obj.is_multicast
+            or ip_obj.is_reserved
+            or ip_obj.is_unspecified
+            or str(ip_obj) == "169.254.169.254"
+        ):
+            logger.warning(f"🚨 [SSRF Blocked] Host '{hostname}' resolved to forbidden IP {ip_str}.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Access denied: Requests to internal, loopback, private, or metadata network addresses are prohibited."
+            )
+
+
 @router.get("/api/external-data-sources", response_model=List[schemas.ExternalDataSourceResponse])
 def list_external_data_sources(
-    current_user: models.User = Depends(auth.get_current_user),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
     db: Session = Depends(get_db)
 ):
-    """Lists all configured external e-commerce REST API data sources."""
+    """Lists all configured external e-commerce REST API data sources (api_key redacted)."""
     return db.query(models.ExternalDataSource).order_by(models.ExternalDataSource.id.asc()).all()
 
 
 @router.post("/api/external-data-sources", response_model=schemas.ExternalDataSourceResponse, status_code=status.HTTP_201_CREATED)
 def create_external_data_source(
     payload: schemas.ExternalDataSourceCreate,
-    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
-    """Registers a new external API endpoint for customer data lookup."""
+    """Registers a new external API endpoint with mandatory HTTPS and SSRF verification."""
+    clean_url = payload.endpoint_url.strip()
+    validate_ssrf_safe_url(clean_url)
+
     src = models.ExternalDataSource(
         name=payload.name.strip(),
-        endpoint_url=payload.endpoint_url.strip(),
+        endpoint_url=clean_url,
         auth_method=payload.auth_method or "api_key",
         api_key=payload.api_key.strip() if payload.api_key else None,
         header_name=payload.header_name.strip() if payload.header_name else "X-CRM-Token",
@@ -119,16 +205,20 @@ def create_external_data_source(
 def update_external_data_source(
     source_id: int,
     payload: schemas.ExternalDataSourceUpdate,
-    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     src = db.query(models.ExternalDataSource).filter(models.ExternalDataSource.id == source_id).first()
     if not src:
         raise HTTPException(status_code=404, detail="Data source not found")
+
+    if payload.endpoint_url is not None:
+        clean_url = payload.endpoint_url.strip()
+        validate_ssrf_safe_url(clean_url)
+        src.endpoint_url = clean_url
+
     if payload.name is not None:
         src.name = payload.name.strip()
-    if payload.endpoint_url is not None:
-        src.endpoint_url = payload.endpoint_url.strip()
     if payload.auth_method is not None:
         src.auth_method = payload.auth_method
     if payload.api_key is not None:
@@ -139,6 +229,7 @@ def update_external_data_source(
         src.lookup_param = payload.lookup_param.strip()
     if payload.is_active is not None:
         src.is_active = payload.is_active
+
     db.commit()
     db.refresh(src)
     return src
@@ -147,7 +238,7 @@ def update_external_data_source(
 @router.delete("/api/external-data-sources/{source_id}")
 def delete_external_data_source(
     source_id: int,
-    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     src = db.query(models.ExternalDataSource).filter(models.ExternalDataSource.id == source_id).first()
@@ -162,12 +253,14 @@ def delete_external_data_source(
 def test_external_data_source(
     source_id: int,
     test_phone: Optional[str] = "+919876543210",
-    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    current_user: models.User = Depends(auth.require_roles("admin")),
     db: Session = Depends(get_db)
 ):
     src = db.query(models.ExternalDataSource).filter(models.ExternalDataSource.id == source_id).first()
     if not src:
         raise HTTPException(status_code=404, detail="Data source not found")
+
+    validate_ssrf_safe_url(src.endpoint_url)
 
     headers = {}
     if src.auth_method == "bearer" and src.api_key:
@@ -176,20 +269,29 @@ def test_external_data_source(
         headers[src.header_name or "X-CRM-Token"] = src.api_key
 
     params = {src.lookup_param or "phone": test_phone}
+    start_time = time.time()
     try:
-        with httpx.Client(timeout=8.0) as client:
+        # Strict security: follow_redirects=False prevents open redirect SSRF bypass,
+        # and upstream response content is never returned to the client to prevent exfiltration.
+        with httpx.Client(timeout=8.0, follow_redirects=False) as client:
             resp = client.get(src.endpoint_url, params=params, headers=headers)
+            elapsed_ms = (time.time() - start_time) * 1000.0
             return {
                 "status_code": resp.status_code,
                 "is_success": resp.status_code == 200,
-                "response_data": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text[:500]
+                "latency_ms": round(elapsed_ms, 2),
+                "message": "Connection verified successfully." if resp.status_code == 200 else f"Upstream endpoint responded with status {resp.status_code}."
             }
     except Exception as err:
+        elapsed_ms = (time.time() - start_time) * 1000.0
+        logger.warning(f"⚠️ [Integration Test] Connectivity test error for source #{source_id}: {err}")
         return {
             "status_code": 0,
             "is_success": False,
-            "error": str(err)
+            "latency_ms": round(elapsed_ms, 2),
+            "message": "Connection attempt failed or timed out."
         }
+
 
 
 # ==========================================
@@ -360,25 +462,34 @@ def download_message_logs(
 # ==========================================
 
 @router.get("/api/mock-store-feed/inactive-customers")
-def mock_store_inactive_feed(days: int = 30):
+def mock_store_inactive_feed(
+    days: int = 30,
+    current_user: models.User = Depends(auth.require_roles("admin"))
+):
+    if config.ENVIRONMENT == "production":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mock endpoints are disabled in production environments."
+        )
     return {
         "status": "success",
         "days_threshold": days,
         "customers": [
             {
-                "phone": "+919825123456",
-                "name": "Kishorebhai Mehta",
-                "email": "kishore@example.com",
+                "phone": "+919000000001",
+                "name": "Dev Test Patron 1",
+                "email": "test1@example.invalid",
                 "total_orders": 4
             },
             {
-                "phone": "+919898765432",
-                "name": "Pravinbhai Trivedi",
-                "email": "pravin@example.com",
+                "phone": "+919000000002",
+                "name": "Dev Test Patron 2",
+                "email": "test2@example.invalid",
                 "total_orders": 2
             }
         ]
     }
+
 
 
 @router.post("/api/triggers/reengagement-sweep")

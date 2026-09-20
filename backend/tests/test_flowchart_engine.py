@@ -1,4 +1,7 @@
 import pytest
+import json
+import hmac
+import hashlib
 from datetime import datetime, timedelta
 import models
 import auth
@@ -187,7 +190,13 @@ def test_cart_event_webhook_enrolls_workflow(client, db):
         "items": [{"item": "Nylon Khaman"}, {"item": "Bhavnagari Gathiya"}]
     }
 
-    res = client.post("/api/webhooks/cart-event?delay_seconds=1800", json=cart_payload, headers=headers)
+    raw_body = json.dumps(cart_payload).encode()
+    signature = "sha256=" + hmac.new(
+        b"test-store-webhook-secret", raw_body, hashlib.sha256
+    ).hexdigest()
+    hmac_headers = {"Content-Type": "application/json", "X-Hub-Signature-256": signature}
+
+    res = client.post("/api/webhooks/cart-event?delay_seconds=1800", content=raw_body, headers=hmac_headers)
     assert res.status_code == 202
     data = res.json()
     assert data["status"] == "received"

@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -5,10 +6,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
 from database import get_db
+import config
 import models
 import schemas
 import auth
-from whatsapp_service import send_whatsapp_free_text
+from whatsapp_service import send_whatsapp_free_text, check_daily_limit, get_effective_daily_limit
 
 logger = logging.getLogger("chat_router")
 
@@ -176,11 +178,52 @@ def send_agent_reply(
 ):
     """
     Allows store owner/agent to send an outbound text reply to a customer's WhatsApp.
-    Dispatches via Meta Cloud API or simulation mode and saves to chat history.
+    Enforces DND/Opt-Out, Meta's 24-hour customer service window, and daily spending guardrails.
     """
     clean_phone = payload.customer_phone.strip()
     if not clean_phone.startswith("+"):
         clean_phone = "+" + clean_phone
+
+    # 1. Strict DND / Opt-Out Check
+    is_opted_out = db.query(models.OptOut).filter(models.OptOut.phone == clean_phone).first()
+    if is_opted_out:
+        logger.warning(f"🚫 [Chat Blocked] Attempted outbound message to opted-out recipient {clean_phone} by '{current_user.username}'.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Customer {clean_phone} has opted out of WhatsApp messages (DND list). Outbound messages are prohibited."
+        )
+
+    # 2. Meta 24-Hour Customer Service Window Check
+    # Free-form customer service replies are only allowed within 24 hours of the customer's last inbound message.
+    # Outside this window, Meta prohibits free text and requires an approved WhatsApp template.
+    twenty_four_hours_ago = datetime.utcnow() - timedelta(hours=24)
+    last_inbound_msg = (
+        db.query(models.ChatMessage)
+        .filter(
+            models.ChatMessage.customer_phone == clean_phone,
+            models.ChatMessage.sender_type == "CUSTOMER",
+            models.ChatMessage.created_at >= twenty_four_hours_ago
+        )
+        .order_by(models.ChatMessage.created_at.desc())
+        .first()
+    )
+
+    if config.WHATSAPP_API_TOKEN and config.WHATSAPP_PHONE_NUMBER_ID and not last_inbound_msg:
+        logger.warning(f"🚫 [Chat Service Window] Customer {clean_phone} is outside Meta's 24-hour service window.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Outside Meta's 24-hour customer service window. Free-form text is prohibited; please initiate contact using an approved WhatsApp template."
+        )
+
+    # 3. Daily Send Limit Guardrail
+    under_limit, count_today = check_daily_limit(db)
+    if not under_limit:
+        effective_limit = get_effective_daily_limit(db)
+        logger.error(f"🚨 [BUDGET GUARD] Daily send limit ({effective_limit}) reached! Chat blocked.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Daily outbound message limit reached ({count_today}/{effective_limit}). Outbound message blocked."
+        )
 
     # Dispatch via whatsapp_service
     res = send_whatsapp_free_text(clean_phone, payload.text)

@@ -211,6 +211,11 @@ class ExternalDataSource(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    @property
+    def has_api_key(self) -> bool:
+        return bool(self.api_key and self.api_key.strip())
+
+
 
 class SystemSetting(Base):
     __tablename__ = "system_settings"

@@ -43,44 +43,23 @@ async def get_webhook_authenticated_user(
     simulations may use an admin or service JWT, but arbitrary user JWTs and
     raw shared-secret headers are never accepted.
     """
-    auth_header = request.headers.get("Authorization", "").strip()
-    signature = request.headers.get("X-Hub-Signature-256", "")
-    if config.WEBHOOK_SECRET and signature:
-        raw_body = await request.body()
-        expected = "sha256=" + hmac.new(
-            config.WEBHOOK_SECRET.encode(), raw_body, hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(expected, signature):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
-        svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
-        return svc or models.User(username=config.ECOM_SERVICE_USERNAME, is_active=True)
-
-    # 1. Check permanent API Key from X-API-Key or query params
-    api_key_header = request.headers.get("X-API-Key", "").strip() or request.query_params.get("api_key", "").strip()
-    if api_key_header:
-        api_user = db.query(models.User).filter(models.User.api_token == api_key_header).first()
-        if api_user and api_user.is_active:
-            return api_user
+    signature = request.headers.get("X-Hub-Signature-256", "").strip()
+    if not signature or not config.WEBHOOK_SECRET:
+        logger.warning("🚨 [Webhook Security] Store webhook rejected: missing HMAC signature or WEBHOOK_SECRET.")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 
-    # 2. Check Bearer token (supports both JWT and permanent API token)
-    if auth_header.startswith("Bearer "):
-        token = auth_header.split(" ", 1)[1].strip()
-        try:
-            user = auth.get_current_user(token=token, db=db)
-            if user and user.is_active:
-                return user
-        except HTTPException:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
-        except Exception:
-            pass
+    raw_body = await request.body()
+    expected = "sha256=" + hmac.new(
+        config.WEBHOOK_SECRET.encode(), raw_body, hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected, signature):
+        logger.warning("🚨 [Webhook Security] Store webhook rejected: HMAC signature mismatch.")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 
-    # Stealth Security: Return 404 Not Found if called without token
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Not Found"
-    )
+    svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
+    return svc or models.User(username=config.ECOM_SERVICE_USERNAME, is_active=True)
+
 
 
 @router.post("/cart-event", status_code=status.HTTP_202_ACCEPTED)
