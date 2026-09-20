@@ -3,7 +3,7 @@ services:
     name: manubhai-whatsapp-backend
     env: python
     region: singapore
-    plan: free
+    plan: standard
     buildCommand: "pip install -r backend/requirements.txt"
     startCommand: "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port $PORT"
     envVars:
@@ -11,3 +11,20 @@ services:
         value: 3.11.0
       - key: APP_NAME
         value: "WhatsApp CRM — Manubhai Gathiyawala"
+      - key: SCHEDULER_ENABLED
+        value: "false"
+
+  - type: worker
+    name: manubhai-whatsapp-worker
+    env: python
+    region: singapore
+    plan: standard
+    buildCommand: "pip install -r backend/requirements.txt"
+    startCommand: "cd backend && python worker.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: APP_NAME
+        value: "WhatsApp CRM Worker — Manubhai Gathiyawala"
+      - key: SCHEDULER_ENABLED
+        value: "true"

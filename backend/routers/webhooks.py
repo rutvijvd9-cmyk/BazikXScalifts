@@ -24,6 +24,7 @@ from rate_limiter import limiter
 from scheduler import schedule_cart_recovery
 from services.phone_service import normalize_phone
 from services.policy_service import record_consent, revoke_consent
+from services.audit_service import record_audit_event, hash_phone
 from whatsapp_service import send_whatsapp_template
 
 logger = logging.getLogger("webhooks_router")
@@ -231,19 +232,31 @@ async def receive_cart_webhook(
 @limiter.limit("60/minute")
 async def receive_order_completed_webhook(
     request: Request,
-    cart_token: str,
-    customer_phone: str,
+    payload: Optional[schemas.OrderCompletedPayload] = None,
+    cart_token: Optional[str] = None,
+    customer_phone: Optional[str] = None,
     current_user: models.User = Depends(get_webhook_authenticated_user),
     db: Session = Depends(get_db)
 ):
-    try:
-        clean_phone = normalize_phone(customer_phone)
-    except ValueError:
-        clean_phone = customer_phone.strip()
-        if not clean_phone.startswith("+"):
-            clean_phone = "+" + clean_phone
+    token = payload.cart_token if payload else cart_token
+    raw_phone = payload.customer_phone if payload else customer_phone
 
-    correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+    if not token or not raw_phone:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing cart_token or customer_phone"
+        )
+
+    try:
+        clean_phone = normalize_phone(raw_phone)
+    except InvalidPhoneNumberError as pe:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid customer_phone: {pe}"
+        )
+
+    cart_token = token
+    correlation_id = request.headers.get("X-Correlation-ID") or request.headers.get("X-Request-ID") or str(uuid.uuid4())
     external_event_id = f"order:{cart_token}"
     idempotency_key = request.headers.get("X-Idempotency-Key") or f"order:{cart_token}"
 
@@ -528,8 +541,8 @@ async def receive_inbound_whatsapp_message(
 
                 if is_opt_out:
                     any_opt_out = True
-                    revoke_consent(db, sender_phone, reason=f"INBOUND_REPLY: {raw_body}")
-                    logger.info(f"🛑 [AUTO-DND] Customer {sender_phone} texted '{raw_body}'. Added to Opt-Out DND list and consent revoked.")
+                    revoke_consent(db, sender_phone, reason="INBOUND_STOP_COMMAND")
+                    logger.info(f"🛑 [AUTO-DND] Customer opted out via inbound message. Added to Opt-Out DND list and consent revoked.")
                 else:
                     record_consent(db, sender_phone, source="inbound_message", proof_details=f"meta_msg:{meta_id}")
 
@@ -589,3 +602,108 @@ async def receive_inbound_whatsapp_message(
     if processed_statuses_count > 0:
         return {"status": "status_update_acknowledged", "statuses_processed": processed_statuses_count}
     return {"status": "ok"}
+
+
+# ============================================================================
+# Webhook Simulation Routes (WP1) - Admin-only, step-up auth, audit logged
+# ============================================================================
+
+@router.post("/simulate/cart-event", status_code=status.HTTP_202_ACCEPTED)
+def simulate_cart_event(
+    request: Request,
+    payload: schemas.CartEventPayload,
+    password: Optional[str] = None,
+    two_factor_code: Optional[str] = None,
+    current_user: models.User = Depends(auth.require_roles("admin")),
+    db: Session = Depends(get_db)
+):
+    """
+    Simulates a cart-event webhook without HMAC signatures.
+    Strictly restricted to Admin role with step-up authentication.
+    Generates an immutable AuditEvent and idempotency ledger entry.
+    """
+    auth.verify_user_stepup_auth(current_user, password, two_factor_code, db)
+
+    correlation_id = request.headers.get("X-Correlation-ID") or request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    idempotency_key = f"sim_cart:{payload.cart_token}:{int(datetime.utcnow().timestamp())}"
+
+    # Record AuditEvent
+    record_audit_event(
+        db=db,
+        action="SIMULATE_CART_WEBHOOK",
+        actor_user_id=current_user.id,
+        target_type="cart_event",
+        target_id=payload.cart_token,
+        correlation_id=correlation_id,
+        metadata={"recipient_hash": hash_phone(payload.customer_phone)}
+    )
+
+    # Record WebhookEvent audit record
+    sim_event = models.WebhookEvent(
+        source="internal_sim",
+        event_type="cart",
+        external_event_id=str(payload.cart_token),
+        idempotency_key=idempotency_key,
+        hmac_validated=True,
+        correlation_id=correlation_id,
+        received_at=datetime.utcnow()
+    )
+    db.add(sim_event)
+    db.commit()
+
+    return {
+        "status": "simulation_accepted",
+        "cart_token": payload.cart_token,
+        "customer_phone": payload.customer_phone,
+        "correlation_id": correlation_id
+    }
+
+
+@router.post("/simulate/order-completed")
+def simulate_order_completed(
+    request: Request,
+    payload: schemas.OrderCompletedPayload,
+    password: Optional[str] = None,
+    two_factor_code: Optional[str] = None,
+    current_user: models.User = Depends(auth.require_roles("admin")),
+    db: Session = Depends(get_db)
+):
+    """
+    Simulates an order-completed webhook without HMAC signatures.
+    Strictly restricted to Admin role with step-up authentication.
+    Generates an immutable AuditEvent.
+    """
+    auth.verify_user_stepup_auth(current_user, password, two_factor_code, db)
+
+    correlation_id = request.headers.get("X-Correlation-ID") or request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    idempotency_key = f"sim_order:{payload.cart_token}:{int(datetime.utcnow().timestamp())}"
+
+    record_audit_event(
+        db=db,
+        action="SIMULATE_ORDER_WEBHOOK",
+        actor_user_id=current_user.id,
+        target_type="order_completed",
+        target_id=payload.cart_token,
+        correlation_id=correlation_id,
+        metadata={"recipient_hash": hash_phone(payload.customer_phone)}
+    )
+
+    sim_event = models.WebhookEvent(
+        source="internal_sim",
+        event_type="order",
+        external_event_id=f"order:{payload.cart_token}",
+        idempotency_key=idempotency_key,
+        hmac_validated=True,
+        correlation_id=correlation_id,
+        received_at=datetime.utcnow()
+    )
+    db.add(sim_event)
+    db.commit()
+
+    return {
+        "status": "simulation_accepted",
+        "cart_token": payload.cart_token,
+        "customer_phone": payload.customer_phone,
+        "correlation_id": correlation_id
+    }
+

@@ -14,7 +14,7 @@ from typing import List, Optional
 
 import pyotp
 import qrcode
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 import auth
@@ -68,7 +68,7 @@ def register_user(
 
 @router.post("/api/auth/login", response_model=schemas.Token)
 @limiter.limit("10/minute")
-def login(request: Request, payload: schemas.UserLogin, db: Session = Depends(get_db)):
+def login(request: Request, response: Response, payload: schemas.UserLogin, db: Session = Depends(get_db)):
     client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown").split(",")[0].strip()
     user = db.query(models.User).filter(models.User.username == payload.username).first()
     if not user or not auth.verify_password(payload.password, user.hashed_password):
@@ -98,6 +98,19 @@ def login(request: Request, payload: schemas.UserLogin, db: Session = Depends(ge
         data={"sub": user.username, "role": user.role, "auth_version": user.auth_version}
     )
     raw_rt, _ = auth.create_refresh_token_for_user(db, user)
+
+    # Set HttpOnly Secure SameSite cookie for the refresh token
+    is_prod = config.ENVIRONMENT == "production"
+    response.set_cookie(
+        key="refresh_token",
+        value=raw_rt,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=7 * 24 * 3600,
+        path="/api/auth"
+    )
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -112,6 +125,7 @@ def login(request: Request, payload: schemas.UserLogin, db: Session = Depends(ge
 @limiter.limit("10/minute")
 def verify_two_factor_code(
     request: Request,
+    response: Response,
     payload: schemas.TwoFactorVerifyRequest,
     db: Session = Depends(get_db)
 ):
@@ -158,6 +172,18 @@ def verify_two_factor_code(
         data={"sub": user.username, "role": user.role, "auth_version": user.auth_version}
     )
     raw_rt, _ = auth.create_refresh_token_for_user(db, user)
+
+    is_prod = config.ENVIRONMENT == "production"
+    response.set_cookie(
+        key="refresh_token",
+        value=raw_rt,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=7 * 24 * 3600,
+        path="/api/auth"
+    )
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -420,6 +446,7 @@ def delete_user_account(
 @limiter.limit("30/minute")
 def refresh_token_endpoint(
     request: Request,
+    response: Response,
     payload: Optional[schemas.RefreshTokenRequest] = None,
     db: Session = Depends(get_db)
 ):
@@ -453,6 +480,17 @@ def refresh_token_endpoint(
             detail=str(e)
         )
 
+    is_prod = config.ENVIRONMENT == "production"
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=7 * 24 * 3600,
+        path="/api/auth"
+    )
+
     return {
         "access_token": new_access_token,
         "token_type": "bearer",
@@ -463,10 +501,11 @@ def refresh_token_endpoint(
 @router.post("/api/auth/logout")
 def logout_endpoint(
     request: Request,
+    response: Response,
     payload: Optional[schemas.RefreshTokenRequest] = None,
     db: Session = Depends(get_db)
 ):
-    """Revokes the given refresh token session."""
+    """Revokes the given refresh token session and clears the cookie."""
     raw_rt = None
     if payload and payload.refresh_token:
         raw_rt = payload.refresh_token
@@ -479,6 +518,8 @@ def logout_endpoint(
         if rec:
             rec.is_revoked = True
             db.commit()
+
+    response.delete_cookie(key="refresh_token", path="/api/auth")
 
     return {"status": "success", "message": "Logged out successfully"}
 

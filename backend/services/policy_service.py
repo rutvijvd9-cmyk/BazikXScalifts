@@ -189,12 +189,11 @@ def authorize_outbound_message(
     if revoked_consent and (not active_consent or revoked_consent.id > active_consent.id):
         return False, "Customer consent revoked"
 
-    # For promotional campaign broadcasts, ensure active consent exists or contact exists
+    # For promotional campaign broadcasts, active consent is MANDATORY (deny-by-default).
+    # A contact record without explicit ACTIVE consent is NOT sufficient.
     if campaign_id is not None:
         if not active_consent:
-            contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()
-            if not contact:
-                return False, "No active consent on file for campaign recipient"
+            return False, "No active marketing consent on file for campaign recipient — send denied"
 
     # 4. Meta 24-Hour Customer Service Window (for free_text / agent chat)
     if message_type == "free_text":

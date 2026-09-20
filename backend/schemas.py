@@ -138,6 +138,19 @@ class CartEventPayload(BaseModel):
             raise ValueError(str(e))
 
 
+class OrderCompletedPayload(BaseModel):
+    cart_token: str = Field(..., max_length=100)
+    customer_phone: str = Field(..., description="Customer phone number")
+
+    @field_validator("customer_phone")
+    @classmethod
+    def validate_customer_phone(cls, v: str) -> str:
+        try:
+            return normalize_phone(v)
+        except InvalidPhoneNumberError as e:
+            raise ValueError(str(e))
+
+
 class ExternalDataSourceCreate(BaseModel):
     name: str = Field(..., max_length=100)
     endpoint_url: str = Field(..., description="Full URL e.g. https://store.example.com/api/crm-customer")

@@ -28,7 +28,7 @@ from database import engine, get_db, Base
 import models
 import schemas
 import auth
-from scheduler import start_scheduler, schedule_cart_recovery, execute_campaign_broadcast, scheduler
+from scheduler import schedule_cart_recovery, execute_campaign_broadcast, scheduler
 import whatsapp_service
 from whatsapp_service import send_whatsapp_template, create_meta_template
 from apscheduler.triggers.date import DateTrigger
@@ -139,32 +139,57 @@ async def global_unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Enable CORS for local Vite development, Vercel production deployment & Android Capacitor
-allowed_origins_env = config.ALLOWED_ORIGINS_RAW
-allowed_origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://localhost",
-    "https://localhost",
-    "capacitor://localhost"
-]
-if allowed_origins_env:
-    allowed_origins.extend([origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_origin_regex=r"(https://.*\.vercel\.app|http://192\.168\..*|http://10\..*|capacitor://.*|https?://localhost.*)",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ── WP7: Environment-aware CORS — no wildcard origins/methods/headers in production ──
+_SAFE_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+_SAFE_HEADERS = [
+    "Authorization", "Content-Type", "X-Correlation-ID",
+    "X-Hub-Signature-256", "X-Idempotency-Key", "X-Request-ID",
+]
+
+if config.ENVIRONMENT == "production":
+    # Production: exact origins only from ALLOWED_ORIGINS env var; no regex
+    _prod_origins = config.ALLOWED_ORIGINS  # validated non-wildcard by validate_production_config()
+    if not _prod_origins:
+        raise RuntimeError("FATAL: ALLOWED_ORIGINS must be set in production.")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_prod_origins,
+        allow_credentials=True,
+        allow_methods=_SAFE_METHODS,
+        allow_headers=_SAFE_HEADERS,
+    )
+else:
+    # Development / staging: permissive, includes Vite, Capacitor, Vercel preview, local IP
+    _dev_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://localhost",
+        "https://localhost",
+        "capacitor://localhost",
+    ]
+    if config.ALLOWED_ORIGINS_RAW:
+        _dev_origins.extend(
+            [o.strip() for o in config.ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
+        )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_dev_origins,
+        allow_origin_regex=r"(https://.*\.vercel\.app|http://192\.168\..*|http://10\..*|capacitor://.*|https?://localhost.*)",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 
 
 @app.on_event("startup")
 def on_startup():
-    start_scheduler()
+    # ── WP8: Scheduler runs in a SEPARATE worker process only (backend/worker.py).
+    # The API process never starts the scheduler. Set SCHEDULER_ENABLED=true only
+    # in the worker process environment.
+    logger.info("API process started. Scheduler is NOT started here — use worker.py.")
 
     # ── Safe column migrations ────────────────────────────────────────────────
     # ADD COLUMN IF NOT EXISTS is idempotent – safe to run on every deploy.

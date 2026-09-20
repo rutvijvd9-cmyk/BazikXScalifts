@@ -112,14 +112,18 @@ class Campaign(Base):
     title = Column(String(150), nullable=False)
     template_name = Column(String(100), nullable=False)
     language = Column(String(10), default="en")
-    target_filter = Column(String(50), default="ALL")  # ALL, INACTIVE_30_DAYS, HIGH_VALUE
-    status = Column(String(50), default="DRAFT")       # DRAFT, SCHEDULED, IN_PROGRESS, COMPLETED, FAILED
+    target_filter = Column(String(50), default="ALL")
+    status = Column(String(50), default="DRAFT")
     total_recipients = Column(Integer, default=0)
     successful_sends = Column(Integer, default=0)
     failed_sends = Column(Integer, default=0)
-    per_day_limit = Column(Integer, nullable=True)     # Cap on max messages to send for this campaign per day/run
+    per_day_limit = Column(Integer, nullable=True)
     scheduled_for = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
+    # WP8: Worker lease columns for distributed broadcast claiming
+    claimed_by = Column(String(64), nullable=True)
+    claimed_until = Column(DateTime, nullable=True)
+    attempt_count = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -252,10 +256,14 @@ class WorkflowSession(Base):
     flow_id = Column(Integer, index=True, nullable=False)
     customer_phone = Column(String(20), index=True, nullable=False)
     current_node_id = Column(String(50), nullable=True)
-    state_data = Column(JSON, default=dict)  # cart_token, customer_name, cart_value, last_meta_msg_id
+    state_data = Column(JSON, default=dict)
     status = Column(String(50), default="ACTIVE")  # ACTIVE, WAITING_DELAY, WAITING_CONDITION, COMPLETED_GOAL, COMPLETED_DROPOUT, CANCELLED
     next_evaluation_at = Column(DateTime, default=datetime.utcnow, index=True)
-    history = Column(JSON, default=list)  # [{node_id, action, timestamp, details}]
+    history = Column(JSON, default=list)
+    # WP8: Worker lease columns for distributed job claiming
+    claimed_by = Column(String(64), nullable=True)
+    claimed_until = Column(DateTime, nullable=True, index=True)
+    attempt_count = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -299,10 +307,12 @@ class ExternalDataSource(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def __init__(self, **kwargs):
-        # Support legacy kwargs for backward compatibility in existing fixtures/tests
+        # WP3: Plaintext api_key is never stored on the model.
+        # If legacy code/tests pass api_key, assign a secret_reference.
         api_key = kwargs.pop("api_key", None)
-        header_name = kwargs.pop("header_name", None)
+        kwargs.pop("header_name", None)
         if api_key and not kwargs.get("secret_reference"):
+            # Mark that a secret reference exists for this legacy source
             kwargs["secret_reference"] = f"sec_ref_legacy_{abs(hash(api_key))}"
         super().__init__(**kwargs)
 
@@ -339,3 +349,47 @@ class InboundWebhookEvent(Base):
         UniqueConstraint("provider", "provider_event_id", name="uq_inbound_provider_event"),
     )
 
+
+class OutboundMessage(Base):
+    """
+    WP2 — Central idempotency ledger for every outbound WhatsApp message.
+    Created by authorize_outbound_message() BEFORE any Meta API call.
+    Dispatch functions update status + meta_message_id after the call.
+    Provides at-most-once delivery guarantee via idempotency_key unique constraint.
+    """
+    __tablename__ = "outbound_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Idempotency — callers must provide a stable key; DB enforces uniqueness
+    idempotency_key = Column(String(200), unique=True, index=True, nullable=False)
+
+    # Recipient (always E.164)
+    recipient_phone_e164 = Column(String(20), index=True, nullable=False)
+    # Salted SHA-256 hash of recipient_phone_e164 for audit log storage (never raw phone in audit)
+    recipient_hash = Column(String(64), nullable=False)
+
+    # Message characteristics
+    message_kind = Column(String(20), nullable=False)     # "template" | "free_text"
+    purpose = Column(String(30), nullable=False)          # "marketing" | "utility" | "support"
+    template_name = Column(String(100), nullable=True)
+
+    # Relations
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
+    workflow_session_id = Column(Integer, ForeignKey("workflow_sessions.id"), nullable=True, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    service_actor = Column(String(50), nullable=True)     # e.g. "scheduler", "cart_recovery"
+
+    # Policy decision (recorded before dispatch)
+    policy_decision = Column(String(20), nullable=False, default="authorized")  # "authorized" | "denied"
+    policy_reason = Column(Text, nullable=True)
+
+    # Dispatch outcome
+    status = Column(String(20), nullable=False, default="PENDING")  # PENDING | SENT | FAILED | SKIPPED
+    meta_message_id = Column(String(100), nullable=True, index=True)
+    error_message = Column(Text, nullable=True)
+    correlation_id = Column(String(64), nullable=True, index=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    dispatched_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

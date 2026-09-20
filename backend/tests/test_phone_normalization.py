@@ -1,5 +1,7 @@
 import pytest
 from services.phone_service import normalize_phone, is_valid_phone, InvalidPhoneNumberError
+from pydantic import ValidationError
+import schemas
 
 
 def test_normalize_phone_indian_variants():
@@ -44,3 +46,25 @@ def test_is_valid_phone():
     assert is_valid_phone("+919876543210") is True
     assert is_valid_phone("12345") is False
     assert is_valid_phone("invalid") is False
+
+
+# ── WP1 Acceptance Criteria Tests ──────────────────────────────────────────
+
+def test_pydantic_order_completed_payload_valid_e164():
+    payload = schemas.OrderCompletedPayload(cart_token="tok_123", customer_phone="9876543210")
+    assert payload.customer_phone == "+919876543210"
+
+
+def test_pydantic_order_completed_payload_invalid_phone_rejected():
+    with pytest.raises(ValidationError):
+        schemas.OrderCompletedPayload(cart_token="tok_123", customer_phone="not-a-number")
+
+
+def test_pydantic_cart_event_payload_valid_e164():
+    payload = schemas.CartEventPayload(cart_token="tok_456", customer_phone="09876543210")
+    assert payload.customer_phone == "+919876543210"
+
+
+def test_pydantic_cart_event_payload_invalid_phone_rejected():
+    with pytest.raises(ValidationError):
+        schemas.CartEventPayload(cart_token="tok_456", customer_phone="123")

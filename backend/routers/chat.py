@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
@@ -21,6 +21,8 @@ router = APIRouter(prefix="/api/chat", tags=["Two-Way Live Chat"])
 
 @router.get("/conversations", response_model=List[schemas.ChatConversationSummary])
 def list_conversations(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -118,7 +120,8 @@ def list_conversations(
 
     # Sort: most recent message first
     summaries.sort(key=lambda s: s.last_message_time or datetime.min, reverse=True)
-    return summaries
+    capped_limit = min(max(1, limit), 100)
+    return summaries[offset:offset + capped_limit]
 
 
 @router.get("/history/{phone}", response_model=List[schemas.ChatMessageResponse])

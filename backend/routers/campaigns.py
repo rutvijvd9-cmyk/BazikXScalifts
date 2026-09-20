@@ -19,6 +19,7 @@ import schemas
 from database import get_db
 from rate_limiter import limiter
 from scheduler import scheduler, execute_campaign_broadcast
+from services import pii_service
 
 logger = logging.getLogger("campaigns_router")
 
@@ -188,9 +189,10 @@ def get_campaign_logs(
             elif st in ["FAILED", "BLOCKED"]:
                 failed_count += 1
 
+            disp_phone = l.recipient_phone if current_user.role == "admin" else pii_service.mask_phone(l.recipient_phone)
             recipients_data.append({
                 "id": l.id,
-                "phone": l.recipient_phone,
+                "phone": disp_phone,
                 "name": c.name if c and c.name else "Customer",
                 "city": c.city if c and c.city else "-",
                 "template_name": l.template_name,
