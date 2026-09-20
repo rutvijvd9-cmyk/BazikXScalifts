@@ -21,6 +21,7 @@ export default function CartRecoveryPage({ cartEvents = [] }) {
               <th className="px-6 py-3">Customer Phone</th>
               <th className="px-6 py-3">Cart Value</th>
               <th className="px-6 py-3">Items Summary</th>
+              <th className="px-6 py-3">API User</th>
               <th className="px-6 py-3">Recovery Status</th>
               <th className="px-6 py-3">WhatsApp Message</th>
             </tr>
@@ -33,6 +34,15 @@ export default function CartRecoveryPage({ cartEvents = [] }) {
                 <td className="px-6 py-4 font-bold text-gray-900">₹ {cart.cart_value.toFixed(2)}</td>
                 <td className="px-6 py-4 text-xs text-gray-600 max-w-xs truncate">
                   {cart.items?.map((i) => i.item).join(", ") || "Selected Snacks"}
+                </td>
+                <td className="px-6 py-4 text-xs font-mono text-gray-600">
+                  {cart.authenticated_user ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                      🔑 {cart.authenticated_user}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400 text-xs italic">Webhook</span>
+                  )}
                 </td>
                 <td className="px-6 py-4">
                   <span

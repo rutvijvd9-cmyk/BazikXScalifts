@@ -208,12 +208,14 @@ def process_abandoned_cart_job(cart_event_id: int):
 
         # Send recovery template
         recovery_coupon = (cart_rule.coupon_code if cart_rule and cart_rule.coupon_code else config.DEFAULT_COUPON_CODE)
+        auth_user = cart.authenticated_user or "Abandoned Cart Recovery"
         result = send_whatsapp_template(
             recipient_phone=cart.customer_phone,
             template_name=target_template,
             language=target_lang,
             parameters=param_dict,
-            coupon_code=recovery_coupon
+            coupon_code=recovery_coupon,
+            sender_user=auth_user
         )
 
         if result.get("status") in ["success", "success_simulated"]:
@@ -483,7 +485,8 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
                         template_name=campaign.template_name,
                         language=campaign.language,
                         parameters=params,
-                        campaign_id=campaign.id
+                        campaign_id=campaign.id,
+                        sender_user=f"Campaign: {campaign.title}"
                     )
 
                     if res.get("status") in ["success", "success_simulated"]:
@@ -763,7 +766,8 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                 template_name=rule.template_name,
                 language=target_lang,
                 parameters=param_dict,
-                coupon_code=rule.coupon_code or config.DEFAULT_COUPON_CODE
+                coupon_code=rule.coupon_code or config.DEFAULT_COUPON_CODE,
+                sender_user=f"Rule: {rule.rule_name}"
             )
             if res.get("status") in ["success", "success_simulated"]:
                 sent_count += 1
@@ -1152,12 +1156,15 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             if mock_send:
                 res = {"status": "success_simulated", "message_id": f"sim_{int(now.timestamp())}"}
             else:
+                flow_title = flow.name if flow and flow.name else "Workflow"
+                origin_user = (session.state_data or {}).get("sender_user") or f"Journey: {flow_title}"
                 res = send_whatsapp_template(
                     recipient_phone=session.customer_phone,
                     template_name=template_name,
                     language=language,
                     parameters=param_dict,
-                    coupon_code=coupon_code
+                    coupon_code=coupon_code,
+                    sender_user=origin_user
                 )
 
             sent_msg_id = res.get("message_id") or res.get("id") or f"msg_{int(now.timestamp())}"

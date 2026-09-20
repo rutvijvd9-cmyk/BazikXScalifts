@@ -18,7 +18,26 @@ const api = axios.create({ baseURL: getApiBaseUrl() });
 
 export function setApiBaseUrl(url) {
   api.defaults.baseURL = url;
+  axios.defaults.baseURL = url;
 }
+
+// Automatically attach Bearer token to every outbound request
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Also attach to global axios instance for legacy calls
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 api.interceptors.response.use(
   (response) => response,

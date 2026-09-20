@@ -51,7 +51,7 @@ async def get_webhook_authenticated_user(
             config.WEBHOOK_SECRET.encode(), raw_body, hashlib.sha256
         ).hexdigest()
         if not hmac.compare_digest(expected, signature):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
         svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
         return svc or models.User(username=config.ECOM_SERVICE_USERNAME, is_active=True)
 
@@ -61,6 +61,7 @@ async def get_webhook_authenticated_user(
         api_user = db.query(models.User).filter(models.User.api_token == api_key_header).first()
         if api_user and api_user.is_active:
             return api_user
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 
     # 2. Check Bearer token (supports both JWT and permanent API token)
     if auth_header.startswith("Bearer "):
@@ -69,15 +70,16 @@ async def get_webhook_authenticated_user(
             user = auth.get_current_user(token=token, db=db)
             if user and user.is_active:
                 return user
-        except HTTPException as he:
-            raise he
+        except HTTPException:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
         except Exception:
             pass
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 
+    # Stealth Security: Return 404 Not Found if called without token
     raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Unauthorized: webhook requires a valid API token (Authorization: Bearer <token> or X-API-Key: <token>) or HMAC signature.",
-        headers={"WWW-Authenticate": "Bearer"},
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Not Found"
     )
 
 
@@ -124,7 +126,8 @@ async def receive_cart_webhook(
         cart_value=payload.cart_value,
         items=payload.items,
         extra_data=extra_payload,
-        status="PENDING"
+        status="PENDING",
+        authenticated_user=current_user.username
     )
     db.add(cart_record)
     db.commit()
@@ -160,7 +163,8 @@ async def receive_cart_webhook(
                 "cart_value": payload.cart_value,
                 "customer_name": resolved_cust_name,
                 "items_summary": items_summary,
-                "extra_data": extra_payload
+                "extra_data": extra_payload,
+                "sender_user": current_user.username
             }
             for k, v in extra_payload.items():
                 state_data.setdefault(k, str(v))

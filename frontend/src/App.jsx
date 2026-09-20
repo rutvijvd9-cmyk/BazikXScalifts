@@ -1917,7 +1917,15 @@ export default function App() {
           )}
 
           {activeTab === "logs" && (
-            <MessageLogsPage messageLogs={messageLogs} />
+            <MessageLogsPage
+              messageLogs={messageLogs}
+              onRefresh={() => fetchData(true)}
+              token={token}
+              onShowToast={(msg) => {
+                setActionSuccessMsg(msg);
+                setTimeout(() => setActionSuccessMsg(""), 5000);
+              }}
+            />
           )}
 
           {activeTab === "opt_out" && (

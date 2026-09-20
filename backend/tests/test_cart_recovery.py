@@ -44,7 +44,7 @@ def test_store_webhook_requires_valid_signature(client):
     assert accepted.status_code == status.HTTP_202_ACCEPTED
 
     rejected = client.post("/api/webhooks/cart-event", json=payload)
-    assert rejected.status_code == status.HTTP_401_UNAUTHORIZED
+    assert rejected.status_code == status.HTTP_404_NOT_FOUND
 
 def test_order_completion_cancels_recovery(client, auth_headers, db):
     unique_token = f"cart_test_{uuid.uuid4().hex[:8]}"

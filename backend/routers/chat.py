@@ -204,6 +204,7 @@ def send_agent_reply(
         recipient_phone=clean_phone,
         template_name="two_way_custom_chat",
         language="en",
+        sender_user=current_user.username,
         status=status_str,
         meta_message_id=msg_id
     )

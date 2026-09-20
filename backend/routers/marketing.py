@@ -6,6 +6,7 @@ direct test WhatsApp messages, and 30-day customer re-engagement sweep trigger.
 
 import logging
 import re
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import httpx
@@ -249,12 +250,109 @@ def list_cart_events(
 
 @router.get("/api/message-logs")
 def get_message_logs(
-    limit: int = 50,
+    limit: int = 200,
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    """Returns the WhatsApp message audit trail ordered by most recent."""
     logs = db.query(models.MessageLog).order_by(models.MessageLog.created_at.desc()).limit(limit).all()
     return logs
+
+
+@router.delete("/api/message-logs")
+def delete_message_logs(
+    older_than_days: Optional[int] = None,
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    """
+    Deletes WhatsApp audit logs:
+    - If older_than_days is provided (e.g. 90, 120, 175): deletes logs older than that threshold.
+    - If older_than_days is None: deletes all message logs.
+    """
+    from datetime import datetime, timedelta
+    query = db.query(models.MessageLog)
+    if older_than_days is not None and older_than_days > 0:
+        cutoff_date = datetime.utcnow() - timedelta(days=older_than_days)
+        deleted_count = query.filter(models.MessageLog.created_at < cutoff_date).delete(synchronize_session=False)
+        message = f"Successfully purged {deleted_count} logs older than {older_than_days} days."
+    else:
+        deleted_count = query.delete(synchronize_session=False)
+        message = f"Successfully cleared all {deleted_count} message logs."
+
+    db.commit()
+    remaining_count = db.query(models.MessageLog).count()
+    return {
+        "status": "success",
+        "deleted_count": deleted_count,
+        "remaining_count": remaining_count,
+        "message": message
+    }
+
+
+@router.get("/api/message-logs/download")
+def download_message_logs(
+    format: str = "csv",
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Exports and downloads message audit trail logs as CSV or JSON.
+    """
+    import csv
+    import io
+    from fastapi.responses import Response, JSONResponse
+
+    logs = db.query(models.MessageLog).order_by(models.MessageLog.created_at.desc()).all()
+
+    if format.lower() == "json":
+        data = [
+            {
+                "id": l.id,
+                "sender_user": l.sender_user or "System",
+                "recipient_phone": l.recipient_phone,
+                "template_name": l.template_name,
+                "campaign_id": l.campaign_id,
+                "status": l.status,
+                "meta_message_id": l.meta_message_id,
+                "error_message": l.error_message,
+                "created_at": l.created_at.isoformat() if l.created_at else None
+            }
+            for l in logs
+        ]
+        return JSONResponse(
+            content=data,
+            headers={
+                "Content-Disposition": f"attachment; filename=whatsapp_logs_{datetime.utcnow().strftime('%Y%m%d')}.json"
+            }
+        )
+
+    # CSV format
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Log ID", "Initiated By / User", "Recipient Phone",
+        "Template", "Status", "Meta Message ID", "Error Details", "Timestamp (UTC)"
+    ])
+    for l in logs:
+        writer.writerow([
+            l.id,
+            l.sender_user or "System",
+            l.recipient_phone,
+            l.template_name,
+            l.status,
+            l.meta_message_id or "-",
+            l.error_message or "",
+            l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else ""
+        ])
+
+    csv_content = output.getvalue()
+    filename = f"whatsapp_logs_{datetime.utcnow().strftime('%Y%m%d')}.csv"
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 
 # ==========================================
@@ -336,6 +434,7 @@ def send_direct_test_message(
         recipient_phone=clean_phone,
         template_name=payload.template_name,
         language=lang,
-        parameters=params
+        parameters=params,
+        sender_user=current_user.username
     )
     return res

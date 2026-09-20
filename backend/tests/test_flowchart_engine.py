@@ -54,42 +54,16 @@ def test_list_and_create_workflow(client, auth_headers, db):
     assert len(data["edges"]) == 2
 
 
-def test_simulate_workflow(client, auth_headers, db):
-    # Fetch existing or created workflow
-    flows_res = client.get("/api/workflows", headers=auth_headers)
-    flows = flows_res.json()
-    if not flows:
-        new_flow_payload = {
-            "name": "Simulate Test Flow",
-            "trigger_type": "ABANDONED_CART",
-            "is_active": True,
-            "nodes": [
-                {"id": "t1", "type": "trigger", "label": "Trigger", "position": {"x": 100, "y": 100}, "data": {}},
-                {"id": "e1", "type": "exit", "label": "Exit", "position": {"x": 100, "y": 200}, "data": {"outcome": "GOAL_MET"}}
-            ],
-            "edges": [{"id": "e1", "source": "t1", "target": "e1"}]
-        }
-        create_res = client.post("/api/workflows", json=new_flow_payload, headers=auth_headers)
-        flow_id = create_res.json()["id"]
-    else:
-        flow_id = flows[0]["id"]
-
-    sim_payload = {
-        "customer_phone": "+919876543210",
-        "test_cart_value": 750.0,
-        "mock_mode": True
-    }
-    sim_res = client.post(f"/api/workflows/{flow_id}/simulate", json=sim_payload, headers=auth_headers)
-    assert sim_res.status_code == 200
-    res_data = sim_res.json()
-    assert res_data["status"] == "success"
-    assert res_data["session_id"] is not None
-    assert len(res_data["history"]) >= 1
+def test_simulate_workflow_is_removed(client, auth_headers, db):
+    flow_id = 1
+    # Verify simulation endpoint was completely removed
+    res = client.post("/api/workflows/1/simulate", json={}, headers=auth_headers)
+    assert res.status_code in [404, 405]
 
     # Check sessions endpoint
     sess_res = client.get(f"/api/workflows/{flow_id}/sessions", headers=auth_headers)
     assert sess_res.status_code == 200
-    assert len(sess_res.json()) >= 1
+    assert isinstance(sess_res.json(), list)
 
 
 def test_workflow_engine_condition_branching(db):

@@ -45,6 +45,7 @@ class CartEvent(Base):
     items = Column(JSON, default=list)
     extra_data = Column(JSON, default=dict)  # Arbitrary dynamic fields from ecom store (e.g. firstname, products_summary, address)
     status = Column(String(50), default="PENDING")  # PENDING, RECOVERED, EXPIRED
+    authenticated_user = Column(String(50), nullable=True)  # User or API token owner who sent this webhook
     message_sent = Column(Boolean, default=False)
     message_sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -77,6 +78,7 @@ class MessageLog(Base):
     campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
     language = Column(String(10), default="en")
     status = Column(String(50), default="QUEUED")  # QUEUED, SENT, DELIVERED, READ, FAILED
+    sender_user = Column(String(50), nullable=True, default="System")  # User or API client who initiated message
     meta_message_id = Column(String(100), nullable=True, index=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
