@@ -101,7 +101,7 @@ def test_analytics_customer_reply_counted_as_read(client, auth_headers, db):
         recipient_phone=phone,
         template_name="reengagement_test_reply",
         status="DELIVERED",
-        created_at=now - timedelta(hours=1)
+        created_at=now - timedelta(minutes=5)
     )
     db.add(log)
 
@@ -110,7 +110,7 @@ def test_analytics_customer_reply_counted_as_read(client, auth_headers, db):
         customer_phone=phone,
         sender_type="CUSTOMER",
         text="Yes I want this offer!",
-        created_at=now - timedelta(minutes=30)
+        created_at=now - timedelta(minutes=2)
     )
     db.add(reply)
     db.commit()

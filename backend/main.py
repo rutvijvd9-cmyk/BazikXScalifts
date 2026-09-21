@@ -18,7 +18,7 @@ logger = logging.getLogger("main")
 from fastapi import FastAPI, Depends, HTTPException, Header, Request, status, UploadFile, File, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, text
 from sqlalchemy.exc import IntegrityError
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -164,95 +164,10 @@ def on_startup():
     _ws = config.WEBHOOK_SECRET or ""
     logger.info(f"[Startup] WEBHOOK_SECRET loaded: length={len(_ws)}, prefix={repr(_ws[:8])}")
 
-    # ── Safe column migrations ────────────────────────────────────────────────
-    # ADD COLUMN IF NOT EXISTS is idempotent – safe to run on every deploy.
-    # Uses the already-imported `engine` and `text` from sqlalchemy.
-    _migrations = [
-        # automation_rules: columns added for high-volume safeguard + 2FA approval gate
-        "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS approval_status VARCHAR(50) DEFAULT 'IDLE'",
-        "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS pending_recipients_count INTEGER DEFAULT 0",
-        "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS total_triggered INTEGER DEFAULT 0",
-        "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
-        "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS variable_mappings JSON",
-        "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP",
-        # users: 2FA / TOTP / auth columns
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64)",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_2fa_enabled BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code VARCHAR(10)",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code_expires TIMESTAMP",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_email VARCHAR(200)",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'agent'",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_version INTEGER DEFAULT 1",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_support_send BOOLEAN DEFAULT FALSE",
-        # contacts: extended profile columns
-        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS city VARCHAR(100)",
-        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS tags VARCHAR(500)",
-        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS order_count INTEGER DEFAULT 0",
-        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_order_date TIMESTAMP",
-        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id)",
-        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS birth_day INTEGER",
-        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS birth_month INTEGER",
-        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS custom_attributes JSON",
-        # campaigns: worker lease columns
-        "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS claimed_by VARCHAR(64)",
-        "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMP",
-        "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS attempt_count INTEGER DEFAULT 0",
-        # chat_messages: assignment column
-        "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id)",
-        # templates: configure-once variable mappings
-        "ALTER TABLE templates ADD COLUMN IF NOT EXISTS variable_mappings JSON",
-        # cart_events: open extra_data payload for dynamic ecom variables
-        "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS extra_data JSON",
-        "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS authenticated_user VARCHAR(50)",
-        # message_logs: link to campaigns
-        "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS campaign_id INTEGER REFERENCES campaigns(id)",
-        "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS sender_user VARCHAR(50) DEFAULT 'System'",
-        # webhook_events: canonical audit columns
-        "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'store'",
-        "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS external_event_id VARCHAR(150)",
-        "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(150)",
-        "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS hmac_validated BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(64)",
-        "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS received_at TIMESTAMP DEFAULT NOW()",
-        # workflow_sessions: worker lease columns
-        "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS claimed_by VARCHAR(64)",
-        "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMP",
-        "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS attempt_count INTEGER DEFAULT 0",
-        # system_settings: key-value system configuration
-        "CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(50) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT NOW())",
-        # external_data_sources: external API configuration
-        "CREATE TABLE IF NOT EXISTS external_data_sources (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, endpoint_url TEXT NOT NULL, auth_method VARCHAR(30) DEFAULT 'bearer', secret_reference VARCHAR(100), approved_hostname VARCHAR(255), purpose VARCHAR(100) DEFAULT 'customer_lookup', lookup_param VARCHAR(30) DEFAULT 'phone', is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT NOW())",
-        "ALTER TABLE external_data_sources ADD COLUMN IF NOT EXISTS secret_reference VARCHAR(100)",
-        "ALTER TABLE external_data_sources ADD COLUMN IF NOT EXISTS approved_hostname VARCHAR(255)",
-        "ALTER TABLE external_data_sources ADD COLUMN IF NOT EXISTS purpose VARCHAR(100) DEFAULT 'customer_lookup'",
-        "ALTER TABLE external_data_sources ADD COLUMN IF NOT EXISTS lookup_param VARCHAR(30) DEFAULT 'phone'",
-        "ALTER TABLE external_data_sources ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
-        # integration_secrets: encrypted credentials table
-        "CREATE TABLE IF NOT EXISTS integration_secrets (id SERIAL PRIMARY KEY, secret_reference VARCHAR(100) UNIQUE NOT NULL, encrypted_value TEXT NOT NULL, nonce VARCHAR(64) NOT NULL, created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())",
-        # audit_events: security audit events
-        "CREATE TABLE IF NOT EXISTS audit_events (id SERIAL PRIMARY KEY, actor_user_id INTEGER, action VARCHAR(100) NOT NULL, target_type VARCHAR(100), target_id VARCHAR(100), correlation_id VARCHAR(64), metadata_json JSON, created_at TIMESTAMP DEFAULT NOW())",
-    ]
-    _ok, _fail = 0, 0
-    for _sql in _migrations:
-        try:
-            with engine.begin() as _conn:  # each statement in its OWN transaction
-                _conn.execute(text(_sql))
-            _ok += 1
-        except Exception as _col_err:
-            _fail += 1
-            logger.warning(f"⚠️  Migration note ({_sql[:60]}): {_col_err}")
-    logger.info(f"✅ [DB] Safe column migrations done: {_ok} applied, {_fail} skipped.")
-
-    # Verify webhook_events columns after migrations
-    try:
-        from sqlalchemy import inspect as sa_inspect
-        _insp = sa_inspect(engine)
-        _we_cols = [c['name'] for c in _insp.get_columns('webhook_events')]
-        logger.info(f"[DB] webhook_events columns: {_we_cols}")
-    except Exception as _ve:
-        logger.warning(f"[DB] Could not inspect webhook_events: {_ve}")
+    # ── Schema Discipline ─────────────────────────────────────────────────────
+    # All schema modifications are handled strictly via Alembic migrations.
+    # No runtime DDL (CREATE TABLE / ALTER TABLE) is executed at startup.
+    logger.info("✅ [DB] Schema discipline active: database managed via Alembic migrations.")
 
     # ── Database Initialization & Sync ──────────────────────────────────────
     db = next(get_db())
@@ -341,12 +256,6 @@ def on_startup():
     # ── Clean Slate Migration: Purge all legacy sample workflows and dummy rules ────
     try:
         with engine.connect() as _conn:
-            _conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS system_migrations (
-                    migration_name VARCHAR(120) PRIMARY KEY,
-                    applied_at TIMESTAMP DEFAULT NOW()
-                )
-            """))
             _mig_check = _conn.execute(
                 text("SELECT 1 FROM system_migrations WHERE migration_name = 'purge_sample_automations_2026_09_16'")
             ).scalar()
@@ -371,12 +280,6 @@ def on_startup():
     # ── One-time Backfill: Customer Replies to READ status ───────────────────
     try:
         with engine.connect() as _conn:
-            _conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS system_migrations (
-                    migration_name VARCHAR(120) PRIMARY KEY,
-                    applied_at TIMESTAMP DEFAULT NOW()
-                )
-            """))
             _backfill_check = _conn.execute(
                 text("SELECT 1 FROM system_migrations WHERE migration_name = 'backfill_replies_to_read_v1'")
             ).scalar()

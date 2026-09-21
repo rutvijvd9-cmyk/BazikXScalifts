@@ -13,6 +13,7 @@ logging.basicConfig(level=logging.INFO)
 import config
 from services.phone_service import normalize_phone, InvalidPhoneNumberError
 from services.policy_service import authorize_outbound_message
+from services.pii_service import mask_phone
 
 WHATSAPP_API_TOKEN = config.WHATSAPP_API_TOKEN
 WHATSAPP_PHONE_NUMBER_ID = config.WHATSAPP_PHONE_NUMBER_ID
@@ -121,7 +122,7 @@ def send_whatsapp_template(
         )
 
         if not is_auth:
-            logger.info(f"🚫 [Policy Blocked] Message to {clean_recipient_phone} blocked: {auth_reason}")
+            logger.info(f"🚫 [Policy Blocked] Message to {mask_phone(clean_recipient_phone)} blocked: {auth_reason}")
             try:
                 log_entry = models.MessageLog(
                     recipient_phone=clean_recipient_phone,
@@ -144,7 +145,7 @@ def send_whatsapp_template(
         # Safe local mock mode when Meta credentials are empty
         if not WHATSAPP_API_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
             mock_wamid = f"mock_wamid_{int(datetime.utcnow().timestamp())}"
-            logger.info(f"📱 [SIMULATION MODE] Template '{template_name}' ({language}) to {clean_recipient_phone}")
+            logger.info(f"📱 [SIMULATION MODE] Template '{template_name}' ({language}) to {mask_phone(clean_recipient_phone)}")
             
             log_entry = models.MessageLog(
                 recipient_phone=clean_recipient_phone,
@@ -399,7 +400,7 @@ def send_whatsapp_free_text(recipient_phone: str, message_text: str, sender_user
             sender_user=sender_user
         )
         if not is_auth:
-            logger.warning(f"🚫 [Policy Blocked] Free-text to {recipient_phone} blocked: {auth_reason}")
+            logger.warning(f"🚫 [Policy Blocked] Free-text to {mask_phone(recipient_phone)} blocked: {auth_reason}")
             try:
                 log_entry = models.MessageLog(
                     recipient_phone=recipient_phone,
@@ -419,7 +420,7 @@ def send_whatsapp_free_text(recipient_phone: str, message_text: str, sender_user
         # Check if simulated or live
         if not WHATSAPP_API_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
             mock_id = f"sim_chat_{int(datetime.utcnow().timestamp())}"
-            logger.info(f"💬 [SIMULATED 2-WAY CHAT] Agent sent to {clean_phone}: '{message_text}'")
+            logger.info(f"💬 [SIMULATED 2-WAY CHAT] Agent sent to {mask_phone(clean_phone)}: '{message_text}'")
             return {
                 "status": "success_simulated",
                 "message_id": mock_id,

@@ -517,14 +517,6 @@ def process_customer_sync(payload: Dict[str, Any], current_user: models.User, db
         if k not in RESERVED_KEYS:
             custom_attrs[k] = v
 
-    # Ensure custom_attributes column exists in database (fallback for active deployments)
-    try:
-        from sqlalchemy import text
-        db.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS custom_attributes JSON"))
-        db.commit()
-    except Exception:
-        db.rollback()
-
     try:
         # Upsert Contact
         contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()

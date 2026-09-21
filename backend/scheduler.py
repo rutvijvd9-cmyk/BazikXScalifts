@@ -19,6 +19,7 @@ from services.phone_service import normalize_phone
 from services.secret_store import get_secret
 from services.integration_gateway import dispatch_external_request, SSRFSecurityError, HostNotAllowedError, CredentialMismatchError
 from services.job_claim_service import claim_workflow_session, claim_campaign
+from services.pii_service import mask_phone
 
 import config
 from zoneinfo import ZoneInfo
@@ -237,7 +238,7 @@ def process_abandoned_cart_job(cart_event_id: int):
             if cart_rule:
                 cart_rule.total_triggered += 1
             db.commit()
-            logger.info(f"✅ Abandoned cart recovery dispatched for {cart.customer_phone}")
+            logger.info(f"✅ Abandoned cart recovery dispatched for {mask_phone(cart.customer_phone)}")
         else:
             logger.warning(f"Cart message was not sent: {result}")
             try:
@@ -371,7 +372,7 @@ def run_thirty_day_reengagement_sweep():
             ).first()
 
             if recent_msg:
-                logger.info(f"⏭️ Skipping {phone}: Already received 30-day promo within the last 7 days.")
+                logger.info(f"⏭️ Skipping {mask_phone(phone)}: Already received 30-day promo within the last 7 days.")
                 skipped_count += 1
                 continue
 
@@ -525,7 +526,7 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
                         fail_count += 1
                         last_failure_reason = res.get("error") or res.get("reason") or res.get("message") or "Meta send rejected"
                 except Exception as rec_err:
-                    logger.error(f"Error processing recipient {phone} in campaign {campaign_id}: {rec_err}", exc_info=True)
+                    logger.error(f"Error processing recipient {mask_phone(phone)} in campaign {campaign_id}: {rec_err}", exc_info=True)
                     fail_count += 1
                     last_failure_reason = str(rec_err)
 
@@ -804,7 +805,7 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
             if res.get("status") in ["success", "success_simulated"]:
                 sent_count += 1
             else:
-                logger.warning(f"⚠️ [Rule Engine] Dispatch to {phone} returned: {res}")
+                logger.warning(f"⚠️ [Rule Engine] Dispatch to {mask_phone(phone)} returned: {res}")
 
         rule.total_triggered += sent_count
         rule.approval_status = "IDLE"
