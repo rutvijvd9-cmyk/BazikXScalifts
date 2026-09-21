@@ -8,7 +8,7 @@ from datetime import datetime
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 import auth
@@ -178,5 +178,63 @@ def get_workflow_sessions(
     )
     sessions.sort(key=get_session_wa_sort_key, reverse=True)
     return sessions[:250]
+
+
+@router.post("/{flow_id}/clear-queue")
+def clear_workflow_queue(
+    flow_id: int,
+    mode: str = Query("cancel_active", pattern="^(cancel_active|delete_all)$"),
+    clear_stats: bool = Query(False),
+    clear_cart_events: bool = Query(False),
+    current_user: models.User = Depends(auth.require_roles("admin", "manager")),
+    db: Session = Depends(get_db)
+):
+    """
+    Clears / empties contacts and queues from a visual workflow:
+    - mode="cancel_active": Sets all ACTIVE, WAITING_DELAY, and WAITING_CONDITION sessions to CANCELLED.
+    - mode="delete_all": Permanently deletes all enrolled session rows for this workflow.
+    - clear_stats: Resets entered, completed, goals_converted, and revenue_recovered counters to 0.
+    - clear_cart_events: Deletes stored cart events if this is an abandoned cart flow.
+    """
+    flow = db.query(models.WorkflowFlow).filter(models.WorkflowFlow.id == flow_id).first()
+    if not flow:
+        raise HTTPException(status_code=404, detail="Workflow flow not found")
+
+    if mode == "cancel_active":
+        cleared_count = (
+            db.query(models.WorkflowSession)
+            .filter(
+                models.WorkflowSession.flow_id == flow_id,
+                models.WorkflowSession.status.in_(["ACTIVE", "WAITING_DELAY", "WAITING_CONDITION"])
+            )
+            .update({"status": "CANCELLED"}, synchronize_session=False)
+        )
+    else:  # delete_all
+        cleared_count = (
+            db.query(models.WorkflowSession)
+            .filter(models.WorkflowSession.flow_id == flow_id)
+            .delete(synchronize_session=False)
+        )
+
+    if clear_stats:
+        flow.stats = {"entered": 0, "completed": 0, "goals_converted": 0, "revenue_recovered": 0}
+
+    cleared_carts = 0
+    if clear_cart_events:
+        cleared_carts = db.query(models.CartEvent).delete(synchronize_session=False)
+
+    db.commit()
+    logger.info(
+        f"🧹 [Workflow Engine] User '{current_user.username}' cleared queue for flow #{flow_id} "
+        f"(mode={mode}, sessions={cleared_count}, carts={cleared_carts}, reset_stats={clear_stats})"
+    )
+    return {
+        "status": "success",
+        "mode": mode,
+        "cleared_count": cleared_count,
+        "cleared_cart_events": cleared_carts,
+        "stats_reset": clear_stats,
+        "message": f"Successfully cleared {cleared_count} session(s)."
+    }
 
 

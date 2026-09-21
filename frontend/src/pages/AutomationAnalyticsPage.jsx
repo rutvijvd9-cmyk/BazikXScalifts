@@ -1,7 +1,9 @@
 import React, { useState } from "react";
+import axios from "axios";
 import {
   ArrowLeft, Users, GitBranch, Search, RefreshCw,
-  ShoppingCart, Send, Clock, CheckCircle2, Award, X, ArrowRight
+  ShoppingCart, Send, Clock, CheckCircle2, Award, X, ArrowRight,
+  Trash2, AlertTriangle, Check, RotateCcw
 } from "lucide-react";
 import { formatToIST } from "../utils/dateUtils";
 import AnalyticsFlowCanvas from "../components/analytics/AnalyticsFlowCanvas";
@@ -114,11 +116,52 @@ export function getSessionLastActivityTime(s) {
 /* ══════════════════════════════════════════
    FULL-PAGE AUTOMATION ANALYTICS
 ══════════════════════════════════════════ */
-export default function AutomationAnalyticsPage({ flow, sessions = [], loading, onBack }) {
+export default function AutomationAnalyticsPage({ flow, sessions = [], loading, onBack, token, onRefresh }) {
   const [selectedStepId, setSelectedStepId] = useState(null);
   const [activeTab, setActiveTab]           = useState("funnel");
   const [search, setSearch]                 = useState("");
   const [statusFilter, setStatusFilter]     = useState("ALL");
+
+  /* Clear Queue Modal State */
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [clearMode, setClearMode]           = useState("cancel_active"); // "cancel_active" | "delete_all"
+  const [clearStats, setClearStats]         = useState(false);
+  const [clearCarts, setClearCarts]         = useState(false);
+  const [clearing, setClearing]             = useState(false);
+  const [clearSuccess, setClearSuccess]     = useState("");
+  const [clearError, setClearError]         = useState("");
+
+  const handleExecuteClear = async () => {
+    if (!flow?.id) return;
+    setClearing(true);
+    setClearError("");
+    setClearSuccess("");
+    try {
+      const authToken = token || localStorage.getItem("token");
+      const res = await axios.post(
+        `/api/workflows/${flow.id}/clear-queue`,
+        null,
+        {
+          params: {
+            mode: clearMode,
+            clear_stats: clearStats,
+            clear_cart_events: clearCarts
+          },
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+        }
+      );
+      setClearSuccess(res.data?.message || "Queue cleared successfully.");
+      setTimeout(() => {
+        setShowClearModal(false);
+        setClearSuccess("");
+        if (onRefresh) onRefresh();
+      }, 1000);
+    } catch (err) {
+      setClearError(err.response?.data?.detail || "Failed to clear queue.");
+    } finally {
+      setClearing(false);
+    }
+  };
 
   const totalEnrolled = sessions.length;
   const activeCount   = sessions.filter(s => s.status === "ACTIVE").length;
@@ -183,6 +226,36 @@ export default function AutomationAnalyticsPage({ flow, sessions = [], loading, 
           <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
             {flow?.trigger_type}
           </span>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-2">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 transition cursor-pointer shadow-xs disabled:opacity-50"
+              title="Refresh sessions"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-blue-600" : "text-gray-500"}`} />
+              <span>Refresh</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              setClearError("");
+              setClearSuccess("");
+              setShowClearModal(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 transition cursor-pointer shadow-xs"
+            title="Empty or cancel automation queue"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-red-600" />
+            <span>Clear Queue</span>
+          </button>
         </div>
       </div>
 
@@ -407,6 +480,164 @@ export default function AutomationAnalyticsPage({ flow, sessions = [], loading, 
           </div>
         )}
       </div>
+
+      {/* ── Clear Automation Queue Modal ── */}
+      {showClearModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-60">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-gray-200 overflow-hidden animate-in fade-in zoom-in duration-150">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between p-6 border-b border-gray-100 bg-gray-50/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-gray-900 leading-tight">
+                    Clear Automation Queue
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {flow?.name || "Automation"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowClearModal(false)}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4">
+              {clearSuccess ? (
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center gap-3 text-sm font-semibold">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span>{clearSuccess}</span>
+                </div>
+              ) : (
+                <>
+                  {clearError && (
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 flex items-center gap-2 text-xs font-semibold">
+                      <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                      <span>{clearError}</span>
+                    </div>
+                  )}
+
+                  <p className="text-xs text-gray-600">
+                    Select how you want to empty the contacts and scheduled delay queues for this automation:
+                  </p>
+
+                  {/* Mode Selector */}
+                  <div className="space-y-2.5">
+                    <label
+                      onClick={() => setClearMode("cancel_active")}
+                      className={`flex items-start gap-3 p-3.5 rounded-xl border transition cursor-pointer ${
+                        clearMode === "cancel_active"
+                          ? "border-red-500 bg-red-50/40 ring-2 ring-red-100"
+                          : "border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="clearMode"
+                        checked={clearMode === "cancel_active"}
+                        onChange={() => setClearMode("cancel_active")}
+                        className="mt-1 text-red-600 focus:ring-red-500 cursor-pointer"
+                      />
+                      <div className="text-xs">
+                        <p className="font-bold text-gray-900">Cancel Active Waiting Sessions</p>
+                        <p className="text-gray-500 mt-0.5 leading-relaxed">
+                          Immediately cancels all contacts currently waiting in delays. No future WhatsApp messages will be triggered, but session history is kept for review.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label
+                      onClick={() => setClearMode("delete_all")}
+                      className={`flex items-start gap-3 p-3.5 rounded-xl border transition cursor-pointer ${
+                        clearMode === "delete_all"
+                          ? "border-red-500 bg-red-50/40 ring-2 ring-red-100"
+                          : "border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="clearMode"
+                        checked={clearMode === "delete_all"}
+                        onChange={() => setClearMode("delete_all")}
+                        className="mt-1 text-red-600 focus:ring-red-500 cursor-pointer"
+                      />
+                      <div className="text-xs">
+                        <p className="font-bold text-gray-900">Delete All Contacts & History</p>
+                        <p className="text-gray-500 mt-0.5 leading-relaxed">
+                          Permanently purges all enrolled contacts and past traversal logs for this automation from the database.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Additional Checkboxes */}
+                  <div className="pt-2 border-t border-gray-100 space-y-2">
+                    <label className="flex items-center gap-2.5 text-xs text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={clearStats}
+                        onChange={(e) => setClearStats(e.target.checked)}
+                        className="rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                      />
+                      <span>Reset workflow performance stats (Total Enrolled, Converted, Revenue) to 0</span>
+                    </label>
+
+                    <label className="flex items-center gap-2.5 text-xs text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={clearCarts}
+                        onChange={(e) => setClearCarts(e.target.checked)}
+                        className="rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                      />
+                      <span>Also delete stored cart webhook events (`cart_events`)</span>
+                    </label>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            {!clearSuccess && (
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowClearModal(false)}
+                  disabled={clearing}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteClear}
+                  disabled={clearing}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 transition cursor-pointer shadow-sm disabled:opacity-50"
+                >
+                  {clearing ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Clearing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Confirm & Clear</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

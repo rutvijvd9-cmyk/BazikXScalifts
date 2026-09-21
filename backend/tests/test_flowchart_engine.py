@@ -200,5 +200,53 @@ def test_cart_event_webhook_enrolls_workflow(client, db):
     assert res.status_code == 202
     data = res.json()
     assert data["status"] == "received"
-    # An active cart flow exists, so workflow_session_id should be populated
     assert "workflow_session_id" in data
+
+
+def test_clear_workflow_queue(client, auth_headers, db):
+    # Create test flow
+    flow = models.WorkflowFlow(
+        name="Clear Queue Test Flow",
+        trigger_type="ABANDONED_CART",
+        is_active=True,
+        nodes=[{"id": "t1", "type": "trigger", "label": "T"}],
+        edges=[],
+        stats={"entered": 5, "completed": 2, "goals_converted": 1, "revenue_recovered": 500}
+    )
+    db.add(flow)
+    db.commit()
+    db.refresh(flow)
+
+    # Add active, waiting, and completed sessions
+    s1 = models.WorkflowSession(flow_id=flow.id, customer_phone="+919999900001", status="ACTIVE")
+    s2 = models.WorkflowSession(flow_id=flow.id, customer_phone="+919999900002", status="WAITING_DELAY")
+    s3 = models.WorkflowSession(flow_id=flow.id, customer_phone="+919999900003", status="COMPLETED_GOAL")
+    db.add_all([s1, s2, s3])
+    db.commit()
+
+    # 1. Test mode="cancel_active"
+    res = client.post(f"/api/workflows/{flow.id}/clear-queue?mode=cancel_active", headers=auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "success"
+    assert data["cleared_count"] == 2  # s1 and s2
+
+    db.refresh(s1)
+    db.refresh(s2)
+    db.refresh(s3)
+    assert s1.status == "CANCELLED"
+    assert s2.status == "CANCELLED"
+    assert s3.status == "COMPLETED_GOAL"
+
+    # 2. Test mode="delete_all" with clear_stats=True
+    res2 = client.post(f"/api/workflows/{flow.id}/clear-queue?mode=delete_all&clear_stats=true", headers=auth_headers)
+    assert res2.status_code == 200
+    data2 = res2.json()
+    assert data2["status"] == "success"
+    assert data2["cleared_count"] == 3  # all 3 deleted
+    assert data2["stats_reset"] is True
+
+    remaining = db.query(models.WorkflowSession).filter(models.WorkflowSession.flow_id == flow.id).count()
+    assert remaining == 0
+    db.refresh(flow)
+    assert flow.stats["entered"] == 0

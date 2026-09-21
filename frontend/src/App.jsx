@@ -1970,6 +1970,8 @@ export default function App() {
             flow={analyticsPage.flow}
             sessions={analyticsPage.sessions}
             loading={analyticsPage.loading}
+            token={token}
+            onRefresh={() => handleOpenAnalyticsPage(analyticsPage.flow)}
             onBack={() => setAnalyticsPage(prev => ({ ...prev, open: false }))}
           />
         </div>
