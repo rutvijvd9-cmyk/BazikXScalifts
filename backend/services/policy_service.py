@@ -39,6 +39,22 @@ def is_quiet_hours(now_utc: Optional[datetime] = None) -> bool:
     return hour >= 21 or hour < 9
 
 
+def is_quiet_hours_enabled(db: Optional[Session] = None) -> bool:
+    """
+    Checks if Quiet Hours enforcement is turned on in SystemSettings.
+    Can be toggled via Settings UI. Defaults to True if no setting record is found.
+    """
+    if db is None:
+        return True
+    try:
+        setting = db.query(models.SystemSetting).filter(models.SystemSetting.key == "quiet_hours_enabled").first()
+        if setting is not None:
+            return str(setting.value).strip().lower() in ["true", "1", "yes", "on"]
+    except Exception:
+        pass
+    return True
+
+
 def record_consent(
     db: Session,
     phone: str,
@@ -252,7 +268,7 @@ def authorize_outbound_message(
     # Utility messages (cart recovery, order status, workflow journey triggers) are exempt.
     is_marketing = purpose == "marketing" or campaign_id is not None
     is_promotional = is_marketing or (template_name and template_name not in TRANSACTIONAL_TEMPLATES and purpose != "utility")
-    if enforce_quiet_hours and is_promotional and is_quiet_hours():
+    if enforce_quiet_hours and is_quiet_hours_enabled(db) and is_promotional and is_quiet_hours():
         return False, "Promotional message blocked: Quiet hours in effect (21:00 - 09:00 IST)"
 
     return True, "Authorized"

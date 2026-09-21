@@ -1797,6 +1797,7 @@ export default function App() {
           {activeTab === "settings" && (
             <SettingsPage
               systemSettings={systemSettings}
+              setSystemSettings={setSystemSettings}
               currentUserProfile={currentUserProfile}
               setIsAddUserModalOpen={setIsAddUserModalOpen}
               systemUsers={systemUsers}

@@ -16,13 +16,15 @@ import {
   EyeOff,
   Code,
   AlertTriangle,
-  ExternalLink
+  ExternalLink,
+  Moon
 } from "lucide-react";
 import axios, { getApiBaseUrl } from "../api";
 import { formatToIST } from "../utils/dateUtils";
 
 export default function SettingsPage({
   systemSettings = {},
+  setSystemSettings = () => {},
   currentUserProfile,
   setIsAddUserModalOpen = () => {},
   systemUsers = [],
@@ -41,6 +43,26 @@ export default function SettingsPage({
   setAddUserError = () => {}
 }) {
   const [webhookCopied, setWebhookCopied] = useState(false);
+  const [togglingQuietHours, setTogglingQuietHours] = useState(false);
+  const [quietHoursLocal, setQuietHoursLocal] = useState(null);
+
+  const isQuietHoursActive = quietHoursLocal !== null ? quietHoursLocal : Boolean(systemSettings?.quiet_hours_enabled);
+
+  const handleToggleQuietHours = async () => {
+    const nextState = !isQuietHoursActive;
+    setTogglingQuietHours(true);
+    try {
+      const res = await axios.put("/api/settings/quiet-hours", { enabled: nextState });
+      const updated = res.data?.quiet_hours_enabled ?? nextState;
+      setQuietHoursLocal(updated);
+      setSystemSettings(prev => ({ ...prev, quiet_hours_enabled: updated }));
+    } catch (err) {
+      console.error("Failed to toggle quiet hours:", err);
+      alert("Failed to update quiet hours setting: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setTogglingQuietHours(false);
+    }
+  };
 
   const loggedInUser = systemUsers.find(u => u.username === username) || (currentUserProfile ? { ...currentUserProfile, username } : null);
   const rawBase = getApiBaseUrl() || (typeof window !== "undefined" ? window.location.origin : "");
@@ -80,6 +102,44 @@ export default function SettingsPage({
                       <span className="text-[11px] font-semibold text-gray-500 bg-gray-200/80 px-2 py-0.5 rounded-md border border-gray-300/60">
                         Fixed
                       </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border border-gray-200">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Moon className="w-4 h-4 text-indigo-600" />
+                        <h4 className="font-bold text-gray-900">Quiet Hours Enforcement (21:00 – 09:00 IST)</h4>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase border ${
+                          isQuietHoursActive 
+                            ? "bg-amber-50 text-amber-700 border-amber-200" 
+                            : "bg-blue-50 text-blue-700 border-blue-200"
+                        }`}>
+                          {isQuietHoursActive ? "Active (Production)" : "Lifted (Testing Mode)"}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {isQuietHoursActive
+                          ? "Promotional marketing messages are held during night hours (9:00 PM – 9:00 AM IST) for TRAI compliance."
+                          : "Quiet hours restriction is currently LIFTED for testing. All messages and workflow automations dispatch 24/7."}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        disabled={togglingQuietHours}
+                        onClick={handleToggleQuietHours}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          isQuietHoursActive ? "bg-emerald-600" : "bg-gray-300"
+                        }`}
+                        title={isQuietHoursActive ? "Click to lift quiet hours (Testing Mode)" : "Click to enforce quiet hours (Production Mode)"}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                            isQuietHoursActive ? "translate-x-5" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
                     </div>
                   </div>
 
