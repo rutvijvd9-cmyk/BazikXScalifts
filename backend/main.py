@@ -70,6 +70,12 @@ migration_statements = [
     "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS campaign_id INTEGER REFERENCES campaigns(id);",
     "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS sender_user VARCHAR(50) DEFAULT 'System';",
     "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS authenticated_user VARCHAR(50);",
+    "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'store';",
+    "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS external_event_id VARCHAR(150);",
+    "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(150);",
+    "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS hmac_validated BOOLEAN DEFAULT FALSE;",
+    "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(64);",
+    "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS received_at TIMESTAMP DEFAULT NOW();",
     "CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(50) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT NOW());"
 ]
 for stmt in migration_statements:
@@ -219,6 +225,13 @@ def on_startup():
         "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS extra_data JSON",
         # message_logs: link to campaigns
         "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS campaign_id INTEGER REFERENCES campaigns(id)",
+        # webhook_events: canonical audit columns
+        "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'store'",
+        "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS external_event_id VARCHAR(150)",
+        "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(150)",
+        "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS hmac_validated BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(64)",
+        "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS received_at TIMESTAMP DEFAULT NOW()",
         # system_settings: key-value system configuration
         "CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(50) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT NOW())",
     ]
