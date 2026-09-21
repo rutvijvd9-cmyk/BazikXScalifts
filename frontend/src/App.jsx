@@ -235,6 +235,8 @@ export default function App() {
   const [chatSoundEnabled, setChatSoundEnabled] = useState(true);
   const lastProcessedMessageIdRef = useRef(null);
   const isInitialChatLoadRef = useRef(true);
+  const lastKnownIncomingSignatureRef = useRef(null);
+  const isInitialConversationsLoadRef = useRef(true);
 
 
   // Pleasant Web Audio Chime for Live Chat Incoming Messages (Zero external MP3 dependencies)
@@ -886,7 +888,25 @@ export default function App() {
       const res = await axios.get("/api/chat/conversations", {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setChatConversations(res.data || []);
+      const convs = res.data || [];
+      setChatConversations(convs);
+
+      // Global check across all conversations for any new incoming customer message:
+      // Look at customer messages across all threads to detect arrival of any new message
+      const latestCustomerMsg = convs.find(
+        (c) => c.last_sender === "CUSTOMER" && c.last_message_time
+      );
+
+      if (latestCustomerMsg) {
+        const signature = `${latestCustomerMsg.customer_phone}-${latestCustomerMsg.last_message_time}-${latestCustomerMsg.last_message_text || ""}`;
+        if (isInitialConversationsLoadRef.current) {
+          isInitialConversationsLoadRef.current = false;
+          lastKnownIncomingSignatureRef.current = signature;
+        } else if (lastKnownIncomingSignatureRef.current !== signature) {
+          lastKnownIncomingSignatureRef.current = signature;
+          playIncomingMessageSound();
+        }
+      }
     } catch (err) {
       if (!silent) console.error("Failed to fetch chat conversations:", err);
     }
@@ -901,7 +921,7 @@ export default function App() {
       });
       const newMsgs = res.data || [];
       
-      // Sound chime check: if there is a new customer message that arrived after our last seen message
+      // Secondary sound check if specific open thread receives a new message
       if (newMsgs.length > 0) {
         const lastMsg = newMsgs[newMsgs.length - 1];
         if (isInitialChatLoadRef.current) {
@@ -1181,18 +1201,16 @@ export default function App() {
     }
   }, [token, activeTab, analyticsTimeRange]);
 
-  // Periodic polling for Live Two-Way Chat (high-frequency 2s polling for fast real-time messaging)
+  // Periodic polling for Live Two-Way Chat (polls in background tabs as well so sound chime and auto-refresh works)
   useEffect(() => {
     if (!token) return;
     const interval = setInterval(() => {
-      if (document.hidden) return; // Pause polling when user is on another window or tab
-      if (activeTab === "chat") {
-        fetchChatConversations(true);
-        if (selectedChatPhone) {
-          fetchChatMessages(selectedChatPhone, true);
-        }
+      // Background-active: do not stop when tab is hidden, ensuring user hears incoming pings
+      fetchChatConversations(true);
+      if (activeTab === "chat" && selectedChatPhone) {
+        fetchChatMessages(selectedChatPhone, true);
       }
-    }, 2000);
+    }, 2500);
     return () => clearInterval(interval);
   }, [token, selectedChatPhone, activeTab]);
 
