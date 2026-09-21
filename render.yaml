@@ -4,7 +4,7 @@ services:
     env: python
     region: singapore
     plan: standard
-    buildCommand: "pip install -r backend/requirements.txt && cd backend && alembic upgrade head"
+    buildCommand: "pip install -r backend/requirements.txt && alembic upgrade head"
     startCommand: "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: PYTHON_VERSION

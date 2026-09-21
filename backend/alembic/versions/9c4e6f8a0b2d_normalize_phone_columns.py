@@ -86,9 +86,13 @@ def upgrade() -> None:
     insp = sa.inspect(conn)
     existing_tables = insp.get_table_names()
 
-    # ── Phase 1: conflict detection across ALL tables ─────────────────────────
+    # ── Phase 1: conflict detection across tables with unique constraints ───
+    UNIQUE_PHONE_COLUMNS = [
+        ("contacts", "phone"),
+        ("opt_outs", "phone"),
+    ]
     all_conflicts = []
-    for table, col in PHONE_COLUMNS:
+    for table, col in UNIQUE_PHONE_COLUMNS:
         if table not in existing_tables:
             continue
         cols = [c["name"] for c in insp.get_columns(table)]

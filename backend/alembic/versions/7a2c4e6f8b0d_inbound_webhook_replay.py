@@ -44,12 +44,11 @@ def upgrade() -> None:
         indexes = [idx["name"] for idx in insp.get_indexes("chat_messages")]
         if "uq_chat_messages_meta_message_id" not in indexes:
             try:
-                op.create_index(
-                    "uq_chat_messages_meta_message_id",
-                    "chat_messages",
-                    ["meta_message_id"],
-                    unique=True
-                )
+                conn.execute(sa.text("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_messages_meta_message_id
+                    ON chat_messages (meta_message_id)
+                    WHERE meta_message_id IS NOT NULL AND meta_message_id != ''
+                """))
             except Exception:
                 pass
 

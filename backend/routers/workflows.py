@@ -159,7 +159,8 @@ def get_session_wa_sort_key(s: models.WorkflowSession):
             wa_score = 1.0
 
     upd_score = s.updated_at.timestamp() if s.updated_at else (s.created_at.timestamp() if s.created_at else float(s.id))
-    return (1 if wa_score > 0 else 0, wa_score, upd_score, s.id)
+    activity_score = max(wa_score, upd_score)
+    return (activity_score, s.id)
 
 
 @router.get("/{flow_id}/sessions", response_model=List[schemas.WorkflowSessionResponse])
