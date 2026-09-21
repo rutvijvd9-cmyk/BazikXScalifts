@@ -197,6 +197,10 @@ def on_startup():
     # in the worker process environment.
     logger.info("API process started. Scheduler is NOT started here — use worker.py.")
 
+    # Diagnostic: confirm WEBHOOK_SECRET is loaded
+    _ws = config.WEBHOOK_SECRET or ""
+    logger.info(f"[Startup] WEBHOOK_SECRET loaded: length={len(_ws)}, prefix={repr(_ws[:8])}")
+
     # ── Safe column migrations ────────────────────────────────────────────────
     # ADD COLUMN IF NOT EXISTS is idempotent – safe to run on every deploy.
     # Uses the already-imported `engine` and `text` from sqlalchemy.
@@ -235,17 +239,25 @@ def on_startup():
         # system_settings: key-value system configuration
         "CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(50) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT NOW())",
     ]
+    _ok, _fail = 0, 0
+    for _sql in _migrations:
+        try:
+            with engine.begin() as _conn:  # each statement in its OWN transaction
+                _conn.execute(text(_sql))
+            _ok += 1
+        except Exception as _col_err:
+            _fail += 1
+            logger.warning(f"⚠️  Migration note ({_sql[:60]}): {_col_err}")
+    logger.info(f"✅ [DB] Safe column migrations done: {_ok} applied, {_fail} skipped.")
+
+    # Verify webhook_events columns after migrations
     try:
-        with engine.connect() as _conn:
-            for _sql in _migrations:
-                try:
-                    _conn.execute(text(_sql))
-                except Exception as _col_err:
-                    print(f"⚠️  Migration note: {_col_err}")
-            _conn.commit()
-        print("✅ [DB] Safe column migrations applied.")
-    except Exception as _mig_err:
-        print(f"⚠️  [DB] Migration step error (non-fatal): {_mig_err}")
+        from sqlalchemy import inspect as sa_inspect
+        _insp = sa_inspect(engine)
+        _we_cols = [c['name'] for c in _insp.get_columns('webhook_events')]
+        logger.info(f"[DB] webhook_events columns: {_we_cols}")
+    except Exception as _ve:
+        logger.warning(f"[DB] Could not inspect webhook_events: {_ve}")
 
     # ── Database Initialization & Sync ──────────────────────────────────────
     db = next(get_db())

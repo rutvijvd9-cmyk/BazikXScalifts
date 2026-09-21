@@ -89,7 +89,9 @@ async def get_webhook_authenticated_user(
     if not hmac.compare_digest(computed_hex, sig_clean):
         logger.warning(
             f"🚨 [Webhook Security] Store webhook rejected: HMAC signature mismatch. "
-            f"Received sig length={len(sig_clean)}, body bytes={len(raw_body)}"
+            f"Received sig length={len(sig_clean)}, body bytes={len(raw_body)}, "
+            f"received[:16]={sig_clean[:16]!r}, computed[:16]={computed_hex[:16]!r}, "
+            f"secret_len={len(config.WEBHOOK_SECRET)}"
         )
         _record_failure()
         raise HTTPException(
