@@ -967,7 +967,8 @@ def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, 
         logger.info(f"🚀 [Workflow Engine] Session #{session.id} started for {customer_phone} in flow '{flow.name}' (simulation={is_simulation})")
         
         # Advance from trigger to first downstream node
-        process_workflow_session_step(session.id, db=db, mock_send=is_simulation)
+        step_res = process_workflow_session_step(session.id, db=db, mock_send=is_simulation)
+        logger.info(f"⚙️ [Workflow Engine] Initial step result for session #{session.id}: {step_res}")
         db.refresh(session)
         return session
     except Exception as e:

@@ -173,6 +173,7 @@ async def receive_cart_webhook(
     ).first()
 
     workflow_session_id = None
+    wf_sess = None
     skipped_due_to_min_cart = False
     if active_cart_flow:
         flow_nodes = active_cart_flow.nodes or []
@@ -225,6 +226,9 @@ async def receive_cart_webhook(
         "status": "received",
         "cart_event_id": cart_record.id,
         "workflow_session_id": workflow_session_id,
+        "session_status": wf_sess.status if wf_sess else None,
+        "session_current_node": wf_sess.current_node_id if wf_sess else None,
+        "session_history": wf_sess.history if wf_sess else None,
         "skipped_min_cart": skipped_due_to_min_cart,
         "scheduled_in_seconds": eff_delay,
         "authenticated_as": current_user.username,
