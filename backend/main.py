@@ -90,7 +90,7 @@ async def global_unhandled_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content={
-            "detail": "An internal server error occurred. Please reference this correlation ID if contacting support.",
+            "detail": f"An internal server error occurred: {type(exc).__name__}: {str(exc)}",
             "correlation_id": corr_id
         },
         headers={"X-Correlation-ID": corr_id}
