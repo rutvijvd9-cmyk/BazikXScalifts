@@ -72,6 +72,13 @@ migration_statements = [
     "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE;",
     "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS order_count INTEGER DEFAULT 0;",
     "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_order_date TIMESTAMP;",
+    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id);",
+    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS birth_day INTEGER;",
+    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS birth_month INTEGER;",
+    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS claimed_by VARCHAR(64);",
+    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMP;",
+    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS attempt_count INTEGER DEFAULT 0;",
+    "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id);",
     "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS extra_data JSON;",
     "ALTER TABLE templates ADD COLUMN IF NOT EXISTS variable_mappings JSON;",
     "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS campaign_id INTEGER REFERENCES campaigns(id);",
@@ -239,6 +246,15 @@ def on_startup():
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE",
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS order_count INTEGER DEFAULT 0",
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_order_date TIMESTAMP",
+        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS birth_day INTEGER",
+        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS birth_month INTEGER",
+        # campaigns: worker lease columns
+        "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS claimed_by VARCHAR(64)",
+        "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMP",
+        "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS attempt_count INTEGER DEFAULT 0",
+        # chat_messages: assignment column
+        "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id)",
         # templates: configure-once variable mappings
         "ALTER TABLE templates ADD COLUMN IF NOT EXISTS variable_mappings JSON",
         # cart_events: open extra_data payload for dynamic ecom variables
