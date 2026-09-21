@@ -224,6 +224,24 @@ def test_clear_workflow_queue(client, auth_headers, db):
     db.add_all([s1, s2, s3])
     db.commit()
 
+    # Add an outbound message referencing session s1 to verify FK unlinking works without error
+    out_msg = models.OutboundMessage(
+        idempotency_key="out_msg_test_clear_queue",
+        recipient_phone_e164="+919999900001",
+        recipient_hash="hash12345",
+        message_kind="template",
+        purpose="utility",
+        workflow_session_id=s1.id,
+        status="sent"
+    )
+    cart_evt = models.CartEvent(
+        cart_token="cart_clear_test_token",
+        customer_phone="+919999900001",
+        cart_value=500.0
+    )
+    db.add_all([out_msg, cart_evt])
+    db.commit()
+
     # 1. Test mode="cancel_active"
     res = client.post(f"/api/workflows/{flow.id}/clear-queue?mode=cancel_active", headers=auth_headers)
     assert res.status_code == 200
@@ -238,15 +256,23 @@ def test_clear_workflow_queue(client, auth_headers, db):
     assert s2.status == "CANCELLED"
     assert s3.status == "COMPLETED_GOAL"
 
-    # 2. Test mode="delete_all" with clear_stats=True
-    res2 = client.post(f"/api/workflows/{flow.id}/clear-queue?mode=delete_all&clear_stats=true", headers=auth_headers)
+    # 2. Test mode="delete_all" with clear_stats=True and clear_cart_events=True
+    res2 = client.post(
+        f"/api/workflows/{flow.id}/clear-queue?mode=delete_all&clear_stats=true&clear_cart_events=true",
+        headers=auth_headers
+    )
     assert res2.status_code == 200
     data2 = res2.json()
     assert data2["status"] == "success"
     assert data2["cleared_count"] == 3  # all 3 deleted
     assert data2["stats_reset"] is True
+    assert data2["cleared_cart_events"] >= 1
 
     remaining = db.query(models.WorkflowSession).filter(models.WorkflowSession.flow_id == flow.id).count()
     assert remaining == 0
     db.refresh(flow)
     assert flow.stats["entered"] == 0
+
+    # Verify OutboundMessage has been cleanly unlinked (workflow_session_id set to NULL)
+    db.refresh(out_msg)
+    assert out_msg.workflow_session_id is None

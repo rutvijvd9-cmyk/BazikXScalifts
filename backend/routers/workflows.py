@@ -10,6 +10,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 import auth
 import models
@@ -200,41 +201,63 @@ def clear_workflow_queue(
     if not flow:
         raise HTTPException(status_code=404, detail="Workflow flow not found")
 
-    if mode == "cancel_active":
-        cleared_count = (
-            db.query(models.WorkflowSession)
-            .filter(
-                models.WorkflowSession.flow_id == flow_id,
-                models.WorkflowSession.status.in_(["ACTIVE", "WAITING_DELAY", "WAITING_CONDITION"])
+    try:
+        if mode == "cancel_active":
+            cleared_count = (
+                db.query(models.WorkflowSession)
+                .filter(
+                    models.WorkflowSession.flow_id == flow_id,
+                    models.WorkflowSession.status.in_(["ACTIVE", "WAITING_DELAY", "WAITING_CONDITION"])
+                )
+                .update({"status": "CANCELLED"}, synchronize_session=False)
             )
-            .update({"status": "CANCELLED"}, synchronize_session=False)
+        else:  # delete_all
+            session_ids = [
+                s[0] for s in db.query(models.WorkflowSession.id)
+                .filter(models.WorkflowSession.flow_id == flow_id)
+                .all()
+            ]
+            if session_ids:
+                # Disconnect foreign key references from outbound_messages to prevent FK constraint violation
+                db.query(models.OutboundMessage).filter(
+                    models.OutboundMessage.workflow_session_id.in_(session_ids)
+                ).update({"workflow_session_id": None}, synchronize_session=False)
+
+                cleared_count = (
+                    db.query(models.WorkflowSession)
+                    .filter(models.WorkflowSession.id.in_(session_ids))
+                    .delete(synchronize_session=False)
+                )
+            else:
+                cleared_count = 0
+
+        if clear_stats:
+            flow.stats = {"entered": 0, "completed": 0, "goals_converted": 0, "revenue_recovered": 0}
+            flag_modified(flow, "stats")
+
+        cleared_carts = 0
+        if clear_cart_events:
+            cleared_carts = db.query(models.CartEvent).delete(synchronize_session=False)
+
+        db.commit()
+        logger.info(
+            f"🧹 [Workflow Engine] User '{current_user.username}' cleared queue for flow #{flow_id} "
+            f"(mode={mode}, sessions={cleared_count}, carts={cleared_carts}, reset_stats={clear_stats})"
         )
-    else:  # delete_all
-        cleared_count = (
-            db.query(models.WorkflowSession)
-            .filter(models.WorkflowSession.flow_id == flow_id)
-            .delete(synchronize_session=False)
+        return {
+            "status": "success",
+            "mode": mode,
+            "cleared_count": cleared_count,
+            "cleared_cart_events": cleared_carts,
+            "stats_reset": clear_stats,
+            "message": f"Successfully cleared {cleared_count} session(s)."
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ [Workflow Engine] Error clearing queue for flow #{flow_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear queue: {str(e)}"
         )
-
-    if clear_stats:
-        flow.stats = {"entered": 0, "completed": 0, "goals_converted": 0, "revenue_recovered": 0}
-
-    cleared_carts = 0
-    if clear_cart_events:
-        cleared_carts = db.query(models.CartEvent).delete(synchronize_session=False)
-
-    db.commit()
-    logger.info(
-        f"🧹 [Workflow Engine] User '{current_user.username}' cleared queue for flow #{flow_id} "
-        f"(mode={mode}, sessions={cleared_count}, carts={cleared_carts}, reset_stats={clear_stats})"
-    )
-    return {
-        "status": "success",
-        "mode": mode,
-        "cleared_count": cleared_count,
-        "cleared_cart_events": cleared_carts,
-        "stats_reset": clear_stats,
-        "message": f"Successfully cleared {cleared_count} session(s)."
-    }
 
 
