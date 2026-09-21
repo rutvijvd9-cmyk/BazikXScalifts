@@ -22,7 +22,7 @@ def get_system_settings(
 ):
     return {
         "daily_limit": 200,
-        "cart_delay_minutes": 30,
+        "cart_delay_minutes": 0,
         "active_phone_id": config.WHATSAPP_PHONE_NUMBER_ID or "Not Configured (Simulation Mode)",
         "webhook_endpoint": config.WHATSAPP_WEBHOOK_URL or "/api/webhooks/whatsapp",
         "dnd_keywords": list(OPT_OUT_KEYWORDS)

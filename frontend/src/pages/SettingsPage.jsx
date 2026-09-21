@@ -83,15 +83,6 @@ export default function SettingsPage({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border border-gray-200">
-                    <div>
-                      <h4 className="font-bold text-gray-900">Abandoned Cart Delay Timer</h4>
-                      <p className="text-xs text-gray-500 mt-0.5">Time window to wait before triggering cart recovery WhatsApp message</p>
-                    </div>
-                    <span className="font-mono font-bold text-base text-[#F5A623] bg-white px-3 py-1 rounded-lg border border-gray-200">
-                      30 Minutes
-                    </span>
-                  </div>
 
                   <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border border-gray-200">
                     <div>

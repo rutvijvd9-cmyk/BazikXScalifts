@@ -9,8 +9,8 @@ export default function CartRecoveryPage({ cartEvents = [] }) {
           <h3 className="font-bold text-gray-900 text-base">Abandoned Cart Recovery Queue</h3>
           <p className="text-xs text-gray-500 mt-0.5">Idle shopping carts received from custom PHP webhook</p>
         </div>
-        <div className="text-xs font-semibold text-[#F5A623] bg-amber-50 px-3 py-1 rounded-lg border border-amber-200">
-          Delay: 30 Minutes
+        <div className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
+          Trigger: Immediate (No Delay)
         </div>
       </div>
       <div className="overflow-x-auto">
