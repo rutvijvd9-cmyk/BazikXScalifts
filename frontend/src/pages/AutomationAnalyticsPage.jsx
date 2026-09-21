@@ -36,7 +36,12 @@ function StepPill({ step }) {
   const isCond  = (step.node_type || "").toLowerCase() === "condition";
   const branch  = (step.branch || "").toUpperCase();
   let label = step.label || step.node_type || "Step";
-  if (label.length > 22) label = label.slice(0, 20) + "…";
+  if (isCond && (step.condition_type === "MESSAGE_READ" || label.toLowerCase().includes("blue tick") || label.toLowerCase().includes("read"))) {
+    label = "Was Message Read?";
+  } else if (isCond && (step.condition_type === "ORDER_PLACED" || step.condition_type === "CART_RECOVERED")) {
+    label = "Did Customer Purchase?";
+  }
+  if (label.length > 24) label = label.slice(0, 22) + "…";
   return (
     <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${s.bg} ${s.text}`}>
       <IC className={`w-2.5 h-2.5 ${s.ic} shrink-0`} />
@@ -49,6 +54,7 @@ function StepPill({ step }) {
     </div>
   );
 }
+
 
 function StatusBadge({ status }) {
   const map = {

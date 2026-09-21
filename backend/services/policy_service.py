@@ -140,10 +140,31 @@ def has_active_consent(db: Session, phone: str) -> bool:
     return bool(has_active)
 
 
+def get_next_quiet_hours_end_utc(now_utc: Optional[datetime] = None) -> datetime:
+    """
+    Returns the next datetime (in UTC) when quiet hours end (09:00:00 IST).
+    Quiet hours: 21:00 to 09:00 IST.
+    """
+    if now_utc is None:
+        now_utc = datetime.utcnow()
+    # Convert now_utc to IST
+    ist_time = now_utc + timedelta(hours=5, minutes=30)
+    # Target 09:00:00 IST
+    if ist_time.hour >= 21:
+        # After 9 PM IST -> 9 AM IST tomorrow
+        target_ist = (ist_time + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+    else:
+        # Before 9 AM IST -> 9 AM IST today
+        target_ist = ist_time.replace(hour=9, minute=0, second=0, microsecond=0)
+    # Convert back from IST to UTC (subtract 5h 30m)
+    return target_ist - timedelta(hours=5, minutes=30)
+
+
 def authorize_outbound_message(
     db: Session,
     recipient_phone: str,
     message_type: str = "template",  # "template", "free_text"
+    purpose: str = "utility",        # "utility", "marketing", "authentication"
     template_name: Optional[str] = None,
     campaign_id: Optional[int] = None,
     sender_user: Optional[str] = "System",
@@ -158,6 +179,7 @@ def authorize_outbound_message(
     4. Meta 24-Hour Customer Service Window (for free-text chat replies)
     5. Daily Outbound Message Quota (fixed 200/day)
     6. Quiet Hours (21:00 - 09:00 IST) for promotional/campaign broadcasts
+       (Transactional/Utility messages like cart recovery or order confirmation are exempt)
 
     Returns (is_authorized, reason)
     """
@@ -191,7 +213,7 @@ def authorize_outbound_message(
 
     # For promotional campaign broadcasts, active consent is MANDATORY (deny-by-default).
     # A contact record without explicit ACTIVE consent is NOT sufficient.
-    if campaign_id is not None:
+    if campaign_id is not None or purpose == "marketing":
         if not active_consent:
             return False, "No active marketing consent on file for campaign recipient — send denied"
 
@@ -226,13 +248,15 @@ def authorize_outbound_message(
         return False, f"Daily budget ceiling reached ({current_count}/{effective_limit} messages sent today)."
 
     # 6. Quiet Hours Enforcement (21:00 - 09:00 IST)
-    # Broadcast campaigns and promotional templates are held during quiet hours.
-    # Transactional messages (cart recovery, order confirmation) are exempt.
-    is_promotional = campaign_id is not None or (template_name and template_name not in TRANSACTIONAL_TEMPLATES)
+    # Broadcast campaigns and promotional marketing templates are held during quiet hours.
+    # Utility messages (cart recovery, order status, workflow journey triggers) are exempt.
+    is_marketing = purpose == "marketing" or campaign_id is not None
+    is_promotional = is_marketing or (template_name and template_name not in TRANSACTIONAL_TEMPLATES and purpose != "utility")
     if enforce_quiet_hours and is_promotional and is_quiet_hours():
         return False, "Promotional message blocked: Quiet hours in effect (21:00 - 09:00 IST)"
 
     return True, "Authorized"
+
 
 
 def authorize_and_create_outbound(
@@ -276,6 +300,7 @@ def authorize_and_create_outbound(
         db=db,
         recipient_phone=clean_phone,
         message_type=message_kind,
+        purpose=purpose,
         template_name=template_name,
         campaign_id=campaign_id,
         sender_user=service_actor,

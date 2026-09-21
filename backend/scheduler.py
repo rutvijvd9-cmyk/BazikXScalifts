@@ -1212,8 +1212,27 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             session.updated_at = now
 
             sent_status = (res.get("status") or "").lower()
+            block_reason = res.get("reason", "")
+            if sent_status == "blocked" and "quiet hours" in block_reason.lower():
+                # WP2: Temporary policy hold during quiet hours — do NOT drop out!
+                # Schedule evaluation for next morning at 09:00 AM IST (quiet hours end)
+                from services.policy_service import get_next_quiet_hours_end_utc
+                next_morning_utc = get_next_quiet_hours_end_utc(now)
+                session.status = "WAITING_DELAY"
+                session.next_evaluation_at = next_morning_utc
+                session.history = (session.history or []) + [{
+                    "node_id": str(curr_node.get("id")),
+                    "node_type": "whatsapp_message",
+                    "label": curr_node.get("label", f"Send {template_name}"),
+                    "timestamp": now.isoformat(),
+                    "details": f"Held during Quiet Hours (21:00-09:00 IST). Rescheduled for {next_morning_utc.strftime('%Y-%m-%d %H:%M:%S UTC')}."
+                }]
+                db.commit()
+                logger.info(f"🌙 [Workflow Engine] Session #{session.id} held during quiet hours. Rescheduled for {next_morning_utc}.")
+                return {"status": "held_quiet_hours", "rescheduled_at": next_morning_utc.isoformat()}
+
             if sent_status in ["blocked", "failed", "error"]:
-                # Halt progression: do not advance downstream nodes on failure or policy block
+                # Halt progression: do not advance downstream nodes on failure or permanent policy block
                 session.status = "COMPLETED_DROPOUT"
                 session.history = (session.history or []) + [{
                     "node_id": str(curr_node.get("id")),
@@ -1224,6 +1243,7 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                 }]
                 db.commit()
                 return {"status": "dropped_out", "reason": res.get("reason", sent_status)}
+
 
             session.history = (session.history or []) + [{
                 "node_id": str(curr_node.get("id")),
@@ -1287,16 +1307,29 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             branch_handle = "yes" if condition_met else "no"
             logger.info(f"⚖️ [Workflow Engine] Condition '{condition_type}' evaluated to: {condition_met} -> Branch: {branch_handle}")
 
+            # Resolve clear display label for the condition check
+            cond_label = curr_node.get("label")
+            if not cond_label or cond_label in ["Did Customer Purchase?", "Check Condition"]:
+                if condition_type == "MESSAGE_READ":
+                    cond_label = "Was Message Read?"
+                elif condition_type == "CART_VALUE_ABOVE":
+                    cond_label = f"Cart Value > ₹{node_data.get('threshold', 500)}"
+                elif condition_type in ["ORDER_PLACED", "CART_RECOVERED"]:
+                    cond_label = "Did Customer Purchase?"
+                else:
+                    cond_label = f"Check {condition_type}"
+
             cond_str = "YES" if condition_met else "NO"
             session.history = (session.history or []) + [{
                 "node_id": str(curr_node.get("id")),
                 "node_type": "condition",
                 "condition_type": condition_type,
                 "branch": branch_handle.upper(),
-                "label": curr_node.get("label", f"Check {condition_type}"),
+                "label": cond_label,
                 "timestamp": now.isoformat(),
                 "details": f"Condition evaluated to {cond_str} -> Took '{branch_handle.upper()}' path"
             }]
+
 
             next_node = find_next_node(nodes, edges, curr_node.get("id"), handle=branch_handle)
             if next_node:
