@@ -319,7 +319,9 @@ async def receive_order_completed_webhook(
                 "name": contact.name or "Valued Customer",
                 "milestone": str(milestone),
                 "coupon": coupon
-            }
+            },
+            idempotency_key=f"order_milestone_{clean_phone}_{order_id}",
+            purpose="utility"
         )
         milestone_triggered = f"Milestone {milestone}th order reward dispatched with coupon {coupon}"
         logger.info(f"🎉 [MILESTONE REWARD] Customer {clean_phone} reached order #{milestone}! Sent coupon {coupon}")

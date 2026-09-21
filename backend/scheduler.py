@@ -4,6 +4,7 @@ import hmac
 import hashlib
 import logging
 import time
+import uuid as uuid_module
 from datetime import datetime, timedelta
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -17,6 +18,7 @@ from whatsapp_service import send_whatsapp_template
 from services.phone_service import normalize_phone
 from services.secret_store import get_secret
 from services.integration_gateway import dispatch_external_request, SSRFSecurityError, HostNotAllowedError, CredentialMismatchError
+from services.job_claim_service import claim_workflow_session, claim_campaign
 
 import config
 from zoneinfo import ZoneInfo
@@ -224,7 +226,9 @@ def process_abandoned_cart_job(cart_event_id: int):
             language=target_lang,
             parameters=param_dict,
             coupon_code=recovery_coupon,
-            sender_user=auth_user
+            sender_user=auth_user,
+            idempotency_key=f"cart_recovery_{cart.id}",
+            purpose="utility"
         )
 
         if result.get("status") in ["success", "success_simulated"]:
@@ -376,7 +380,9 @@ def run_thirty_day_reengagement_sweep():
                 recipient_phone=phone,
                 template_name="reengagement_30_days",
                 language="en",
-                parameters={"name": name, "discount_code": "SPECIAL10"}
+                parameters={"name": name, "discount_code": "SPECIAL10"},
+                idempotency_key=f"milestone_{phone}_{datetime.utcnow().strftime('%Y%m%d')}",
+                purpose="marketing"
             )
             if res.get("status") in ["success", "success_simulated"]:
                 sent_count += 1
@@ -391,6 +397,7 @@ def run_thirty_day_reengagement_sweep():
 def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
     """
     Executes a bulk broadcast campaign safely with rate-limiting and opt-out checks.
+    Uses a distributed campaign lease (WP8) to prevent duplicate execution across workers.
     """
     logger.info(f"🚀 [Campaign] Starting execution of campaign_id={campaign_id}")
     db = SessionLocal()
@@ -398,6 +405,13 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
         campaign = db.query(models.Campaign).filter(models.Campaign.id == campaign_id).first()
         if not campaign:
             logger.error(f"Campaign {campaign_id} not found.")
+            return
+
+        # WP8: Acquire a distributed row-level campaign lease before execution
+        worker_id = f"campaign_worker_{uuid_module.uuid4().hex[:8]}"
+        claimed = claim_campaign(db, campaign_id, worker_id=worker_id, lease_seconds=600)
+        if not claimed:
+            logger.info(f"[Campaign] Campaign {campaign_id} already claimed by another worker — skipping duplicate execution.")
             return
 
         campaign.status = "IN_PROGRESS"
@@ -500,7 +514,9 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
                         language=campaign.language,
                         parameters=params,
                         campaign_id=campaign.id,
-                        sender_user=f"Campaign: {campaign.title}"
+                        sender_user=f"Campaign: {campaign.title}",
+                        idempotency_key=f"campaign_{campaign.id}_{phone}",
+                        purpose="marketing"
                     )
 
                     if res.get("status") in ["success", "success_simulated"]:
@@ -781,7 +797,9 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
                 language=target_lang,
                 parameters=param_dict,
                 coupon_code=rule.coupon_code or config.DEFAULT_COUPON_CODE,
-                sender_user=f"Rule: {rule.rule_name}"
+                sender_user=f"Rule: {rule.rule_name}",
+                idempotency_key=f"rule_{rule.id}_{phone}_{datetime.utcnow().strftime('%Y%m%d')}",
+                purpose="utility"
             )
             if res.get("status") in ["success", "success_simulated"]:
                 sent_count += 1
@@ -1178,7 +1196,10 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                     language=language,
                     parameters=param_dict,
                     coupon_code=coupon_code,
-                    sender_user=origin_user
+                    sender_user=origin_user,
+                    idempotency_key=f"wf_session_{session.id}_node_{current_node_id}",
+                    workflow_session_id=session.id,
+                    purpose="utility"
                 )
 
             sent_msg_id = res.get("message_id") or res.get("id") or f"msg_{int(now.timestamp())}"
@@ -1367,6 +1388,8 @@ def process_all_active_workflow_sessions():
     """
     Periodic job (every minute) that evaluates all active workflow sessions
     whose next_evaluation_at has arrived.
+    Uses per-session row-level leases (WP8) to prevent duplicate evaluation
+    across multiple workers.
     """
     db = SessionLocal()
     try:
@@ -1378,8 +1401,17 @@ def process_all_active_workflow_sessions():
 
         if due_sessions:
             logger.info(f"⏰ [Workflow Engine] Processing {len(due_sessions)} due workflow session(s)...")
+            worker_id = f"sweeper_{uuid_module.uuid4().hex[:8]}"
             for sess in due_sessions:
-                process_workflow_session_step(sess.id, db=db)
+                # WP8: Acquire a distributed row-level lease before evaluating each session
+                claimed = claim_workflow_session(db, sess.id, worker_id=worker_id, lease_seconds=120)
+                if not claimed:
+                    logger.debug(f"[Workflow Engine] Session #{sess.id} already claimed by another worker — skipping.")
+                    continue
+                try:
+                    process_workflow_session_step(sess.id, db=db)
+                except Exception as sess_err:
+                    logger.error(f"[Workflow Engine] Error processing session #{sess.id}: {sess_err}")
     except Exception as e:
         logger.error(f"Error in process_all_active_workflow_sessions: {e}")
     finally:

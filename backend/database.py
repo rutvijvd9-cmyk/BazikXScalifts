@@ -31,7 +31,9 @@ if DATABASE_URL.startswith("sqlite"):
 elif DATABASE_URL.startswith("postgresql"):
     connect_args = {}
     if config.ENVIRONMENT == "production":
-        sslmode = os.getenv("DB_SSLMODE", "require").strip()
+        sslmode = os.getenv("DB_SSLMODE", "verify-full").strip()
+        if sslmode not in ("verify-full", "verify-ca", "require"):
+            raise RuntimeError(f"FATAL: Insecure DB_SSLMODE='{sslmode}' in production. Must be verify-full, verify-ca, or require.")
         connect_args["sslmode"] = sslmode
         sslrootcert = os.getenv("DB_SSLROOTCERT")
         if sslrootcert:

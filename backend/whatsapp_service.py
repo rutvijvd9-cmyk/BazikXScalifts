@@ -62,18 +62,24 @@ def send_whatsapp_template(
     coupon_code: str = None,
     button_parameters: list = None,
     campaign_id: int = None,
-    sender_user: str = "System"
+    sender_user: str = "System",
+    idempotency_key: str = None,
+    workflow_session_id: int = None,
+    purpose: str = "utility",
+    correlation_id: str = None,
+    created_by_user_id: int = None
 ) -> dict:
     """
     Sends a WhatsApp message via Meta Cloud API or simulation mode.
     Guarded by:
-    1. Opt-Out / DND check
-    2. Hard daily spending limit check
+    1. Phone normalization & validation
+    2. Central authorize_and_create_outbound gate (Opt-Out, Consent Ledger, Daily Budget, Quiet Hours)
+    3. Durable OutboundMessage state updates and audit event trail
     """
     db = SessionLocal()
     try:
         try:
-            recipient_phone = normalize_phone(recipient_phone)
+            clean_recipient_phone = normalize_phone(recipient_phone)
         except InvalidPhoneNumberError as pe:
             logger.error(f"🚨 [Invalid Phone] Cannot send message: {pe}")
             return {"status": "error", "message": f"Invalid recipient phone: {pe}"}
@@ -92,21 +98,33 @@ def send_whatsapp_template(
             if tmpl_record and tmpl_record.language:
                 language = tmpl_record.language
 
-        # Central Policy Bottleneck Check
-        is_auth, auth_reason = authorize_outbound_message(
+        # Generate idempotency key if not provided
+        if not idempotency_key:
+            import uuid
+            idempotency_key = f"out_{int(datetime.utcnow().timestamp())}_{uuid.uuid4().hex[:12]}"
+
+        # Central Outbound Authorization & Durable Ledger Gate (WP2)
+        from services.policy_service import authorize_and_create_outbound
+        is_auth, outbound_rec, auth_reason = authorize_and_create_outbound(
             db=db,
-            recipient_phone=recipient_phone,
-            message_type="template",
+            recipient_phone=clean_recipient_phone,
+            idempotency_key=idempotency_key,
+            message_kind="template",
+            purpose=purpose,
             template_name=template_name,
             campaign_id=campaign_id,
-            sender_user=sender_user,
+            workflow_session_id=workflow_session_id,
+            created_by_user_id=created_by_user_id,
+            service_actor=sender_user,
+            correlation_id=correlation_id,
             enforce_quiet_hours=True
         )
+
         if not is_auth:
-            logger.info(f"🚫 [Policy Blocked] Message to {recipient_phone} blocked: {auth_reason}")
+            logger.info(f"🚫 [Policy Blocked] Message to {clean_recipient_phone} blocked: {auth_reason}")
             try:
                 log_entry = models.MessageLog(
-                    recipient_phone=recipient_phone,
+                    recipient_phone=clean_recipient_phone,
                     template_name=template_name,
                     campaign_id=campaign_id,
                     language=language,
@@ -115,6 +133,9 @@ def send_whatsapp_template(
                     error_message=auth_reason
                 )
                 db.add(log_entry)
+                if outbound_rec:
+                    outbound_rec.status = "SKIPPED"
+                    outbound_rec.error_message = auth_reason
                 db.commit()
             except Exception:
                 db.rollback()
@@ -123,10 +144,10 @@ def send_whatsapp_template(
         # Safe local mock mode when Meta credentials are empty
         if not WHATSAPP_API_TOKEN or not WHATSAPP_PHONE_NUMBER_ID:
             mock_wamid = f"mock_wamid_{int(datetime.utcnow().timestamp())}"
-            logger.info(f"📱 [SIMULATION MODE] Template '{template_name}' ({language}) to {recipient_phone} with params {parameters} (Today's count: {count_today + 1}/{effective_limit})")
+            logger.info(f"📱 [SIMULATION MODE] Template '{template_name}' ({language}) to {clean_recipient_phone}")
             
             log_entry = models.MessageLog(
-                recipient_phone=recipient_phone,
+                recipient_phone=clean_recipient_phone,
                 template_name=template_name,
                 campaign_id=campaign_id,
                 language=language,
@@ -135,6 +156,10 @@ def send_whatsapp_template(
                 meta_message_id=mock_wamid
             )
             db.add(log_entry)
+            if outbound_rec:
+                outbound_rec.status = "SENT"
+                outbound_rec.meta_message_id = mock_wamid
+                outbound_rec.dispatched_at = datetime.utcnow()
             db.commit()
             return {
                 "status": "success_simulated",
@@ -156,23 +181,20 @@ def send_whatsapp_template(
             for k, v in sorted_params:
                 text_val = str(v).strip() if v is not None else ""
                 if not text_val:
-                    # Meta rejects empty parameters (#131008) — use a safe placeholder
                     text_val = "-"
                 body_params.append({"type": "text", "text": text_val})
-            logger.info(f"📤 [Meta Payload] template={template_name} to={recipient_phone} params={[p['text'] for p in body_params]}")
             components.append({
                 "type": "body",
                 "parameters": body_params
             })
 
-        # Handle button parameters (e.g. COPY_CODE buttons required by Meta for templates like bazik_reengagement_v1)
+        # Handle button parameters
         if button_parameters:
             for btn in button_parameters:
                 components.append(btn)
         elif template_name in ["bazik_reengagement_v1"]:
             code_val = coupon_code
             if not code_val and parameters:
-                # In bazik_reengagement_v1, param_2 is usually the coupon code
                 code_val = parameters.get("param_2") or parameters.get("coupon_code")
             if not code_val:
                 code_val = config.DEFAULT_COUPON_CODE
@@ -190,7 +212,7 @@ def send_whatsapp_template(
 
         payload = {
             "messaging_product": "whatsapp",
-            "to": recipient_phone.replace("+", "").strip(),
+            "to": clean_recipient_phone.replace("+", "").strip(),
             "type": "template",
             "template": {
                 "name": template_name,
@@ -207,7 +229,7 @@ def send_whatsapp_template(
                 msg_id = data.get("messages", [{}])[0].get("id", "")
                 try:
                     log_entry = models.MessageLog(
-                        recipient_phone=recipient_phone,
+                        recipient_phone=clean_recipient_phone,
                         template_name=template_name,
                         campaign_id=campaign_id,
                         language=language,
@@ -216,6 +238,10 @@ def send_whatsapp_template(
                         meta_message_id=msg_id
                     )
                     db.add(log_entry)
+                    if outbound_rec:
+                        outbound_rec.status = "SENT"
+                        outbound_rec.meta_message_id = msg_id
+                        outbound_rec.dispatched_at = datetime.utcnow()
                     db.commit()
                 except Exception as log_err:
                     db.rollback()
@@ -229,7 +255,7 @@ def send_whatsapp_template(
                         for i, (k, val) in enumerate(parameters.items(), 1):
                             body_content = body_content.replace(f"{{{{{i}}}}}", str(val))
                     chat_entry = models.ChatMessage(
-                        customer_phone=recipient_phone,
+                        customer_phone=clean_recipient_phone,
                         sender_type="AGENT",
                         message_type="template",
                         text=body_content,
@@ -245,20 +271,24 @@ def send_whatsapp_template(
 
                 return {"status": "success", "message_id": msg_id}
             else:
-                error_info = str(data.get("error", {}))
+                err_dict = data.get("error", {})
+                error_summary = err_dict.get("message") or f"HTTP {resp.status_code}"
                 log_entry = models.MessageLog(
-                    recipient_phone=recipient_phone,
+                    recipient_phone=clean_recipient_phone,
                     template_name=template_name,
                     campaign_id=campaign_id,
                     language=language,
                     sender_user=sender_user,
                     status="FAILED",
-                    error_message=error_info
+                    error_message=error_summary
                 )
                 db.add(log_entry)
+                if outbound_rec:
+                    outbound_rec.status = "FAILED"
+                    outbound_rec.error_message = error_summary
                 db.commit()
 
-                return {"status": "failed", "error": error_info}
+                return {"status": "failed", "error": error_summary}
 
     except Exception as e:
         logger.error(f"Error in send_whatsapp_template: {e}", exc_info=True)

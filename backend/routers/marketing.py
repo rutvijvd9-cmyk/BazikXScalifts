@@ -342,9 +342,8 @@ def remove_opt_out(
     if not record:
         raise HTTPException(status_code=404, detail="Opt-out record not found")
     db.delete(record)
-    record_consent(db, clean_phone, source="manual_import", proof_details=f"unblocked_by:{current_user.username}")
     db.commit()
-    return {"status": "success", "message": f"{clean_phone} removed from DND list."}
+    return {"status": "success", "message": f"{clean_phone} removed from DND list. Note: affirmative marketing consent must be separately collected."}
 
 
 # ==========================================

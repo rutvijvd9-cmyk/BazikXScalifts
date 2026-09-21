@@ -42,6 +42,24 @@ if redis and getattr(config, "REDIS_URL", None):
 
 
 def record_failed_attempt(key: str, lockout_seconds: int = 900) -> int:
+    if config.ENVIRONMENT == "production":
+        if not _redis_client:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication throttling service is currently unavailable. Please try again later."
+            )
+        try:
+            attempts = _redis_client.incr(f"auth_fail:{key}")
+            if attempts == 1:
+                _redis_client.expire(f"auth_fail:{key}", lockout_seconds)
+            return attempts
+        except Exception as err:
+            logger.error(f"Redis auth throttling failure in production: {err}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication throttling service encountered an error. Please try again later."
+            )
+
     if _redis_client:
         try:
             attempts = _redis_client.incr(f"auth_fail:{key}")
@@ -56,6 +74,14 @@ def record_failed_attempt(key: str, lockout_seconds: int = 900) -> int:
 
 
 def clear_failed_attempts(key: str) -> None:
+    if config.ENVIRONMENT == "production":
+        if _redis_client:
+            try:
+                _redis_client.delete(f"auth_fail:{key}")
+            except Exception as err:
+                logger.error(f"Redis auth delete failure in production: {err}")
+        return
+
     if _redis_client:
         try:
             _redis_client.delete(f"auth_fail:{key}")
@@ -65,6 +91,22 @@ def clear_failed_attempts(key: str) -> None:
 
 
 def get_failed_attempts(key: str) -> int:
+    if config.ENVIRONMENT == "production":
+        if not _redis_client:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication throttling service is currently unavailable."
+            )
+        try:
+            val = _redis_client.get(f"auth_fail:{key}")
+            return int(val) if val else 0
+        except Exception as err:
+            logger.error(f"Redis get failed attempts error in production: {err}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication throttling service encountered an error."
+            )
+
     if _redis_client:
         try:
             val = _redis_client.get(f"auth_fail:{key}")
