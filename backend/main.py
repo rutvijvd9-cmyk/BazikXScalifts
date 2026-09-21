@@ -61,10 +61,17 @@ migration_statements = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code VARCHAR(10);",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code_expires TIMESTAMP;",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'agent';",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_version INTEGER DEFAULT 1;",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_support_send BOOLEAN DEFAULT FALSE;",
     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS per_day_limit INTEGER;",
     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP;",
     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS error_message TEXT;",
     "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
+    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS city VARCHAR(100);",
+    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS tags VARCHAR(500);",
+    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE;",
+    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS order_count INTEGER DEFAULT 0;",
+    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_order_date TIMESTAMP;",
     "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS extra_data JSON;",
     "ALTER TABLE templates ADD COLUMN IF NOT EXISTS variable_mappings JSON;",
     "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS campaign_id INTEGER REFERENCES campaigns(id);",
@@ -76,6 +83,9 @@ migration_statements = [
     "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS hmac_validated BOOLEAN DEFAULT FALSE;",
     "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(64);",
     "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS received_at TIMESTAMP DEFAULT NOW();",
+    "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS claimed_by VARCHAR(64);",
+    "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMP;",
+    "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS attempt_count INTEGER DEFAULT 0;",
     "CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(50) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT NOW());"
 ]
 for stmt in migration_statements:
@@ -213,11 +223,16 @@ def on_startup():
         "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
         "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS variable_mappings JSON",
         "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP",
-        # users: 2FA / TOTP columns
+        # users: 2FA / TOTP / auth columns
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_2fa_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code VARCHAR(10)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code_expires TIMESTAMP",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_email VARCHAR(200)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'agent'",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_version INTEGER DEFAULT 1",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_support_send BOOLEAN DEFAULT FALSE",
         # contacts: extended profile columns
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS city VARCHAR(100)",
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS tags VARCHAR(500)",
@@ -228,8 +243,10 @@ def on_startup():
         "ALTER TABLE templates ADD COLUMN IF NOT EXISTS variable_mappings JSON",
         # cart_events: open extra_data payload for dynamic ecom variables
         "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS extra_data JSON",
+        "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS authenticated_user VARCHAR(50)",
         # message_logs: link to campaigns
         "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS campaign_id INTEGER REFERENCES campaigns(id)",
+        "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS sender_user VARCHAR(50) DEFAULT 'System'",
         # webhook_events: canonical audit columns
         "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'store'",
         "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS external_event_id VARCHAR(150)",
@@ -237,6 +254,10 @@ def on_startup():
         "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS hmac_validated BOOLEAN DEFAULT FALSE",
         "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(64)",
         "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS received_at TIMESTAMP DEFAULT NOW()",
+        # workflow_sessions: worker lease columns
+        "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS claimed_by VARCHAR(64)",
+        "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMP",
+        "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS attempt_count INTEGER DEFAULT 0",
         # system_settings: key-value system configuration
         "CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(50) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT NOW())",
     ]
