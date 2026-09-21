@@ -517,57 +517,75 @@ def process_customer_sync(payload: Dict[str, Any], current_user: models.User, db
         if k not in RESERVED_KEYS:
             custom_attrs[k] = v
 
-    # Upsert Contact
-    contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()
-    action = "updated" if contact else "created"
+    # Ensure custom_attributes column exists in database (fallback for active deployments)
+    try:
+        from sqlalchemy import text
+        db.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS custom_attributes JSON"))
+        db.commit()
+    except Exception:
+        db.rollback()
 
-    if contact:
-        if name_val:
-            contact.name = str(name_val)[:100]
-        if email_val:
-            contact.email = str(email_val)[:120]
-        if city_val:
-            contact.city = str(city_val)[:100]
-        if tags_val:
-            if contact.tags:
-                existing_tags = [t.strip() for t in contact.tags.split(",") if t.strip()]
-                new_tags = [t.strip() for t in tags_val.split(",") if t.strip()]
-                merged = sorted(list(set(existing_tags + new_tags)))
-                contact.tags = ", ".join(merged)[:255]
-            else:
-                contact.tags = str(tags_val)[:255]
-        if total_orders_int is not None and total_orders_int >= 0:
-            contact.total_orders = total_orders_int
-        if parsed_last_order:
-            contact.last_order_date = parsed_last_order
-        if birth_day is not None:
-            contact.birth_day = birth_day
-        if birth_month is not None:
-            contact.birth_month = birth_month
+    try:
+        # Upsert Contact
+        contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()
+        action = "updated" if contact else "created"
 
-        if custom_attrs:
-            merged_attrs = dict(contact.custom_attributes or {})
-            merged_attrs.update(custom_attrs)
-            contact.custom_attributes = merged_attrs
-    else:
-        assigned_user = current_user.id if getattr(current_user, "role", None) == "agent" else None
-        contact = models.Contact(
-            phone=clean_phone,
-            name=str(name_val)[:100] if name_val else None,
-            email=str(email_val)[:120] if email_val else None,
-            city=str(city_val)[:100] if city_val else None,
-            tags=str(tags_val)[:255] if tags_val else None,
-            total_orders=total_orders_int or 0,
-            last_order_date=parsed_last_order,
-            birth_day=birth_day,
-            birth_month=birth_month,
-            assigned_user_id=assigned_user,
-            custom_attributes=custom_attrs
+        if contact:
+            if name_val:
+                contact.name = str(name_val)[:100]
+            if email_val:
+                contact.email = str(email_val)[:120]
+            if city_val:
+                contact.city = str(city_val)[:100]
+            if tags_val:
+                if contact.tags:
+                    existing_tags = [t.strip() for t in contact.tags.split(",") if t.strip()]
+                    new_tags = [t.strip() for t in tags_val.split(",") if t.strip()]
+                    merged = sorted(list(set(existing_tags + new_tags)))
+                    contact.tags = ", ".join(merged)[:255]
+                else:
+                    contact.tags = str(tags_val)[:255]
+            if total_orders_int is not None and total_orders_int >= 0:
+                contact.total_orders = total_orders_int
+            if parsed_last_order:
+                contact.last_order_date = parsed_last_order
+            if birth_day is not None:
+                contact.birth_day = birth_day
+            if birth_month is not None:
+                contact.birth_month = birth_month
+
+            if custom_attrs:
+                merged_attrs = dict(contact.custom_attributes or {})
+                merged_attrs.update(custom_attrs)
+                contact.custom_attributes = merged_attrs
+        else:
+            assigned_user = current_user.id if getattr(current_user, "role", None) == "agent" else None
+            contact = models.Contact(
+                phone=clean_phone,
+                name=str(name_val)[:100] if name_val else None,
+                email=str(email_val)[:120] if email_val else None,
+                city=str(city_val)[:100] if city_val else None,
+                tags=str(tags_val)[:255] if tags_val else None,
+                total_orders=total_orders_int or 0,
+                last_order_date=parsed_last_order,
+                birth_day=birth_day,
+                birth_month=birth_month,
+                assigned_user_id=assigned_user,
+                custom_attributes=custom_attrs
+            )
+            db.add(contact)
+
+        db.commit()
+        db.refresh(contact)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Customer sync database error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Customer sync database error: {type(e).__name__}: {str(e)}"
         )
-        db.add(contact)
-
-    db.commit()
-    db.refresh(contact)
 
     logger.info(f"✅ [Customer Sync] Contact {action}: phone={clean_phone}, name={contact.name}, custom_attrs={list(custom_attrs.keys())}")
 

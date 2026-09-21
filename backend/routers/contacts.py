@@ -440,8 +440,8 @@ def export_contacts(
 
 @router.post("/sync", status_code=status.HTTP_200_OK)
 async def sync_contact_api(
+    request: Request,
     payload: Dict[str, Any] = Body(...),
-    request: Request = None,
     db: Session = Depends(get_db)
 ):
     """
