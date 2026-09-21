@@ -233,3 +233,98 @@ def authorize_outbound_message(
         return False, "Promotional message blocked: Quiet hours in effect (21:00 - 09:00 IST)"
 
     return True, "Authorized"
+
+
+def authorize_and_create_outbound(
+    db: Session,
+    recipient_phone: str,
+    idempotency_key: str,
+    message_kind: str = "template",
+    purpose: str = "utility",
+    template_name: Optional[str] = None,
+    campaign_id: Optional[int] = None,
+    workflow_session_id: Optional[int] = None,
+    created_by_user_id: Optional[int] = None,
+    service_actor: Optional[str] = "System",
+    correlation_id: Optional[str] = None,
+    enforce_quiet_hours: bool = True
+) -> Tuple[bool, Optional[models.OutboundMessage], str]:
+    """
+    WP2: Atomic Policy Gate and Durable OutboundMessage Creator.
+    1. Validates and normalizes phone.
+    2. Enforces idempotency — checks if an OutboundMessage already exists for this key.
+    3. Runs authorize_outbound_message.
+    4. Persists an OutboundMessage record and an immutable AuditEvent row.
+    5. Returns (is_authorized, outbound_message, reason).
+    """
+    from services.audit_service import record_audit_event, hash_phone
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        clean_phone = normalize_phone(recipient_phone)
+    except InvalidPhoneNumberError as e:
+        return False, None, f"Invalid recipient phone: {e}"
+
+    existing = db.query(models.OutboundMessage).filter(
+        models.OutboundMessage.idempotency_key == idempotency_key
+    ).first()
+    if existing:
+        is_ok = existing.policy_decision == "authorized" and existing.status in ("PENDING", "SENT")
+        return is_ok, existing, "Duplicate idempotency_key"
+
+    is_auth, reason = authorize_outbound_message(
+        db=db,
+        recipient_phone=clean_phone,
+        message_type=message_kind,
+        template_name=template_name,
+        campaign_id=campaign_id,
+        sender_user=service_actor,
+        enforce_quiet_hours=enforce_quiet_hours
+    )
+
+    outbound = models.OutboundMessage(
+        idempotency_key=idempotency_key,
+        recipient_phone_e164=clean_phone,
+        recipient_hash=hash_phone(clean_phone),
+        message_kind=message_kind,
+        purpose=purpose,
+        template_name=template_name,
+        campaign_id=campaign_id,
+        workflow_session_id=workflow_session_id,
+        created_by_user_id=created_by_user_id,
+        service_actor=service_actor,
+        policy_decision="authorized" if is_auth else "denied",
+        policy_reason=reason,
+        status="PENDING" if is_auth else "SKIPPED",
+        correlation_id=correlation_id
+    )
+    db.add(outbound)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        existing = db.query(models.OutboundMessage).filter(
+            models.OutboundMessage.idempotency_key == idempotency_key
+        ).first()
+        is_ok = existing.policy_decision == "authorized" and existing.status in ("PENDING", "SENT") if existing else False
+        return is_ok, existing, "Concurrent duplicate idempotency_key"
+
+    try:
+        record_audit_event(
+            db=db,
+            action="outbound_message_authorized" if is_auth else "outbound_message_denied",
+            actor_user_id=created_by_user_id,
+            target_type="outbound_message",
+            target_id=str(outbound.id),
+            correlation_id=correlation_id,
+            metadata={
+                "purpose": purpose,
+                "message_kind": message_kind,
+                "decision": "authorized" if is_auth else "denied",
+                "reason": reason
+            }
+        )
+    except Exception as audit_err:
+        logger.warning(f"Could not record audit event for outbound message: {audit_err}")
+
+    return is_auth, outbound, reason

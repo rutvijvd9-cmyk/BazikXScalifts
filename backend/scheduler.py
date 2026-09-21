@@ -293,28 +293,33 @@ def schedule_cart_recovery(cart_event_id: int, delay_seconds: int = 0):
 
 def fetch_inactive_customers_from_store(days: int = 30) -> list:
     """
-    Calls the external store API using secure HMAC signing to pull customers
-    who have not ordered in > 30 days. Returns empty list if URL is not configured.
+    Calls the external store API using the secure integration gateway.
+    Enforces SSRF guards, DNS resolution checks, approved hostname allowlists,
+    and HMAC signing. Returns empty list if URL is not configured or blocked.
     """
     if not MANUBHAI_STORE_INACTIVE_FEED_URL:
         return []
 
     try:
+        from urllib.parse import urlparse
         query_param = f"days={days}"
         secret_bytes = (WEBHOOK_SECRET or "").encode()
         sig = "sha256=" + hmac.new(secret_bytes, query_param.encode(), hashlib.sha256).hexdigest()
-        headers = {
-            "X-Hub-Signature-256": sig,
-            "Accept": "application/json"
-        }
-        url = f"{MANUBHAI_STORE_INACTIVE_FEED_URL}?{query_param}"
-        with httpx.Client(timeout=config.HTTP_TIMEOUT_SECONDS) as client:
-            res = client.get(url, headers=headers)
-            if res.status_code == 200:
-                data = res.json()
-                return data.get("customers", [])
+        
+        parsed = urlparse(MANUBHAI_STORE_INACTIVE_FEED_URL)
+        approved_host = parsed.hostname or ""
+
+        gw_res = dispatch_external_request(
+            endpoint_url=MANUBHAI_STORE_INACTIVE_FEED_URL,
+            params={"days": days},
+            approved_hostname=approved_host,
+            credential_mode="none",
+            timeout=config.HTTP_TIMEOUT_SECONDS
+        )
+        if gw_res.get("is_success") and isinstance(gw_res.get("data"), dict):
+            return gw_res["data"].get("customers", [])
     except Exception as e:
-        logger.error(f"Failed to fetch inactive customers from store: {e}")
+        logger.error(f"Failed to fetch inactive customers from store via gateway: {e}")
     return []
 
 
@@ -1185,6 +1190,20 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             session.state_data = new_state
             session.updated_at = now
 
+            sent_status = (res.get("status") or "").lower()
+            if sent_status in ["blocked", "failed", "error"]:
+                # Halt progression: do not advance downstream nodes on failure or policy block
+                session.status = "COMPLETED_DROPOUT"
+                session.history = (session.history or []) + [{
+                    "node_id": str(curr_node.get("id")),
+                    "node_type": "whatsapp_message",
+                    "label": curr_node.get("label", f"Send {template_name}"),
+                    "timestamp": now.isoformat(),
+                    "details": f"Dispatch {sent_status}: {res.get('reason', 'Send failure')}. Session dropped out."
+                }]
+                db.commit()
+                return {"status": "dropped_out", "reason": res.get("reason", sent_status)}
+
             session.history = (session.history or []) + [{
                 "node_id": str(curr_node.get("id")),
                 "node_type": "whatsapp_message",
@@ -1193,7 +1212,7 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                 "details": f"Dispatched template '{template_name}' (Status: {res.get('status')})"
             }]
 
-            # Advance to next node
+            # Advance to next node only on successful dispatch
             next_node = find_next_node(nodes, edges, curr_node.get("id"))
             if next_node:
                 session.current_node_id = str(next_node.get("id"))

@@ -35,73 +35,8 @@ from apscheduler.triggers.date import DateTrigger
 
 import config
 
-# Ensure tables exist
-Base.metadata.create_all(bind=engine)
-
 from fastapi.exceptions import ResponseValidationError
 from fastapi.responses import JSONResponse
-
-# Auto-apply Alembic migrations on startup if configured
-try:
-    import alembic.config
-    import alembic.command
-    ini_path = "alembic.ini"
-    if not os.path.exists(ini_path):
-        ini_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "alembic.ini")
-    alembic_cfg = alembic.config.Config(ini_path)
-    alembic.command.upgrade(alembic_cfg, "head")
-    logger.info("Alembic migrations verified up-to-date at head.")
-except Exception as m_err:
-    logger.error(f"Alembic auto-upgrade failed: {m_err}", exc_info=True)
-
-# Non-destructive column sync for existing tables
-migration_statements = [
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_2fa_enabled BOOLEAN DEFAULT FALSE;",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64);",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code VARCHAR(10);",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_recovery_code_expires TIMESTAMP;",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'agent';",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_version INTEGER DEFAULT 1;",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS can_support_send BOOLEAN DEFAULT FALSE;",
-    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS per_day_limit INTEGER;",
-    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMP;",
-    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS error_message TEXT;",
-    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
-    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS city VARCHAR(100);",
-    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS tags VARCHAR(500);",
-    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE;",
-    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS order_count INTEGER DEFAULT 0;",
-    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_order_date TIMESTAMP;",
-    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id);",
-    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS birth_day INTEGER;",
-    "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS birth_month INTEGER;",
-    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS claimed_by VARCHAR(64);",
-    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMP;",
-    "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS attempt_count INTEGER DEFAULT 0;",
-    "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id);",
-    "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS extra_data JSON;",
-    "ALTER TABLE templates ADD COLUMN IF NOT EXISTS variable_mappings JSON;",
-    "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS campaign_id INTEGER REFERENCES campaigns(id);",
-    "ALTER TABLE message_logs ADD COLUMN IF NOT EXISTS sender_user VARCHAR(50) DEFAULT 'System';",
-    "ALTER TABLE cart_events ADD COLUMN IF NOT EXISTS authenticated_user VARCHAR(50);",
-    "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'store';",
-    "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS external_event_id VARCHAR(150);",
-    "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(150);",
-    "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS hmac_validated BOOLEAN DEFAULT FALSE;",
-    "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(64);",
-    "ALTER TABLE webhook_events ADD COLUMN IF NOT EXISTS received_at TIMESTAMP DEFAULT NOW();",
-    "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS claimed_by VARCHAR(64);",
-    "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMP;",
-    "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS attempt_count INTEGER DEFAULT 0;",
-    "CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(50) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT NOW());"
-]
-for stmt in migration_statements:
-    try:
-        with engine.begin() as conn:
-            from sqlalchemy import text
-            conn.execute(text(stmt))
-    except Exception as col_err:
-        logger.warning(f"Note on DB migration ({stmt}): {col_err}")
 
 # Rate Limiter setup
 from rate_limiter import limiter

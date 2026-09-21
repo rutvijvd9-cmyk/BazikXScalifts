@@ -77,12 +77,6 @@ def create_or_get_contact(
         assigned_user_id=assigned_user
     )
     db.add(new_contact)
-    record_consent(
-        db=db,
-        phone=clean_phone,
-        source="manual_import",
-        proof_details=f"created_by:{current_user.username}"
-    )
     db.commit()
     db.refresh(new_contact)
     return new_contact
@@ -375,8 +369,6 @@ async def import_contacts_csv(
                 )
                 db.add(new_c)
                 imported_count += 1
-
-            record_consent(db, phone, source="csv_import", proof_details="csv_upload")
 
         db.commit()
 

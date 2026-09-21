@@ -22,13 +22,56 @@ import config
 import models
 import schemas
 from database import get_db
-from rate_limiter import limiter
+from rate_limiter import limiter, get_trusted_client_ip
+try:
+    import redis
+except ImportError:
+    redis = None
 
 logger = logging.getLogger("auth_router")
 
 router = APIRouter(tags=["auth"])
 
 FAILED_LOGIN_ATTEMPTS = {}
+_redis_client = None
+if redis and getattr(config, "REDIS_URL", None):
+    try:
+        _redis_client = redis.from_url(config.REDIS_URL, decode_responses=True)
+    except Exception as err:
+        logger.warning(f"Could not initialize Redis client for auth throttling: {err}")
+
+
+def record_failed_attempt(key: str, lockout_seconds: int = 900) -> int:
+    if _redis_client:
+        try:
+            attempts = _redis_client.incr(f"auth_fail:{key}")
+            if attempts == 1:
+                _redis_client.expire(f"auth_fail:{key}", lockout_seconds)
+            return attempts
+        except Exception:
+            pass
+    attempts = FAILED_LOGIN_ATTEMPTS.get(key, 0) + 1
+    FAILED_LOGIN_ATTEMPTS[key] = attempts
+    return attempts
+
+
+def clear_failed_attempts(key: str) -> None:
+    if _redis_client:
+        try:
+            _redis_client.delete(f"auth_fail:{key}")
+        except Exception:
+            pass
+    FAILED_LOGIN_ATTEMPTS.pop(key, None)
+
+
+def get_failed_attempts(key: str) -> int:
+    if _redis_client:
+        try:
+            val = _redis_client.get(f"auth_fail:{key}")
+            return int(val) if val else 0
+        except Exception:
+            pass
+    return FAILED_LOGIN_ATTEMPTS.get(key, 0)
 
 
 @router.post("/api/auth/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
@@ -69,19 +112,25 @@ def register_user(
 @router.post("/api/auth/login", response_model=schemas.Token)
 @limiter.limit("10/minute")
 def login(request: Request, response: Response, payload: schemas.UserLogin, db: Session = Depends(get_db)):
-    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown").split(",")[0].strip()
+    client_ip = get_trusted_client_ip(request)
+    fail_key = f"{client_ip}:{payload.username.strip().lower()}"
+
+    if get_failed_attempts(fail_key) >= 10:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Account temporarily locked for 15 minutes."
+        )
+
     user = db.query(models.User).filter(models.User.username == payload.username).first()
     if not user or not auth.verify_password(payload.password, user.hashed_password):
-        attempts = FAILED_LOGIN_ATTEMPTS.get(client_ip, 0) + 1
-        FAILED_LOGIN_ATTEMPTS[client_ip] = attempts
-
+        record_failed_attempt(fail_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    FAILED_LOGIN_ATTEMPTS.pop(client_ip, None)
+    clear_failed_attempts(fail_key)
 
     if user.is_2fa_enabled:
         temp_token = auth.create_temp_2fa_token(user.username)
@@ -91,7 +140,8 @@ def login(request: Request, response: Response, payload: schemas.UserLogin, db: 
             "username": user.username,
             "role": user.role,
             "requires_2fa": True,
-            "temp_token": temp_token
+            "temp_token": temp_token,
+            "refresh_token": None
         }
 
     access_token = auth.create_access_token(
@@ -99,14 +149,14 @@ def login(request: Request, response: Response, payload: schemas.UserLogin, db: 
     )
     raw_rt, _ = auth.create_refresh_token_for_user(db, user)
 
-    # Set HttpOnly Secure SameSite cookie for the refresh token
+    # Set HttpOnly Secure SameSite=Strict cookie for the refresh token
     is_prod = config.ENVIRONMENT == "production"
     response.set_cookie(
         key="refresh_token",
         value=raw_rt,
         httponly=True,
         secure=is_prod,
-        samesite="lax",
+        samesite="strict",
         max_age=7 * 24 * 3600,
         path="/api/auth"
     )
@@ -117,7 +167,7 @@ def login(request: Request, response: Response, payload: schemas.UserLogin, db: 
         "username": user.username,
         "role": user.role,
         "requires_2fa": False,
-        "refresh_token": raw_rt
+        "refresh_token": None
     }
 
 
@@ -133,7 +183,7 @@ def verify_two_factor_code(
     Verifies a 6-digit TOTP Google Authenticator code OR an emergency email recovery code.
     Issues short-lived access token and refresh token upon success.
     """
-    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown").split(",")[0].strip()
+    client_ip = get_trusted_client_ip(request)
     
     if not payload.temp_token:
         raise HTTPException(status_code=400, detail="Missing 2FA temporary session token")
@@ -142,6 +192,13 @@ def verify_two_factor_code(
     user = db.query(models.User).filter(models.User.username == username).first()
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or deactivated")
+
+    fail_key = f"2fa_{client_ip}:{user.username}"
+    if get_failed_attempts(fail_key) >= 10:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed 2FA verification attempts. Account temporarily locked for 15 minutes."
+        )
 
     code = payload.code.strip().replace(" ", "")
     verified = False
@@ -162,11 +219,10 @@ def verify_two_factor_code(
             db.commit()
 
     if not verified:
-        attempts = FAILED_LOGIN_ATTEMPTS.get(f"2fa_{client_ip}", 0) + 1
-        FAILED_LOGIN_ATTEMPTS[f"2fa_{client_ip}"] = attempts
+        record_failed_attempt(fail_key)
         raise HTTPException(status_code=400, detail="Invalid 2FA code or expired recovery code")
 
-    FAILED_LOGIN_ATTEMPTS.pop(f"2fa_{client_ip}", None)
+    clear_failed_attempts(fail_key)
 
     access_token = auth.create_access_token(
         data={"sub": user.username, "role": user.role, "auth_version": user.auth_version}
@@ -179,7 +235,7 @@ def verify_two_factor_code(
         value=raw_rt,
         httponly=True,
         secure=is_prod,
-        samesite="lax",
+        samesite="strict",
         max_age=7 * 24 * 3600,
         path="/api/auth"
     )
@@ -190,7 +246,7 @@ def verify_two_factor_code(
         "username": user.username,
         "role": user.role,
         "requires_2fa": False,
-        "refresh_token": raw_rt
+        "refresh_token": None
     }
 
 
@@ -486,7 +542,7 @@ def refresh_token_endpoint(
         value=new_refresh_token,
         httponly=True,
         secure=is_prod,
-        samesite="lax",
+        samesite="strict",
         max_age=7 * 24 * 3600,
         path="/api/auth"
     )
@@ -494,7 +550,7 @@ def refresh_token_endpoint(
     return {
         "access_token": new_access_token,
         "token_type": "bearer",
-        "refresh_token": new_refresh_token
+        "refresh_token": None
     }
 
 

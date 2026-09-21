@@ -154,13 +154,6 @@ async def receive_cart_webhook(
 
     resolved_cust_name = payload.first_name or payload.customer_name or "Valued Customer"
 
-    record_consent(
-        db=db,
-        phone=payload.customer_phone,
-        source="store_checkout",
-        proof_details=f"cart:{payload.cart_token}"
-    )
-
     cart_record = models.CartEvent(
         cart_token=payload.cart_token,
         customer_phone=payload.customer_phone,
@@ -294,13 +287,6 @@ async def receive_order_completed_webhook(
         return {"status": "duplicate", "message": "Webhook event was already processed."}
 
     # 1. Update contact order statistics
-    record_consent(
-        db=db,
-        phone=clean_phone,
-        source="store_checkout",
-        proof_details=f"order:{cart_token}"
-    )
-
     contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()
     if not contact:
         contact = models.Contact(phone=clean_phone, total_orders=1, last_order_date=datetime.utcnow())
@@ -554,8 +540,6 @@ async def receive_inbound_whatsapp_message(
                     any_opt_out = True
                     revoke_consent(db, sender_phone, reason="INBOUND_STOP_COMMAND")
                     logger.info(f"🛑 [AUTO-DND] Customer opted out via inbound message. Added to Opt-Out DND list and consent revoked.")
-                else:
-                    record_consent(db, sender_phone, source="inbound_message", proof_details=f"meta_msg:{meta_id}")
 
                 new_chat_msg = models.ChatMessage(
                     customer_phone=sender_phone,
