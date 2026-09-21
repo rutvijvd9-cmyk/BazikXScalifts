@@ -1217,7 +1217,8 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             if next_node:
                 session.current_node_id = str(next_node.get("id"))
                 db.commit()
-                return {"status": "message_sent", "template": template_name, "next_node": next_node.get("id")}
+                # Immediately execute next node (e.g. entering Delay queue or Condition evaluation)
+                return process_workflow_session_step(session.id, db=db, mock_send=mock_send)
             else:
                 session.status = "COMPLETED_GOAL"
                 db.commit()

@@ -144,10 +144,21 @@ else:
 
 @app.on_event("startup")
 def on_startup():
-    # ── WP8: Scheduler runs in a SEPARATE worker process only (backend/worker.py).
-    # The API process never starts the scheduler. Set SCHEDULER_ENABLED=true only
-    # in the worker process environment.
-    logger.info("API process started. Scheduler is NOT started here — use worker.py.")
+    # ── WP8: Distributed Leader Election for Background Scheduler / Workflow Engine ──
+    # Attempts to acquire advisory lock. If leader, runs APScheduler for background sweeps
+    try:
+        from services.job_claim_service import acquire_leader_lock
+        from scheduler import start_scheduler
+        db_gen = get_db()
+        _db = next(db_gen)
+        if config.SCHEDULER_ENABLED or acquire_leader_lock(_db):
+            start_scheduler()
+            logger.info("🚀 [Startup] Scheduler leader lock acquired. Background workflow sweeper active.")
+        else:
+            logger.info("[Startup] Secondary instance started. Background scheduler handled by active leader.")
+        _db.close()
+    except Exception as _sched_init_err:
+        logger.warning(f"⚠️ [Startup] Scheduler auto-start note: {_sched_init_err}")
 
     # Diagnostic: confirm WEBHOOK_SECRET is loaded
     _ws = config.WEBHOOK_SECRET or ""
