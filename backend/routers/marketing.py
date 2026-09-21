@@ -110,7 +110,11 @@ def list_external_data_sources(
     db: Session = Depends(get_db)
 ):
     """Lists all configured external e-commerce REST API data sources (admin only, secrets hidden)."""
-    return db.query(models.ExternalDataSource).order_by(models.ExternalDataSource.id.asc()).all()
+    try:
+        return db.query(models.ExternalDataSource).order_by(models.ExternalDataSource.id.asc()).all()
+    except Exception as e:
+        logger.warning(f"Note: external_data_sources query fallback: {e}")
+        return []
 
 
 @router.post("/api/external-data-sources", response_model=schemas.ExternalDataSourceResponse, status_code=status.HTTP_201_CREATED)

@@ -221,6 +221,17 @@ def on_startup():
         "ALTER TABLE workflow_sessions ADD COLUMN IF NOT EXISTS attempt_count INTEGER DEFAULT 0",
         # system_settings: key-value system configuration
         "CREATE TABLE IF NOT EXISTS system_settings (key VARCHAR(50) PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT NOW())",
+        # external_data_sources: external API configuration
+        "CREATE TABLE IF NOT EXISTS external_data_sources (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, endpoint_url TEXT NOT NULL, auth_method VARCHAR(30) DEFAULT 'bearer', secret_reference VARCHAR(100), approved_hostname VARCHAR(255), purpose VARCHAR(100) DEFAULT 'customer_lookup', lookup_param VARCHAR(30) DEFAULT 'phone', is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT NOW())",
+        "ALTER TABLE external_data_sources ADD COLUMN IF NOT EXISTS secret_reference VARCHAR(100)",
+        "ALTER TABLE external_data_sources ADD COLUMN IF NOT EXISTS approved_hostname VARCHAR(255)",
+        "ALTER TABLE external_data_sources ADD COLUMN IF NOT EXISTS purpose VARCHAR(100) DEFAULT 'customer_lookup'",
+        "ALTER TABLE external_data_sources ADD COLUMN IF NOT EXISTS lookup_param VARCHAR(30) DEFAULT 'phone'",
+        "ALTER TABLE external_data_sources ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+        # integration_secrets: encrypted credentials table
+        "CREATE TABLE IF NOT EXISTS integration_secrets (id SERIAL PRIMARY KEY, secret_reference VARCHAR(100) UNIQUE NOT NULL, encrypted_value TEXT NOT NULL, nonce VARCHAR(64) NOT NULL, created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())",
+        # audit_events: security audit events
+        "CREATE TABLE IF NOT EXISTS audit_events (id SERIAL PRIMARY KEY, actor_user_id INTEGER, action VARCHAR(100) NOT NULL, target_type VARCHAR(100), target_id VARCHAR(100), correlation_id VARCHAR(64), metadata_json JSON, created_at TIMESTAMP DEFAULT NOW())",
     ]
     _ok, _fail = 0, 0
     for _sql in _migrations:
