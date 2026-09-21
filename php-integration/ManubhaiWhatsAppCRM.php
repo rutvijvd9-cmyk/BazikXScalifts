@@ -62,11 +62,17 @@ class ManubhaiWhatsAppCRM {
     public static function sendOrderCompleted($cartToken, $customerPhone) {
         $formattedPhone = self::formatPhone($customerPhone);
 
+        $payload = [
+            "cart_token"     => (string)$cartToken,
+            "customer_phone" => $formattedPhone
+        ];
+
+        // Supports both POST JSON body and query string params
         $endpoint = self::crmBaseUrl() . "/api/webhooks/order-completed"
             . "?cart_token=" . urlencode($cartToken)
             . "&customer_phone=" . urlencode($formattedPhone);
 
-        return self::sendPostRequest($endpoint, [], "order:" . $cartToken);
+        return self::sendPostRequest($endpoint, $payload, "order:" . $cartToken);
     }
 
     /**
@@ -78,6 +84,7 @@ class ManubhaiWhatsAppCRM {
 
         // Generate HMAC-SHA256 signature for security
         $signature = "sha256=" . hash_hmac('sha256', $jsonPayload, self::webhookSecret());
+        $requestId = bin2hex(random_bytes(16));
 
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -86,7 +93,8 @@ class ManubhaiWhatsAppCRM {
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             "Content-Type: application/json",
             "X-Hub-Signature-256: " . $signature,
-            "X-Idempotency-Key: " . $idempotencyKey
+            "X-Idempotency-Key: " . $idempotencyKey,
+            "X-Request-ID: " . $requestId
         ]);
         // Set short timeouts so customer store is never blocked if network lags
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);

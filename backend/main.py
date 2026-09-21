@@ -234,74 +234,89 @@ def on_startup():
     except Exception as _mig_err:
         print(f"⚠️  [DB] Migration step error (non-fatal): {_mig_err}")
 
-    # ── Fixed Daily Limit Sync (200 messages / day) ───────────────────────────
+    # ── Database Initialization & Sync ──────────────────────────────────────
     db = next(get_db())
     try:
-        limit_setting = db.query(models.SystemSetting).filter(models.SystemSetting.key == "daily_limit").first()
-        if limit_setting:
-            limit_setting.value = "200"
-        else:
-            db.add(models.SystemSetting(key="daily_limit", value="200"))
-        db.commit()
-    except Exception as _set_err:
-        db.rollback()
-        print(f"⚠️  [Settings] Daily limit sync note: {_set_err}")
-
-    # ── Admin user sync ───────────────────────────────────────────────────────
-    initial_user = config.INITIAL_ADMIN_USERNAME
-    initial_pass = config.INITIAL_ADMIN_PASSWORD
-    initial_email = config.INITIAL_ADMIN_EMAIL
-
-    if initial_pass:
-        admin = db.query(models.User).filter(models.User.username == initial_user).first()
-        if not admin:
-            admin = db.query(models.User).filter(models.User.email == initial_email).first()
-
-        if admin:
-            admin.username = initial_user
-            admin.email = initial_email
-            admin.hashed_password = auth.get_password_hash(initial_pass)
-            admin.is_active = True
-            admin.role = "admin"
+        # Fixed Daily Limit Sync (200 messages / day)
+        try:
+            limit_setting = db.query(models.SystemSetting).filter(models.SystemSetting.key == "daily_limit").first()
+            if limit_setting:
+                limit_setting.value = "200"
+            else:
+                db.add(models.SystemSetting(key="daily_limit", value="200"))
             db.commit()
-            print(f"🔒 [Security] Initial admin '{initial_user}' credentials synchronized.")
-        else:
-            default_admin = models.User(
-                username=initial_user,
-                email=initial_email,
-                hashed_password=auth.get_password_hash(initial_pass),
-                is_active=True,
-                role="admin"
-            )
-            db.add(default_admin)
-            db.commit()
-            print(f"🔒 [Security] Initial admin '{initial_user}' created successfully.")
+        except Exception as _set_err:
+            db.rollback()
+            logger.warning(f"⚠️  [Settings] Daily limit sync note: {_set_err}")
 
-    # ── Service Account user sync (For external PHP store integration) ────────
-    svc_username = config.ECOM_SERVICE_USERNAME
-    svc_password = config.ECOM_SERVICE_PASSWORD
-    svc_email = config.ECOM_SERVICE_EMAIL
+        # ── Admin user sync ───────────────────────────────────────────────────────
+        initial_user = config.INITIAL_ADMIN_USERNAME
+        initial_pass = config.INITIAL_ADMIN_PASSWORD
+        initial_email = config.INITIAL_ADMIN_EMAIL
 
-    if svc_password:
-        svc_user = db.query(models.User).filter(models.User.username == svc_username).first()
-        if not svc_user:
-            svc_user = models.User(
-                username=svc_username,
-                email=svc_email,
-                hashed_password=auth.get_password_hash(svc_password),
-                is_active=True,
-                is_2fa_enabled=False,
-                role="service"
-            )
-            db.add(svc_user)
-            db.commit()
-            print(f"🔒 [Security] Service account '{svc_username}' created successfully.")
-        else:
-            svc_user.hashed_password = auth.get_password_hash(svc_password)
-            svc_user.is_active = True
-            svc_user.is_2fa_enabled = False
-            svc_user.role = "service"
-            db.commit()
+        if initial_pass:
+            try:
+                admin = db.query(models.User).filter(models.User.username == initial_user).first()
+                if not admin:
+                    admin = db.query(models.User).filter(models.User.email == initial_email).first()
+
+                if admin:
+                    admin.username = initial_user
+                    admin.email = initial_email
+                    admin.hashed_password = auth.get_password_hash(initial_pass)
+                    admin.is_active = True
+                    admin.role = "admin"
+                    db.commit()
+                    logger.info(f"🔒 [Security] Initial admin '{initial_user}' credentials synchronized.")
+                else:
+                    default_admin = models.User(
+                        username=initial_user,
+                        email=initial_email,
+                        hashed_password=auth.get_password_hash(initial_pass),
+                        is_active=True,
+                        role="admin"
+                    )
+                    db.add(default_admin)
+                    db.commit()
+                    logger.info(f"🔒 [Security] Initial admin '{initial_user}' created successfully.")
+            except Exception as _admin_err:
+                db.rollback()
+                logger.error(f"⚠️  [Security] Admin user sync failed (non-fatal): {_admin_err}")
+
+        # ── Service Account user sync (For external PHP store integration) ────────
+        svc_username = config.ECOM_SERVICE_USERNAME
+        svc_password = config.ECOM_SERVICE_PASSWORD
+        svc_email = config.ECOM_SERVICE_EMAIL
+
+        if svc_password:
+            try:
+                svc_user = db.query(models.User).filter(models.User.username == svc_username).first()
+                if not svc_user:
+                    svc_user = models.User(
+                        username=svc_username,
+                        email=svc_email,
+                        hashed_password=auth.get_password_hash(svc_password),
+                        is_active=True,
+                        is_2fa_enabled=False,
+                        role="service"
+                    )
+                    db.add(svc_user)
+                    db.commit()
+                    logger.info(f"🔒 [Security] Service account '{svc_username}' created successfully.")
+                else:
+                    svc_user.hashed_password = auth.get_password_hash(svc_password)
+                    svc_user.is_active = True
+                    svc_user.is_2fa_enabled = False
+                    svc_user.role = "service"
+                    db.commit()
+            except Exception as _svc_err:
+                db.rollback()
+                logger.error(f"⚠️  [Security] Service account sync failed (non-fatal): {_svc_err}")
+
+    except Exception as _db_init_err:
+        logger.error(f"⚠️  [Startup] DB initialisation error (non-fatal): {_db_init_err}", exc_info=True)
+    finally:
+        db.close()
 
     # ── Clean Slate Migration: Purge all legacy sample workflows and dummy rules ────
     try:
@@ -316,21 +331,32 @@ def on_startup():
                 text("SELECT 1 FROM system_migrations WHERE migration_name = 'purge_sample_automations_2026_09_16'")
             ).scalar()
             if not _mig_check:
-                # One-time clean slate wipe of dummy/sample automations
-                _conn.execute(text("DELETE FROM workflow_sessions"))
-                _conn.execute(text("DELETE FROM workflow_flows"))
-                _conn.execute(text("DELETE FROM automation_rules"))
-                _conn.execute(
-                    text("INSERT INTO system_migrations (migration_name) VALUES ('purge_sample_automations_2026_09_16')")
-                )
-                _conn.commit()
-                print("🧹 [Clean Slate] Successfully purged all sample workflows, sessions, and automation rules from database.")
+                # One-time clean slate wipe of dummy/sample automations with FK safety
+                try:
+                    _conn.execute(text("UPDATE outbound_messages SET workflow_session_id = NULL WHERE workflow_session_id IS NOT NULL"))
+                    _conn.execute(text("DELETE FROM workflow_sessions"))
+                    _conn.execute(text("DELETE FROM workflow_flows"))
+                    _conn.execute(text("DELETE FROM automation_rules"))
+                    _conn.execute(
+                        text("INSERT INTO system_migrations (migration_name) VALUES ('purge_sample_automations_2026_09_16')")
+                    )
+                    _conn.commit()
+                    logger.info("🧹 [Clean Slate] Successfully purged all sample workflows, sessions, and automation rules from database.")
+                except Exception as _purge_sub_err:
+                    _conn.rollback()
+                    logger.warning(f"⚠️  [Clean Slate] Purge step bypassed: {_purge_sub_err}")
     except Exception as _clean_err:
-        print(f"⚠️  [Clean Slate] Note: {_clean_err}")
+        logger.warning(f"⚠️  [Clean Slate] Note: {_clean_err}")
 
     # ── One-time Backfill: Customer Replies to READ status ───────────────────
     try:
         with engine.connect() as _conn:
+            _conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS system_migrations (
+                    migration_name VARCHAR(120) PRIMARY KEY,
+                    applied_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
             _backfill_check = _conn.execute(
                 text("SELECT 1 FROM system_migrations WHERE migration_name = 'backfill_replies_to_read_v1'")
             ).scalar()
@@ -349,11 +375,9 @@ def on_startup():
                     text("INSERT INTO system_migrations (migration_name) VALUES ('backfill_replies_to_read_v1')")
                 )
                 _conn.commit()
-                print("🚀 [Read Sync] Successfully backfilled past customer replies to READ status.")
+                logger.info("🚀 [Read Sync] Successfully backfilled past customer replies to READ status.")
     except Exception as _bf_err:
-        print(f"⚠️  [Read Sync] Backfill note: {_bf_err}")
-
-    db.close()
+        logger.warning(f"⚠️  [Read Sync] Backfill note: {_bf_err}")
 
 
 
