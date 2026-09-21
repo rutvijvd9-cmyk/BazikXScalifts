@@ -194,6 +194,7 @@ def on_startup():
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER REFERENCES users(id)",
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS birth_day INTEGER",
         "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS birth_month INTEGER",
+        "ALTER TABLE contacts ADD COLUMN IF NOT EXISTS custom_attributes JSON",
         # campaigns: worker lease columns
         "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS claimed_by VARCHAR(64)",
         "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMP",

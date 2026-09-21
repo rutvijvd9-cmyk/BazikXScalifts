@@ -15,6 +15,7 @@ class ContactCreate(BaseModel):
     last_order_date: Optional[datetime] = None
     birth_day: Optional[int] = Field(None, ge=1, le=31)
     birth_month: Optional[int] = Field(None, ge=1, le=12)
+    custom_attributes: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
     @field_validator("phone")
     @classmethod
@@ -34,6 +35,7 @@ class ContactUpdate(BaseModel):
     total_orders: Optional[int] = None
     last_order_date: Optional[datetime] = None
     assigned_user_id: Optional[int] = None
+    custom_attributes: Optional[Dict[str, Any]] = None
 
     @field_validator("phone")
     @classmethod
@@ -59,6 +61,7 @@ class ContactResponse(BaseModel):
     birth_month: Optional[int] = None
     is_active: bool
     assigned_user_id: Optional[int] = None
+    custom_attributes: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
@@ -77,9 +80,26 @@ class ContactListItemResponse(BaseModel):
     birth_month: Optional[int] = None
     is_active: bool = True
     assigned_user_id: Optional[int] = None
+    custom_attributes: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
+
+
+class CustomerSyncPayload(BaseModel):
+    phone: str = Field(..., description="Customer phone number (e.g. +919876543210 or 9876543210)")
+    name: Optional[str] = Field(None, max_length=100)
+    email: Optional[str] = Field(None, max_length=120)
+    city: Optional[str] = Field(None, max_length=100)
+    tags: Optional[str] = Field(None, max_length=255)
+    total_orders: Optional[int] = Field(None, ge=0)
+    last_order_date: Optional[datetime] = None
+    birth_day: Optional[int] = Field(None, ge=1, le=31)
+    birth_month: Optional[int] = Field(None, ge=1, le=12)
+    custom_attributes: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    class Config:
+        extra = "allow"
 
 
 class ContactAssignRequest(BaseModel):

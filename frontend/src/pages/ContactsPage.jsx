@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Upload,
   RefreshCw,
@@ -13,7 +13,14 @@ import {
   ChevronRight,
   UserPlus,
   Calendar,
-  Edit2
+  Edit2,
+  Link2,
+  Copy,
+  Check,
+  Code2,
+  ExternalLink,
+  ShieldCheck,
+  X
 } from "lucide-react";
 import { formatToISTDate } from "../utils/dateUtils";
 
@@ -42,9 +49,18 @@ export default function ContactsPage({
   handleOpenEditContact,
   setIsCsvModalOpen
 }) {
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [copiedKey, setCopiedKey] = useState("");
+
+  const handleCopy = (text, key) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(""), 2500);
+  };
 
   return (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
+    <>
+      <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-wrap gap-3">
                 <div>
                   <h3 className="font-bold text-gray-900 text-base">Customer Contacts Directory</h3>
@@ -94,6 +110,14 @@ export default function ContactsPage({
                   >
                     <Upload className="w-3.5 h-3.5 text-gray-600" />
                     Import CSV
+                  </button>
+                  <button
+                    onClick={() => setIsSyncModalOpen(true)}
+                    className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3.5 py-1.5 rounded-lg font-bold text-xs shadow-xs transition"
+                    title="Get webhook endpoint link and API credentials to sync contacts from other software"
+                  >
+                    <Link2 className="w-3.5 h-3.5 text-emerald-600" />
+                    API / Webhook Sync
                   </button>
                 </div>
               </div>
@@ -361,7 +385,28 @@ export default function ContactsPage({
                                       <span className="inline-block bg-amber-50 text-[#D35400] text-[10px] font-bold px-2 py-0.5 rounded mt-0.5 border border-amber-200">
                                         {c.tags}
                                       </span>
-                                    ) : "—"}
+                                    ) : !c.city ? "—" : null}
+                                    {c.custom_attributes && Object.keys(c.custom_attributes).length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-1.5">
+                                        {Object.entries(c.custom_attributes).slice(0, 2).map(([k, v]) => (
+                                          <span
+                                            key={k}
+                                            className="inline-flex items-center text-[9px] bg-blue-50 text-blue-800 border border-blue-200 px-1.5 py-0.2 rounded font-medium"
+                                            title={`${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`}
+                                          >
+                                            {k}: {String(v).length > 10 ? String(v).slice(0, 10) + "…" : String(v)}
+                                          </span>
+                                        ))}
+                                        {Object.keys(c.custom_attributes).length > 2 && (
+                                          <span
+                                            className="text-[9px] text-gray-400 font-semibold cursor-help"
+                                            title={Object.entries(c.custom_attributes).map(([k, v]) => `${k}: ${String(v)}`).join("\n")}
+                                          >
+                                            +{Object.keys(c.custom_attributes).length - 2} more
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="px-6 py-4 font-bold text-gray-900">
                                     {orders}
@@ -463,5 +508,175 @@ export default function ContactsPage({
               })()}
             </div>
 
+            {/* Inbound Customer Sync Webhook & API Modal */}
+            {isSyncModalOpen && (
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+                <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-gray-200 my-8">
+                  <div className="flex items-start justify-between pb-4 border-b border-gray-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                        <Link2 className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-base text-gray-900">Inbound Customer Sync API & Webhook</h3>
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">Live</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Connect other software (Shopify, WooCommerce, ERP, CRM, POS) to auto-sync contacts in real time
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setIsSyncModalOpen(false)}
+                      className="text-gray-400 hover:text-gray-600 font-bold p-1 rounded-lg hover:bg-gray-100 transition"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="mt-4 space-y-4 text-xs">
+                    {/* Overview Banner */}
+                    <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200 text-emerald-900 leading-relaxed">
+                      <strong>How it works:</strong> Provide this endpoint link and API Key to your external platform. Whenever a new customer is registered or an order is placed, it will automatically export the customer to your WhatsApp contact directory. All custom columns and attributes are dynamically preserved!
+                    </div>
+
+                    {/* Endpoint 1: Webhook */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-bold text-gray-800 flex items-center gap-1.5">
+                          <span className="px-1.5 py-0.5 bg-purple-100 text-purple-800 rounded text-[10px] font-mono">POST</span>
+                          Webhook URL (Recommended for E-com & Form builders)
+                        </label>
+                        <button
+                          onClick={() => handleCopy("https://manubhaigathiya-whatsapp.onrender.com/api/webhooks/customer-created", "webhook_url")}
+                          className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold"
+                        >
+                          {copiedKey === "webhook_url" ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                          {copiedKey === "webhook_url" ? "Copied URL!" : "Copy URL"}
+                        </button>
+                      </div>
+                      <div className="p-2.5 bg-gray-50 rounded-lg border border-gray-200 font-mono text-[11px] text-gray-800 break-all select-all">
+                        https://manubhaigathiya-whatsapp.onrender.com/api/webhooks/customer-created
+                      </div>
+                    </div>
+
+                    {/* Authentication */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="font-bold text-gray-800 flex items-center gap-1">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                            Header Authentication
+                          </label>
+                          <button
+                            onClick={() => handleCopy("manubhai_webhook_secret_key_987654", "secret_header")}
+                            className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold"
+                          >
+                            {copiedKey === "secret_header" ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                            {copiedKey === "secret_header" ? "Copied!" : "Copy"}
+                          </button>
+                        </div>
+                        <div className="p-2 bg-gray-50 rounded-lg border border-gray-200 font-mono text-[11px] text-gray-700 truncate">
+                          X-API-Key: manubhai_webhook_secret_key_987654
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="font-bold text-gray-800 flex items-center gap-1">
+                            <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
+                            Query Param (if headers unsupported)
+                          </label>
+                          <button
+                            onClick={() => handleCopy("?api_key=manubhai_webhook_secret_key_987654", "query_key")}
+                            className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold"
+                          >
+                            {copiedKey === "query_key" ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                            {copiedKey === "query_key" ? "Copied!" : "Copy"}
+                          </button>
+                        </div>
+                        <div className="p-2 bg-gray-50 rounded-lg border border-gray-200 font-mono text-[11px] text-gray-700 truncate">
+                          ?api_key=manubhai_webhook_secret_key_987654
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Sample JSON payload with Custom Columns */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-bold text-gray-800 flex items-center gap-1.5">
+                          <Code2 className="w-3.5 h-3.5 text-indigo-600" />
+                          Payload JSON (Standard fields + Any Custom Columns)
+                        </label>
+                        <button
+                          onClick={() => handleCopy(JSON.stringify({
+                            phone: "+919876543210",
+                            name: "Arjun Patel",
+                            email: "arjun@example.com",
+                            city: "Surat",
+                            tags: "Wholesale, VIP",
+                            company_name: "Patel Farsan Mart",
+                            gstin: "24ABCDE1234F1Z5",
+                            loyalty_tier: "Gold"
+                          }, null, 2), "sample_json")}
+                          className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold"
+                        >
+                          {copiedKey === "sample_json" ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                          {copiedKey === "sample_json" ? "Copied JSON!" : "Copy JSON"}
+                        </button>
+                      </div>
+                      <pre className="p-3 bg-gray-900 text-emerald-400 rounded-xl font-mono text-[11px] overflow-x-auto leading-tight">
+{`{
+  "phone": "+919876543210",          // Required: international or standard phone
+  "name": "Arjun Patel",             // Optional: customer name
+  "email": "arjun@example.com",      // Optional: customer email
+  "city": "Surat",                   // Optional: city
+  "tags": "Wholesale, VIP",          // Optional: tags (comma-separated or array)
+  // ✨ ANY EXTRA COLUMNS ARE AUTOMATICALLY SAVED IN CUSTOM ATTRIBUTES:
+  "company_name": "Patel Farsan Mart",
+  "gstin": "24ABCDE1234F1Z5",
+  "loyalty_tier": "Gold"
+}`}
+                      </pre>
+                    </div>
+
+                    {/* Ready cURL Command */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-bold text-gray-800">Quick Test Command (cURL)</label>
+                        <button
+                          onClick={() => handleCopy(`curl -X POST https://manubhaigathiya-whatsapp.onrender.com/api/webhooks/customer-created \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: manubhai_webhook_secret_key_987654" \\
+  -d '{"phone": "+919876543210", "name": "Arjun Patel", "city": "Surat", "tags": "VIP", "company_name": "Patel Farsan Mart", "gstin": "24ABCDE1234F1Z5"}'`, "curl_cmd")}
+                          className="flex items-center gap-1 text-[11px] text-emerald-600 hover:text-emerald-700 font-bold"
+                        >
+                          {copiedKey === "curl_cmd" ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                          {copiedKey === "curl_cmd" ? "Copied cURL!" : "Copy cURL"}
+                        </button>
+                      </div>
+                      <pre className="p-2.5 bg-gray-900 text-gray-200 rounded-xl font-mono text-[10px] overflow-x-auto leading-relaxed">
+{`curl -X POST https://manubhaigathiya-whatsapp.onrender.com/api/webhooks/customer-created \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: manubhai_webhook_secret_key_987654" \\
+  -d '{"phone": "+919876543210", "name": "Arjun Patel", "city": "Surat", "tags": "VIP", "company_name": "Patel Farsan Mart", "gstin": "24ABCDE1234F1Z5"}'`}
+                      </pre>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-100 flex items-center justify-end mt-4">
+                    <button
+                      type="button"
+                      onClick={() => setIsSyncModalOpen(false)}
+                      className="px-5 py-2 bg-gray-900 hover:bg-black text-white rounded-lg text-xs font-bold transition"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+    </>
   );
 }

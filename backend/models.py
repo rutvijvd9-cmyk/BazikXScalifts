@@ -18,6 +18,7 @@ class Contact(Base):
     birth_month = Column(Integer, nullable=True)  # 1-12
     is_active = Column(Boolean, default=True)
     assigned_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    custom_attributes = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

@@ -1035,7 +1035,8 @@ export default function App() {
       city: "",
       tags: "",
       total_orders: 0,
-      last_order_date: ""
+      last_order_date: "",
+      custom_attributes: {}
     });
     setIsContactModalOpen(true);
   };
@@ -1049,7 +1050,8 @@ export default function App() {
       city: c.city || "",
       tags: c.tags || "",
       total_orders: Number(c.total_orders) || 0,
-      last_order_date: c.last_order_date ? c.last_order_date.split("T")[0] : ""
+      last_order_date: c.last_order_date ? c.last_order_date.split("T")[0] : "",
+      custom_attributes: c.custom_attributes || {}
     });
     setIsContactModalOpen(true);
   };
@@ -1065,7 +1067,8 @@ export default function App() {
         city: contactForm.city.trim() || null,
         tags: contactForm.tags.trim() || null,
         total_orders: Number(contactForm.total_orders) || 0,
-        last_order_date: contactForm.last_order_date ? contactForm.last_order_date : null
+        last_order_date: contactForm.last_order_date ? contactForm.last_order_date : null,
+        custom_attributes: contactForm.custom_attributes || {}
       };
 
       if (editingContactId) {

@@ -126,6 +126,27 @@ export default function ContactModal({
             </div>
           </div>
 
+          {contactForm.custom_attributes && Object.keys(contactForm.custom_attributes).length > 0 && (
+            <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase text-blue-900">Synced Custom Columns & Attributes</span>
+                <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold">
+                  {Object.keys(contactForm.custom_attributes).length} fields
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1">
+                {Object.entries(contactForm.custom_attributes).map(([key, val]) => (
+                  <div key={key} className="bg-white p-2 rounded-lg border border-blue-100 text-xs shadow-2xs">
+                    <div className="text-[10px] font-bold text-gray-400 uppercase truncate" title={key}>{key}</div>
+                    <div className="text-gray-900 font-semibold truncate mt-0.5" title={typeof val === "object" ? JSON.stringify(val) : String(val)}>
+                      {typeof val === "object" ? JSON.stringify(val) : String(val)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-3">
             <button
               type="button"

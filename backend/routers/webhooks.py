@@ -8,10 +8,10 @@ from datetime import datetime
 import hashlib
 import hmac
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -22,7 +22,7 @@ import schemas
 from database import get_db
 from rate_limiter import limiter
 from scheduler import schedule_cart_recovery
-from services.phone_service import normalize_phone
+from services.phone_service import normalize_phone, InvalidPhoneNumberError
 from services.policy_service import record_consent, revoke_consent
 from services.audit_service import record_audit_event, hash_phone
 from whatsapp_service import send_whatsapp_template
@@ -102,6 +102,67 @@ async def get_webhook_authenticated_user(
 
     svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
     return svc or models.User(username=config.ECOM_SERVICE_USERNAME, is_active=True)
+
+
+async def get_sync_webhook_authenticated_user(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> models.User:
+    """
+    Flexible authenticator for inbound external customer sync.
+    Accepts any of:
+    1. Header X-API-Key: <WEBHOOK_SECRET>
+    2. Query param ?api_key=<WEBHOOK_SECRET>
+    3. Header Authorization: Bearer <WEBHOOK_SECRET> or valid JWT Bearer token
+    4. Header X-Hub-Signature-256 (HMAC-SHA256 of raw request body)
+    """
+    secret = (config.WEBHOOK_SECRET or "").strip()
+
+    # 1. API Key Header
+    api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+    if api_key and secret and hmac.compare_digest(api_key.strip(), secret):
+        svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
+        return svc or models.User(username=config.ECOM_SERVICE_USERNAME, role="admin", is_active=True)
+
+    # 2. Query param api_key
+    query_key = request.query_params.get("api_key")
+    if query_key and secret and hmac.compare_digest(query_key.strip(), secret):
+        svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
+        return svc or models.User(username=config.ECOM_SERVICE_USERNAME, role="admin", is_active=True)
+
+    # 3. Authorization header (Bearer secret or Bearer JWT)
+    auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+        if secret and hmac.compare_digest(token, secret):
+            svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
+            return svc or models.User(username=config.ECOM_SERVICE_USERNAME, role="admin", is_active=True)
+        try:
+            jwt_data = auth.decode_access_token(token)
+            if jwt_data and "sub" in jwt_data:
+                user = db.query(models.User).filter(models.User.username == jwt_data["sub"]).first()
+                if user and user.is_active:
+                    return user
+        except Exception:
+            pass
+
+    # 4. HMAC-SHA256 signature
+    raw_sig = request.headers.get("X-Hub-Signature-256") or request.headers.get("x-hub-signature-256") or ""
+    sig_clean = raw_sig.lower().strip()
+    if sig_clean.startswith("sha256="):
+        sig_clean = sig_clean[7:].strip()
+    if sig_clean and secret:
+        raw_body = await request.body()
+        computed_hex = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest().lower()
+        if hmac.compare_digest(computed_hex, sig_clean):
+            svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
+            return svc or models.User(username=config.ECOM_SERVICE_USERNAME, role="admin", is_active=True)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Unauthorized. Please provide a valid 'X-API-Key' header, 'Authorization: Bearer <secret>', '?api_key=<secret>', or 'X-Hub-Signature-256' HMAC signature.",
+        headers={"WWW-Authenticate": "ApiKey, Bearer, HMAC-SHA256"}
+    )
 
 
 
@@ -354,6 +415,196 @@ async def receive_order_completed_webhook(
         "milestone": milestone_triggered,
         "total_orders": contact.total_orders
     }
+
+
+def process_customer_sync(payload: Dict[str, Any], current_user: models.User, db: Session) -> Dict[str, Any]:
+    """
+    Core sync engine to create or update a customer contact from external platforms.
+    Extracts standard CRM fields, normalizes phone to canonical E.164, and
+    persists all extra arbitrary fields in the custom_attributes JSON dictionary.
+    """
+    phone_raw = (
+        payload.get("phone")
+        or payload.get("phone_number")
+        or payload.get("mobile")
+        or payload.get("customer_phone")
+        or payload.get("telephone")
+        or payload.get("contact_number")
+    )
+    if not phone_raw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing required customer phone number. Provide 'phone', 'phone_number', or 'mobile'."
+        )
+
+    try:
+        clean_phone = normalize_phone(str(phone_raw))
+    except InvalidPhoneNumberError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid phone number '{phone_raw}': {e}"
+        )
+
+    # Name extraction (handles full name or split first/last names)
+    name_val = payload.get("name") or payload.get("full_name") or payload.get("customer_name")
+    if not name_val:
+        first = payload.get("first_name", "") or payload.get("firstname", "")
+        last = payload.get("last_name", "") or payload.get("lastname", "")
+        combo = f"{first} {last}".strip()
+        if combo:
+            name_val = combo
+
+    # Email
+    email_val = payload.get("email") or payload.get("customer_email")
+
+    # City (direct string or nested in address objects)
+    city_val = payload.get("city")
+    if not city_val and isinstance(payload.get("address"), dict):
+        city_val = payload["address"].get("city")
+    elif not city_val and isinstance(payload.get("billing_address"), dict):
+        city_val = payload["billing_address"].get("city")
+    elif not city_val and isinstance(payload.get("shipping_address"), dict):
+        city_val = payload["shipping_address"].get("city")
+
+    # Tags (string or list of strings)
+    tags_val = payload.get("tags")
+    if isinstance(tags_val, list):
+        tags_val = ", ".join(str(t).strip() for t in tags_val if t)
+    elif tags_val is not None:
+        tags_val = str(tags_val).strip()
+
+    # Total orders
+    orders_val = payload.get("total_orders") or payload.get("orders_count") or payload.get("order_count")
+    total_orders_int = None
+    if orders_val is not None:
+        try:
+            total_orders_int = int(orders_val)
+        except (ValueError, TypeError):
+            total_orders_int = None
+
+    # Last order date
+    last_order_val = payload.get("last_order_date")
+    parsed_last_order = None
+    if last_order_val:
+        if isinstance(last_order_val, datetime):
+            parsed_last_order = last_order_val
+        elif isinstance(last_order_val, str):
+            try:
+                parsed_last_order = datetime.fromisoformat(last_order_val.replace("Z", "+00:00"))
+            except Exception:
+                pass
+
+    # Birthday
+    birth_day = payload.get("birth_day")
+    birth_month = payload.get("birth_month")
+
+    # Gather arbitrary custom attributes
+    RESERVED_KEYS = {
+        "phone", "phone_number", "mobile", "customer_phone", "telephone", "contact_number",
+        "name", "full_name", "customer_name", "first_name", "last_name", "firstname", "lastname",
+        "email", "customer_email",
+        "city", "tags",
+        "total_orders", "orders_count", "order_count",
+        "last_order_date", "birth_day", "birth_month",
+        "custom_attributes", "id", "created_at", "updated_at", "is_active"
+    }
+
+    custom_attrs: Dict[str, Any] = {}
+    if isinstance(payload.get("custom_attributes"), dict):
+        custom_attrs.update(payload["custom_attributes"])
+
+    for k, v in payload.items():
+        if k not in RESERVED_KEYS:
+            custom_attrs[k] = v
+
+    # Upsert Contact
+    contact = db.query(models.Contact).filter(models.Contact.phone == clean_phone).first()
+    action = "updated" if contact else "created"
+
+    if contact:
+        if name_val:
+            contact.name = str(name_val)[:100]
+        if email_val:
+            contact.email = str(email_val)[:120]
+        if city_val:
+            contact.city = str(city_val)[:100]
+        if tags_val:
+            if contact.tags:
+                existing_tags = [t.strip() for t in contact.tags.split(",") if t.strip()]
+                new_tags = [t.strip() for t in tags_val.split(",") if t.strip()]
+                merged = sorted(list(set(existing_tags + new_tags)))
+                contact.tags = ", ".join(merged)[:255]
+            else:
+                contact.tags = str(tags_val)[:255]
+        if total_orders_int is not None and total_orders_int >= 0:
+            contact.total_orders = total_orders_int
+        if parsed_last_order:
+            contact.last_order_date = parsed_last_order
+        if birth_day is not None:
+            contact.birth_day = birth_day
+        if birth_month is not None:
+            contact.birth_month = birth_month
+
+        if custom_attrs:
+            merged_attrs = dict(contact.custom_attributes or {})
+            merged_attrs.update(custom_attrs)
+            contact.custom_attributes = merged_attrs
+    else:
+        assigned_user = current_user.id if getattr(current_user, "role", None) == "agent" else None
+        contact = models.Contact(
+            phone=clean_phone,
+            name=str(name_val)[:100] if name_val else None,
+            email=str(email_val)[:120] if email_val else None,
+            city=str(city_val)[:100] if city_val else None,
+            tags=str(tags_val)[:255] if tags_val else None,
+            total_orders=total_orders_int or 0,
+            last_order_date=parsed_last_order,
+            birth_day=birth_day,
+            birth_month=birth_month,
+            assigned_user_id=assigned_user,
+            custom_attributes=custom_attrs
+        )
+        db.add(contact)
+
+    db.commit()
+    db.refresh(contact)
+
+    logger.info(f"✅ [Customer Sync] Contact {action}: phone={clean_phone}, name={contact.name}, custom_attrs={list(custom_attrs.keys())}")
+
+    return {
+        "status": "success",
+        "action": action,
+        "contact": {
+            "id": contact.id,
+            "phone": contact.phone,
+            "name": contact.name,
+            "email": contact.email,
+            "city": contact.city,
+            "tags": contact.tags,
+            "total_orders": contact.total_orders,
+            "last_order_date": contact.last_order_date.isoformat() if contact.last_order_date else None,
+            "birth_day": contact.birth_day,
+            "birth_month": contact.birth_month,
+            "custom_attributes": contact.custom_attributes or {}
+        }
+    }
+
+
+@router.post("/customer-created", status_code=status.HTTP_200_OK)
+@router.post("/customer-sync", status_code=status.HTTP_200_OK)
+@limiter.limit("120/minute")
+async def sync_customer_webhook(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    current_user: models.User = Depends(get_sync_webhook_authenticated_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Inbound webhook for external software (e-commerce, CRM, ERP, POS, Zapier)
+    to automatically sync customer contacts into the WhatsApp contact book.
+    Supports any custom columns, which are preserved in custom_attributes.
+    """
+    return process_customer_sync(payload=payload, current_user=current_user, db=db)
 
 
 @router.get("/whatsapp")

@@ -9,9 +9,9 @@ import csv
 import io
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 import auth
@@ -57,6 +57,10 @@ def create_or_get_contact(
             contact.birth_day = payload.birth_day
         if payload.birth_month:
             contact.birth_month = payload.birth_month
+        if payload.custom_attributes:
+            existing_attrs = dict(contact.custom_attributes or {})
+            existing_attrs.update(payload.custom_attributes)
+            contact.custom_attributes = existing_attrs
         db.commit()
         db.refresh(contact)
         return contact
@@ -74,7 +78,8 @@ def create_or_get_contact(
         last_order_date=payload.last_order_date,
         birth_day=payload.birth_day,
         birth_month=payload.birth_month,
-        assigned_user_id=assigned_user
+        assigned_user_id=assigned_user,
+        custom_attributes=payload.custom_attributes or {}
     )
     db.add(new_contact)
     db.commit()
@@ -129,7 +134,8 @@ def list_contacts(
             birth_day=c.birth_day,
             birth_month=c.birth_month,
             is_active=c.is_active,
-            assigned_user_id=c.assigned_user_id
+            assigned_user_id=c.assigned_user_id,
+            custom_attributes=c.custom_attributes or {}
         )
         for c in contacts
     ]
@@ -202,6 +208,10 @@ def update_contact(
         contact.total_orders = max(0, payload.total_orders)
     if payload.last_order_date is not None:
         contact.last_order_date = payload.last_order_date
+    if payload.custom_attributes is not None:
+        existing_attrs = dict(contact.custom_attributes or {})
+        existing_attrs.update(payload.custom_attributes)
+        contact.custom_attributes = existing_attrs
 
     db.commit()
     db.refresh(contact)
@@ -421,7 +431,23 @@ def export_contacts(
                 "total_orders": c.total_orders,
                 "tags": c.tags,
                 "assigned_user_id": c.assigned_user_id,
+                "custom_attributes": c.custom_attributes or {}
             }
             for c in contacts
         ]
     }
+
+
+@router.post("/sync", status_code=status.HTTP_200_OK)
+async def sync_contact_api(
+    payload: Dict[str, Any] = Body(...),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Direct API endpoint to sync/upsert a customer contact.
+    Accepts X-API-Key header, Authorization Bearer token, or active user session.
+    """
+    from routers.webhooks import process_customer_sync, get_sync_webhook_authenticated_user
+    current_user = await get_sync_webhook_authenticated_user(request=request, db=db)
+    return process_customer_sync(payload=payload, current_user=current_user, db=db)
