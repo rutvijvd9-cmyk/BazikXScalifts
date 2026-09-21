@@ -970,6 +970,7 @@ def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, 
         step_res = process_workflow_session_step(session.id, db=db, mock_send=is_simulation)
         logger.info(f"⚙️ [Workflow Engine] Initial step result for session #{session.id}: {step_res}")
         db.refresh(session)
+        session.latest_step_result = step_res
         return session
     except Exception as e:
         logger.error(f"Error starting workflow session: {e}")

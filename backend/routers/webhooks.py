@@ -229,6 +229,7 @@ async def receive_cart_webhook(
         "session_status": wf_sess.status if wf_sess else None,
         "session_current_node": wf_sess.current_node_id if wf_sess else None,
         "session_history": wf_sess.history if wf_sess else None,
+        "step_result": getattr(wf_sess, "latest_step_result", None),
         "skipped_min_cart": skipped_due_to_min_cart,
         "scheduled_in_seconds": eff_delay,
         "authenticated_as": current_user.username,
