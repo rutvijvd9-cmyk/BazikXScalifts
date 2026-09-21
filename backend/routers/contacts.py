@@ -121,12 +121,13 @@ def list_contacts(
 
     contacts = query.order_by(models.Contact.id.desc()).offset(skip).limit(effective_limit).all()
 
+    is_privileged = current_user.role in ("admin", "manager")
     return [
         schemas.ContactListItemResponse(
             id=c.id,
-            phone=pii_service.mask_phone(c.phone),
+            phone=c.phone if is_privileged else pii_service.mask_phone(c.phone),
             name=c.name,
-            email=pii_service.mask_email(c.email),
+            email=c.email if is_privileged else pii_service.mask_email(c.email),
             total_orders=c.total_orders or 0,
             last_order_date=c.last_order_date,
             city=c.city,

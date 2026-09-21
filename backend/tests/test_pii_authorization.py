@@ -108,28 +108,39 @@ def test_agent_cannot_list_all_contacts(client, agent_headers, agent_user, auth_
     assert any("2222" in p for p in admin_phones)
 
 
-def test_list_dtos_mask_phone_and_email(client, auth_headers, db):
+def test_list_dtos_mask_phone_and_email(client, agent_headers, agent_user, auth_headers, db):
     """
-    List DTOs mask phone and email values to protect PII against bulk harvesting.
+    List DTOs return unmasked PII for admin/manager, and mask phone/email for non-privileged agents.
     """
     test_phone = "+919876543210"
     test_email = "customer.vip@manubhai.com"
 
     c = db.query(models.Contact).filter(models.Contact.phone == test_phone).first()
     if not c:
-        c = models.Contact(phone=test_phone, name="VIP Test", email=test_email)
+        c = models.Contact(phone=test_phone, name="VIP Test", email=test_email, assigned_user_id=agent_user.id)
         db.add(c)
     else:
         c.email = test_email
+        c.assigned_user_id = agent_user.id
     db.commit()
 
-    res = client.get("/api/contacts?limit=100", headers=auth_headers)
-    assert res.status_code == status.HTTP_200_OK
-    items = res.json()
-    target = next((item for item in items if "3210" in item["phone"]), None)
-    assert target is not None
-    assert target["phone"] == "+91******3210"
-    assert target["email"] == "c***@manubhai.com"
+    # Admin gets full unmasked phone and email
+    res_admin = client.get("/api/contacts?limit=100", headers=auth_headers)
+    assert res_admin.status_code == status.HTTP_200_OK
+    items_admin = res_admin.json()
+    target_admin = next((item for item in items_admin if "3210" in item["phone"]), None)
+    assert target_admin is not None
+    assert target_admin["phone"] == test_phone
+    assert target_admin["email"] == test_email
+
+    # Non-privileged agent gets masked phone and email
+    res_agent = client.get("/api/contacts?limit=100", headers=agent_headers)
+    assert res_agent.status_code == status.HTTP_200_OK
+    items_agent = res_agent.json()
+    target_agent = next((item for item in items_agent if "3210" in item["phone"]), None)
+    assert target_agent is not None
+    assert target_agent["phone"] == "+91******3210"
+    assert target_agent["email"] == "c***@manubhai.com"
 
 
 def test_contact_detail_record_scope(client, agent_headers, agent_user, auth_headers, db):
