@@ -51,6 +51,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
 
+      - name: Verify Python Code Compiles
+        run: |
+          python -m compileall -q backend
+
       - name: Run Pytest Suite
         env:
           ENVIRONMENT: development

@@ -387,7 +387,7 @@ async def receive_order_completed_webhook(
                 "coupon": coupon
             },
             idempotency_key=f"order_milestone_{clean_phone}_{order_id}",
-            purpose="utility"
+            purpose="marketing"
         )
         milestone_triggered = f"Milestone {milestone}th order reward dispatched with coupon {coupon}"
         logger.info(f"🎉 [MILESTONE REWARD] Customer {clean_phone} reached order #{milestone}! Sent coupon {coupon}")
@@ -651,8 +651,13 @@ async def receive_inbound_whatsapp_message(
     """
     signature = request.headers.get("X-Hub-Signature-256", "")
     correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
-    if config.META_APP_SECRET:
-        raw_body = await request.body()
+    raw_body = await request.body()
+    payload_hash = hashlib.sha256(raw_body).hexdigest()
+
+    if config.ENVIRONMENT == "production" or config.META_APP_SECRET:
+        if not config.META_APP_SECRET:
+            logger.error("🚨 [Meta Webhook Security] META_APP_SECRET is not configured in production!")
+            raise HTTPException(status_code=500, detail="Server webhook security configuration error")
         expected_signature = "sha256=" + hmac.new(
             config.META_APP_SECRET.encode(), raw_body, hashlib.sha256
         ).hexdigest()
@@ -674,7 +679,8 @@ async def receive_inbound_whatsapp_message(
             raise HTTPException(status_code=401, detail="Invalid Meta webhook signature")
 
     try:
-        data = await request.json()
+        import json
+        data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
     except Exception:
         return {"status": "ignored", "reason": "invalid json"}
 
@@ -713,6 +719,7 @@ async def receive_inbound_whatsapp_message(
                     provider="meta",
                     provider_event_id=status_event_id,
                     event_type="status_update",
+                    payload_hash=payload_hash,
                     correlation_id=correlation_id,
                     processed_at=datetime.utcnow()
                 )
@@ -732,6 +739,9 @@ async def receive_inbound_whatsapp_message(
                 try:
                     db.commit()
                     processed_statuses_count += 1
+                except IntegrityError:
+                    db.rollback()
+                    logger.info(f"Duplicate Meta status update skipped: {status_event_id}")
                 except Exception as e:
                     db.rollback()
                     logger.warning(f"Error updating status for {wamid}: {e}")
@@ -763,6 +773,7 @@ async def receive_inbound_whatsapp_message(
                     provider="meta",
                     provider_event_id=meta_id,
                     event_type="inbound_message",
+                    payload_hash=payload_hash,
                     correlation_id=correlation_id,
                     processed_at=datetime.utcnow()
                 ))
