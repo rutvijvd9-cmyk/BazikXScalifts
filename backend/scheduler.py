@@ -1198,7 +1198,7 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                     parameters=param_dict,
                     coupon_code=coupon_code,
                     sender_user=origin_user,
-                    idempotency_key=f"wf_session_{session.id}_node_{current_node_id}",
+                    idempotency_key=f"wf_session_{session.id}_node_{curr_node.get('id')}",
                     workflow_session_id=session.id,
                     purpose="utility"
                 )
