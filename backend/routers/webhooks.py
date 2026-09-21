@@ -46,27 +46,33 @@ async def get_webhook_authenticated_user(
     Validates e-commerce HMAC signatures for external requests.
     Missing or invalid signatures are recorded in WebhookEvent and rejected with HTTP 401.
     """
-    correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
-    signature = request.headers.get("X-Hub-Signature-256", "").strip()
+    correlation_id = request.headers.get("X-Correlation-ID") or request.headers.get("x-correlation-id") or str(uuid.uuid4())
+    raw_sig = request.headers.get("X-Hub-Signature-256") or request.headers.get("x-hub-signature-256") or ""
+    sig_clean = raw_sig.lower().strip()
+    if sig_clean.startswith("sha256="):
+        sig_clean = sig_clean[7:].strip()
 
     def _record_failure():
-        failed_event = models.WebhookEvent(
-            source="store",
-            event_type="store_auth_failure",
-            external_event_id=None,
-            idempotency_key=f"auth_failure:{correlation_id}",
-            hmac_validated=False,
-            correlation_id=correlation_id,
-            received_at=datetime.utcnow()
-        )
-        db.add(failed_event)
         try:
+            failed_event = models.WebhookEvent(
+                source="store",
+                event_type="store_auth_failure",
+                external_event_id=None,
+                idempotency_key=f"auth_failure:{correlation_id}",
+                hmac_validated=False,
+                correlation_id=correlation_id,
+                received_at=datetime.utcnow()
+            )
+            db.add(failed_event)
             db.commit()
         except Exception as e:
-            db.rollback()
-            logger.error(f"Failed to record failed webhook audit event: {e}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            logger.warning(f"Note: Webhook audit record could not be persisted: {e}")
 
-    if not signature or not config.WEBHOOK_SECRET:
+    if not sig_clean or not config.WEBHOOK_SECRET:
         logger.warning("🚨 [Webhook Security] Store webhook rejected: missing HMAC signature or WEBHOOK_SECRET.")
         _record_failure()
         raise HTTPException(
@@ -76,12 +82,15 @@ async def get_webhook_authenticated_user(
         )
 
     raw_body = await request.body()
-    expected = "sha256=" + hmac.new(
+    computed_hex = hmac.new(
         config.WEBHOOK_SECRET.encode(), raw_body, hashlib.sha256
-    ).hexdigest()
+    ).hexdigest().lower()
 
-    if not hmac.compare_digest(expected, signature):
-        logger.warning("🚨 [Webhook Security] Store webhook rejected: HMAC signature mismatch.")
+    if not hmac.compare_digest(computed_hex, sig_clean):
+        logger.warning(
+            f"🚨 [Webhook Security] Store webhook rejected: HMAC signature mismatch. "
+            f"Received sig length={len(sig_clean)}, body bytes={len(raw_body)}"
+        )
         _record_failure()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

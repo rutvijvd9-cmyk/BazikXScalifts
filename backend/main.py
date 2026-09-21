@@ -52,7 +52,7 @@ try:
     alembic.command.upgrade(alembic_cfg, "head")
     logger.info("Alembic migrations verified up-to-date at head.")
 except Exception as m_err:
-    logger.warning(f"Alembic auto-upgrade note (non-critical): {m_err}")
+    logger.error(f"Alembic auto-upgrade failed: {m_err}", exc_info=True)
 
 # Non-destructive column sync for existing tables
 migration_statements = [

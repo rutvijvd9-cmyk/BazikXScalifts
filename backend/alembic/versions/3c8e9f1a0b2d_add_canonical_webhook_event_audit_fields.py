@@ -41,26 +41,40 @@ def upgrade() -> None:
         op.create_index('ix_webhook_events_external_event_id', 'webhook_events', ['external_event_id'], unique=False)
         op.create_index('ix_webhook_events_correlation_id', 'webhook_events', ['correlation_id'], unique=False)
     else:
-        # Table already exists; add the new columns using batch_alter_table for SQLite compatibility
+        # Table already exists; add the new columns safely
         existing_cols = [c['name'] for c in insp.get_columns('webhook_events')]
+        existing_constraints = [c['name'] for c in insp.get_unique_constraints('webhook_events')]
+        existing_indexes = [i['name'] for i in insp.get_indexes('webhook_events')]
         with op.batch_alter_table('webhook_events', schema=None) as batch_op:
             if 'source' not in existing_cols:
                 batch_op.add_column(sa.Column('source', sa.String(length=50), nullable=False, server_default='store'))
+            if 'ix_webhook_events_source' not in existing_indexes:
                 batch_op.create_index('ix_webhook_events_source', ['source'], unique=False)
+
             if 'external_event_id' not in existing_cols:
                 batch_op.add_column(sa.Column('external_event_id', sa.String(length=150), nullable=True))
+            if 'ix_webhook_events_external_event_id' not in existing_indexes:
                 batch_op.create_index('ix_webhook_events_external_event_id', ['external_event_id'], unique=False)
+
             if 'hmac_validated' not in existing_cols:
                 batch_op.add_column(sa.Column('hmac_validated', sa.Boolean(), nullable=False, server_default='0'))
+
             if 'correlation_id' not in existing_cols:
                 batch_op.add_column(sa.Column('correlation_id', sa.String(length=64), nullable=True))
+            if 'ix_webhook_events_correlation_id' not in existing_indexes:
                 batch_op.create_index('ix_webhook_events_correlation_id', ['correlation_id'], unique=False)
+
             if 'received_at' not in existing_cols:
                 batch_op.add_column(sa.Column('received_at', sa.DateTime(), nullable=False, server_default=sa.func.now()))
-            batch_op.create_unique_constraint(
-                'uq_webhook_events_source_external_event_id',
-                ['source', 'external_event_id']
-            )
+
+            if 'uq_webhook_events_source_external_event_id' not in existing_constraints:
+                try:
+                    batch_op.create_unique_constraint(
+                        'uq_webhook_events_source_external_event_id',
+                        ['source', 'external_event_id']
+                    )
+                except Exception:
+                    pass
 
 
 def downgrade() -> None:

@@ -30,7 +30,11 @@ ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 
 # Webhook secret for HMAC / API Key verification of external e-commerce requests
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+_raw_webhook_secret = os.getenv("WEBHOOK_SECRET", "").strip()
+if (_raw_webhook_secret.startswith('"') and _raw_webhook_secret.endswith('"')) or \
+   (_raw_webhook_secret.startswith("'") and _raw_webhook_secret.endswith("'")):
+    _raw_webhook_secret = _raw_webhook_secret[1:-1].strip()
+WEBHOOK_SECRET = _raw_webhook_secret
 
 META_APP_SECRET = os.getenv("META_APP_SECRET", "")
 
