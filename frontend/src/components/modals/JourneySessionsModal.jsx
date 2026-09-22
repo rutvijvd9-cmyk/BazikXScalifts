@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   Users, Search, RefreshCw, ShoppingCart, Send, Clock,
-  CheckCircle2, Award, X, ArrowRight, GitBranch, Maximize2
+  CheckCircle2, Award, X, ArrowRight, GitBranch, Maximize2, AlertTriangle
 } from "lucide-react";
 import { formatToIST } from "../../utils/dateUtils";
 import AnalyticsFlowCanvas from "../analytics/AnalyticsFlowCanvas";
@@ -20,10 +20,15 @@ const NODE_STYLES = {
   },
   goal: { bg: "bg-teal-50 border border-teal-300", text: "text-teal-700", icon: Award, ic: "text-teal-500" },
   exit: { bg: "bg-teal-50 border border-teal-300", text: "text-teal-700", icon: Award, ic: "text-teal-500" },
+  error: { bg: "bg-rose-50 border border-rose-300", text: "text-rose-700", icon: AlertTriangle, ic: "text-rose-500" },
 };
 
 function getStyle(step) {
   const t = (step.node_type || "").toLowerCase();
+  const label = (step.label || "").toLowerCase();
+  if (t === "error" || label.includes("dropout") || label.includes("error") || label.includes("fail")) {
+    return NODE_STYLES.error;
+  }
   if (t === "condition") {
     const b = (step.branch || "").toUpperCase();
     return NODE_STYLES.condition[b] || NODE_STYLES.condition.YES;
@@ -37,10 +42,14 @@ function StepPill({ step }) {
   const isCond = (step.node_type || "").toLowerCase() === "condition";
   const branch = (step.branch || "").toUpperCase();
   let label = step.label || step.node_type || "Step";
+  const fullDetails = step.details ? `${label}: ${step.details}` : label;
   if (label.length > 20) label = label.slice(0, 18) + "…";
 
   return (
-    <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${s.bg} ${s.text}`}>
+    <div
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap cursor-help transition-all hover:shadow-sm ${s.bg} ${s.text}`}
+      title={fullDetails}
+    >
       <IC className={`w-2.5 h-2.5 ${s.ic} shrink-0`} />
       <span>{label}</span>
       {isCond && branch && (

@@ -2,6 +2,7 @@ import os
 import logging
 from datetime import datetime
 from typing import Optional
+import re
 from dotenv import load_dotenv
 import httpx
 from sqlalchemy.orm import Session
@@ -57,6 +58,87 @@ def check_daily_limit(db) -> tuple[bool, int]:
     return is_allowed, current_count
 
 
+_TEMPLATE_META_SPECS: dict = {}
+
+
+def get_template_spec(template_name: str, db: Optional[Session] = None) -> dict:
+    """
+    Resolves the exact approved language code and body parameter count for a Meta template.
+    Guarantees:
+    1. Language code matches Meta's translation (e.g. en_US, en_IN, gu) to prevent error #132001.
+    2. Body parameter count matches Meta's placeholder count to prevent error #132000.
+    """
+    if template_name in _TEMPLATE_META_SPECS:
+        return _TEMPLATE_META_SPECS[template_name]
+
+    # 1. Check local DB
+    if db:
+        tmpl_rec = db.query(models.Template).filter(models.Template.template_name == template_name).first()
+        if tmpl_rec and tmpl_rec.body_text and tmpl_rec.language:
+            placeholders = set(re.findall(r"\{\{(\d+)\}\}", tmpl_rec.body_text or ""))
+            spec = {
+                "language": tmpl_rec.language,
+                "body_param_count": len(placeholders),
+                "source": "db"
+            }
+            _TEMPLATE_META_SPECS[template_name] = spec
+            return spec
+
+    # 2. Query Meta Graph API if credentials exist
+    if WHATSAPP_API_TOKEN and config.WHATSAPP_BUSINESS_ACCOUNT_ID:
+        try:
+            url = f"{config.META_GRAPH_BASE_URL}/{config.META_GRAPH_VERSION}/{config.WHATSAPP_BUSINESS_ACCOUNT_ID}/message_templates?name={template_name}&limit=5"
+            headers = {"Authorization": f"Bearer {WHATSAPP_API_TOKEN}"}
+            with httpx.Client(timeout=config.HTTP_TIMEOUT_SECONDS) as client:
+                resp = client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json().get("data", [])
+                    approved = [t for t in data if t.get("name") == template_name and t.get("status") == "APPROVED"]
+                    target = approved[0] if approved else (data[0] if data else None)
+                    if target:
+                        meta_lang = target.get("language")
+                        body_text = ""
+                        for comp in target.get("components", []):
+                            if comp.get("type") == "BODY":
+                                body_text = comp.get("text", "")
+                                break
+                        placeholders = set(re.findall(r"\{\{(\d+)\}\}", body_text))
+                        spec = {
+                            "language": meta_lang,
+                            "body_param_count": len(placeholders),
+                            "source": "meta_api"
+                        }
+                        _TEMPLATE_META_SPECS[template_name] = spec
+
+                        if db:
+                            try:
+                                existing = db.query(models.Template).filter(
+                                    models.Template.template_name == template_name,
+                                    models.Template.language == meta_lang
+                                ).first()
+                                if not existing:
+                                    db.add(models.Template(
+                                        template_name=template_name,
+                                        category=target.get("category", "UTILITY"),
+                                        language=meta_lang,
+                                        body_text=body_text,
+                                        status=target.get("status", "APPROVED")
+                                    ))
+                                    db.commit()
+                            except Exception:
+                                db.rollback()
+
+                        return spec
+        except Exception as e:
+            logger.warning(f"Could not fetch template spec for '{template_name}' from Meta: {e}")
+
+    # Fallback heuristics
+    default_lang = "en_IN" if template_name in ["cart_recovery_v1", "template_1_entry", "scalifts_test__template"] else ("en_US" if template_name.startswith("appointment_") or template_name.startswith("auto_") else "en")
+    spec = {"language": default_lang, "body_param_count": 0, "source": "fallback"}
+    _TEMPLATE_META_SPECS[template_name] = spec
+    return spec
+
+
 def send_whatsapp_template(
     recipient_phone: str,
     template_name: str,
@@ -91,6 +173,13 @@ def send_whatsapp_template(
             logger.error(f"🚨 [Invalid Phone] Cannot send message: {pe}")
             return {"status": "error", "message": f"Invalid recipient phone: {pe}"}
 
+        # Resolve exact approved template specification (language and required param count)
+        tmpl_spec = get_template_spec(template_name, db=db)
+        if tmpl_spec.get("language"):
+            # If user provided generic 'en' or None, promote to Meta approved code (e.g. en_US, en_IN)
+            if not language or language == "en":
+                language = tmpl_spec.get("language")
+
         # Normalize language code for Meta API (e.g. EN_US -> en_US)
         if language:
             parts = language.split("_")
@@ -98,12 +187,6 @@ def send_whatsapp_template(
                 language = f"{parts[0].lower()}_{parts[1].upper()}"
             else:
                 language = language.lower()
-
-        # Resolve exact approved template language from DB if not explicitly non-default
-        if not language or language == "en":
-            tmpl_record = db.query(models.Template).filter(models.Template.template_name == template_name).first()
-            if tmpl_record and tmpl_record.language:
-                language = tmpl_record.language
 
         # Generate idempotency key if not provided
         if not idempotency_key:
@@ -199,10 +282,23 @@ def send_whatsapp_template(
                 if not text_val:
                     text_val = "-"
                 body_params.append({"type": "text", "text": text_val})
-            components.append({
-                "type": "body",
-                "parameters": body_params
-            })
+
+            # Strictly align with Meta expected parameter count to eliminate #132000 errors
+            expected_count = tmpl_spec.get("body_param_count", 0)
+            if expected_count > 0:
+                if len(body_params) > expected_count:
+                    logger.info(f"Trimming {len(body_params)} body params to {expected_count} for template '{template_name}'")
+                    body_params = body_params[:expected_count]
+                elif len(body_params) < expected_count:
+                    diff = expected_count - len(body_params)
+                    for _ in range(diff):
+                        body_params.append({"type": "text", "text": "-"})
+
+            if body_params:
+                components.append({
+                    "type": "body",
+                    "parameters": body_params
+                })
 
         # Handle button parameters
         if button_parameters:
@@ -289,6 +385,8 @@ def send_whatsapp_template(
             else:
                 err_dict = data.get("error", {})
                 error_summary = err_dict.get("message") or f"HTTP {resp.status_code}"
+                error_details = err_dict.get("error_data", {}).get("details")
+                full_error_msg = f"{error_summary} ({error_details})" if error_details else error_summary
                 log_entry = models.MessageLog(
                     recipient_phone=clean_recipient_phone,
                     template_name=template_name,
@@ -296,15 +394,20 @@ def send_whatsapp_template(
                     language=language,
                     sender_user=sender_user,
                     status="FAILED",
-                    error_message=error_summary
+                    error_message=full_error_msg
                 )
                 db.add(log_entry)
                 if outbound_rec:
                     outbound_rec.status = "FAILED"
-                    outbound_rec.error_message = error_summary
+                    outbound_rec.error_message = full_error_msg
                 db.commit()
 
-                return {"status": "failed", "error": error_summary}
+                return {
+                    "status": "failed",
+                    "error": full_error_msg,
+                    "reason": full_error_msg,
+                    "code": err_dict.get("code")
+                }
 
     except Exception as e:
         logger.error(f"Error in send_whatsapp_template: {e}", exc_info=True)
@@ -322,7 +425,7 @@ def send_whatsapp_template(
             db.commit()
         except Exception:
             pass
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": str(e), "error": str(e), "reason": str(e)}
     finally:
         if owns_db:
             db.close()

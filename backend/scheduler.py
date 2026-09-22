@@ -1135,19 +1135,16 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             template_name = node_data.get("template_name", "cart_recovery_v1")
             coupon_code = node_data.get("coupon_code", config.DEFAULT_COUPON_CODE)
 
-            # Look up template record for language and default mappings
+            # Look up template record and Meta spec for language and default mappings
             template_record = db.query(models.Template).filter(
                 models.Template.template_name == template_name
             ).first()
 
+            from whatsapp_service import get_template_spec
+            spec = get_template_spec(template_name, db=db)
             language = node_data.get("language")
             if not language or language == "en":
-                if template_record and template_record.language:
-                    language = template_record.language
-                elif template_name == "cart_recovery_v1":
-                    language = "en_IN"
-                else:
-                    language = "en"
+                language = spec.get("language") or (template_record.language if template_record and template_record.language else "en_US")
 
             # Look up contact info
             contact = db.query(models.Contact).filter(models.Contact.phone == session.customer_phone).first()
@@ -1270,7 +1267,7 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             session.updated_at = now
 
             sent_status = (res.get("status") or "").lower()
-            block_reason = res.get("reason", "")
+            block_reason = res.get("reason") or res.get("error") or res.get("message") or "Send failure"
             if sent_status == "blocked" and "quiet hours" in block_reason.lower():
                 # WP2: Temporary policy hold during quiet hours — do NOT drop out!
                 # Schedule evaluation for next morning at 09:00 AM IST (quiet hours end)
@@ -1297,10 +1294,10 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                     "node_type": "whatsapp_message",
                     "label": curr_node.get("label", f"Send {template_name}"),
                     "timestamp": now.isoformat(),
-                    "details": f"Dispatch {sent_status}: {res.get('reason', 'Send failure')}. Session dropped out."
+                    "details": f"Dispatch {sent_status}: {block_reason}. Session dropped out."
                 }]
                 db.commit()
-                return {"status": "dropped_out", "reason": res.get("reason", sent_status)}
+                return {"status": "dropped_out", "reason": block_reason}
 
             session.attempt_count = 0
             session.history = (session.history or []) + [{
