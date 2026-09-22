@@ -3,6 +3,7 @@
 *.env
 .env.local
 .env.*.local
+STORE_INTEGRATION_MANUAL.md
 
 # Test data, customer lists, and local scratch files
 *.csv

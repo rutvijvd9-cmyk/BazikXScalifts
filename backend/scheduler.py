@@ -18,7 +18,7 @@ from whatsapp_service import send_whatsapp_template
 from services.phone_service import normalize_phone
 from services.secret_store import get_secret
 from services.integration_gateway import dispatch_external_request, SSRFSecurityError, HostNotAllowedError, CredentialMismatchError
-from services.job_claim_service import claim_workflow_session, claim_campaign
+from services.job_claim_service import claim_workflow_session, release_workflow_session, claim_campaign
 from services.pii_service import mask_phone
 
 import config
@@ -1017,6 +1017,21 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
         node_data = curr_node.get("data", {})
         now = datetime.utcnow()
 
+        # Cycle / runaway loop guard: prevent infinite recursion or cycles on any single node
+        node_visits = [h for h in (session.history or []) if str(h.get("node_id")) == str(curr_node.get("id"))]
+        if len(node_visits) >= 5:
+            logger.warning(f"🛑 [Workflow Engine] Session #{session.id} exceeded cycle limit on node '{curr_node.get('id')}'. Terminating.")
+            session.status = "COMPLETED_DROPOUT"
+            session.history = (session.history or []) + [{
+                "node_id": str(curr_node.get("id")),
+                "node_type": node_type,
+                "label": curr_node.get("label"),
+                "timestamp": now.isoformat(),
+                "details": "Terminated: Excessive cycle loop detected."
+            }]
+            db.commit()
+            return {"status": "dropped_out", "reason": "cycle_detected"}
+
         logger.info(f"⚙️ [Workflow Engine] Session #{session.id} ({session.customer_phone}) at node: {curr_node.get('label')} ({node_type})")
 
         # ─── 1. TRIGGER NODE ───
@@ -1078,6 +1093,43 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                 }]
                 db.commit()
                 return {"status": "opted_out", "reason": "dnd_active"}
+
+            # Node Idempotency Guard & Anti-Spam Loop Protection
+            curr_node_id_str = str(curr_node.get("id"))
+            existing_sends_for_node = [
+                h for h in (session.history or [])
+                if str(h.get("node_id")) == curr_node_id_str
+                and h.get("node_type") in ["whatsapp_message", "action_whatsapp", "whatsapp"]
+                and "Dispatched template" in str(h.get("details", ""))
+            ]
+            if existing_sends_for_node:
+                logger.warning(
+                    f"⚠️ [Workflow Engine] Node '{curr_node_id_str}' already dispatched ({len(existing_sends_for_node)} time(s)) "
+                    f"for session #{session.id}. Suppressing duplicate send to prevent spam."
+                )
+                if len(existing_sends_for_node) >= 2:
+                    logger.warning(f"🛑 [Workflow Engine] Session #{session.id} loop detected on node '{curr_node_id_str}'. Terminating.")
+                    session.status = "COMPLETED_DROPOUT"
+                    session.history = (session.history or []) + [{
+                        "node_id": curr_node_id_str,
+                        "node_type": "whatsapp_message",
+                        "label": curr_node.get("label"),
+                        "timestamp": now.isoformat(),
+                        "details": "Terminated: Revisit limit reached on WhatsApp node (anti-spam guard)."
+                    }]
+                    db.commit()
+                    return {"status": "dropped_out", "reason": "loop_detected"}
+
+                # Advance to next node without re-sending
+                next_node = find_next_node(nodes, edges, curr_node.get("id"))
+                if next_node:
+                    session.current_node_id = str(next_node.get("id"))
+                    db.commit()
+                    return process_workflow_session_step(session.id, db=db, mock_send=mock_send)
+                else:
+                    session.status = "COMPLETED_GOAL"
+                    db.commit()
+                    return {"status": "completed", "outcome": "flow_finished"}
 
             template_name = node_data.get("template_name", "cart_recovery_v1")
             coupon_code = node_data.get("coupon_code", config.DEFAULT_COUPON_CODE)
@@ -1430,6 +1482,26 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
     except Exception as e:
         logger.error(f"Error in process_workflow_session_step: {e}")
         db.rollback()
+        # Backoff: ensure stuck session does not retry every minute in a tight loop
+        try:
+            err_sess = db.query(models.WorkflowSession).filter(models.WorkflowSession.id == session_id).first()
+            if err_sess:
+                err_sess.attempt_count = (err_sess.attempt_count or 0) + 1
+                if err_sess.attempt_count >= 3:
+                    err_sess.status = "COMPLETED_DROPOUT"
+                    err_sess.history = (err_sess.history or []) + [{
+                        "node_id": str(err_sess.current_node_id),
+                        "node_type": "error",
+                        "label": "Session Error Dropout",
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "details": f"Halted after 3 consecutive failures: {str(e)[:120]}"
+                    }]
+                else:
+                    err_sess.next_evaluation_at = datetime.utcnow() + timedelta(minutes=15)
+                db.commit()
+        except Exception as update_err:
+            db.rollback()
+            logger.warning(f"Could not update session error backoff: {update_err}")
         return {"status": "error", "error": str(e)}
     finally:
         if owns_db:
@@ -1464,7 +1536,10 @@ def process_all_active_workflow_sessions():
                     process_workflow_session_step(sess.id, db=db)
                 except Exception as sess_err:
                     logger.error(f"[Workflow Engine] Error processing session #{sess.id}: {sess_err}")
+                finally:
+                    release_workflow_session(db, sess.id)
     except Exception as e:
         logger.error(f"Error in process_all_active_workflow_sessions: {e}")
     finally:
         db.close()
+

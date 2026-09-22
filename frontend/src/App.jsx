@@ -578,13 +578,15 @@ export default function App() {
     }
   };
 
-  const handleOpenAnalyticsPage = async (flow) => {
-    setAnalyticsPage({ open: true, flow, sessions: [], loading: true });
+  const handleOpenAnalyticsPage = async (flow, silent = false) => {
+    if (!silent) {
+      setAnalyticsPage(prev => ({ ...prev, open: true, flow, loading: true }));
+    }
     try {
       const res = await axios.get(`/api/workflows/${flow.id}/sessions`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setAnalyticsPage(prev => ({ ...prev, sessions: res.data || [], loading: false }));
+      setAnalyticsPage(prev => ({ ...prev, open: true, flow, sessions: res.data || [], loading: false }));
     } catch (err) {
       console.error("Failed to fetch analytics sessions:", err);
       setAnalyticsPage(prev => ({ ...prev, loading: false }));
@@ -1307,18 +1309,29 @@ export default function App() {
     return () => clearInterval(interval);
   }, [token, selectedChatPhone, activeTab]);
 
-  // Periodic automatic silent background refresh for Automations, Cart Recovery, and Logs
+  // Periodic automatic silent background refresh for all views across the platform
   useEffect(() => {
     if (!token) return;
-    // Auto-refresh every 12 seconds when user is on automations, cart_recovery, logs, or dashboard
+    // Auto-refresh every 8 seconds across all platform views
     const interval = setInterval(() => {
       if (document.hidden) return; // Pause background polling if user switched away
-      if (["automations", "cart_recovery", "logs", "dashboard"].includes(activeTab)) {
-        fetchData(true);
+
+      // 1. If full-screen Journey Analytics overlay is open, refresh its session funnel
+      if (analyticsPage.open && analyticsPage.flow) {
+        handleOpenAnalyticsPage(analyticsPage.flow, true);
       }
-    }, 12000);
+
+      // 2. Refresh main dataset across all tabs (Dashboard, Automations, Templates, Contacts, Campaigns, Logs, etc.)
+      fetchData(true);
+
+      // 3. If on analytics tab, also poll the comprehensive analytics dataset
+      if (activeTab === "analytics") {
+        fetchAnalytics(analyticsTimeRange, true);
+      }
+    }, 8000);
     return () => clearInterval(interval);
-  }, [token, activeTab]);
+  }, [token, activeTab, analyticsPage.open, analyticsPage.flow, analyticsTimeRange]);
+
 
   const handleSyncMetaTemplates = async () => {
     setLoading(true);
@@ -2064,7 +2077,7 @@ export default function App() {
             sessions={analyticsPage.sessions}
             loading={analyticsPage.loading}
             token={token}
-            onRefresh={() => handleOpenAnalyticsPage(analyticsPage.flow)}
+            onRefresh={() => handleOpenAnalyticsPage(analyticsPage.flow, true)}
             onBack={() => setAnalyticsPage(prev => ({ ...prev, open: false }))}
           />
         </div>

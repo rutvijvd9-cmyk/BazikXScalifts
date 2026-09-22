@@ -276,3 +276,52 @@ def test_clear_workflow_queue(client, auth_headers, db):
     # Verify OutboundMessage has been cleanly unlinked (workflow_session_id set to NULL)
     db.refresh(out_msg)
     assert out_msg.workflow_session_id is None
+
+
+def test_workflow_node_idempotency_and_loop_prevention(db):
+    """
+    Tests that:
+    1. A session does not re-dispatch WhatsApp messages if re-evaluated at the same node.
+    2. A looped flow terminates safely when the revisit limit is reached.
+    """
+    from unittest.mock import patch
+
+    loop_flow = models.WorkflowFlow(
+        name="Test Loop Flow",
+        trigger_type="ABANDONED_CART",
+        is_active=True,
+        nodes=[
+            {"id": "t1", "type": "trigger", "label": "Start"},
+            {"id": "w1", "type": "whatsapp_message", "label": "Send WhatsApp", "data": {"template_name": "appointment_reminder_2"}},
+            {"id": "c1", "type": "condition", "label": "Check", "data": {"condition_type": "MESSAGE_READ"}}
+        ],
+        edges=[
+            {"id": "e1", "source": "t1", "target": "w1"},
+            {"id": "e2", "source": "w1", "target": "c1"},
+            {"id": "e3", "source": "c1", "target": "w1", "sourceHandle": "yes"}
+        ],
+        stats={}
+    )
+    db.add(loop_flow)
+    db.commit()
+
+    dispatched_count = 0
+    def mock_send(*args, **kwargs):
+        nonlocal dispatched_count
+        dispatched_count += 1
+        return {"status": "success", "message_id": f"msg_{dispatched_count}"}
+
+    with patch("scheduler.send_whatsapp_template", side_effect=mock_send):
+        sess = start_workflow_session(
+            flow_id=loop_flow.id,
+            customer_phone="+918780001820",
+            state_data={"message_read": True},
+            db=db
+        )
+        assert sess is not None
+        # Must have sent at most 1 time on first pass
+        assert dispatched_count == 1
+        # Loop detection should terminate the session rather than infinite messaging
+        assert sess.status == "COMPLETED_DROPOUT"
+        assert any("Terminated" in h.get("details", "") for h in sess.history)
+

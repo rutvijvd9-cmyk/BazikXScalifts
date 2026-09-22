@@ -272,9 +272,24 @@ async def receive_cart_webhook(
                 state_data.setdefault(k, str(v))
 
             from scheduler import start_workflow_session
-            wf_sess = start_workflow_session(flow_id=active_cart_flow.id, customer_phone=payload.customer_phone, state_data=state_data, db=db)
-            if wf_sess:
+            # Anti-duplication guard: check if customer already has an active session in this flow
+            existing_sess = db.query(models.WorkflowSession).filter(
+                models.WorkflowSession.flow_id == active_cart_flow.id,
+                models.WorkflowSession.customer_phone == payload.customer_phone,
+                models.WorkflowSession.status.in_(["ACTIVE", "WAITING_DELAY", "WAITING_CONDITION"])
+            ).first()
+            if existing_sess:
+                curr_state = dict(existing_sess.state_data or {})
+                curr_state.update(state_data)
+                existing_sess.state_data = curr_state
+                db.commit()
+                wf_sess = existing_sess
                 workflow_session_id = wf_sess.id
+                logger.info(f"🔄 [Cart Event] Customer {payload.customer_phone} already enrolled in session #{wf_sess.id} ({wf_sess.status}). State updated.")
+            else:
+                wf_sess = start_workflow_session(flow_id=active_cart_flow.id, customer_phone=payload.customer_phone, state_data=state_data, db=db)
+                if wf_sess:
+                    workflow_session_id = wf_sess.id
 
     eff_delay = delay_seconds if delay_seconds is not None else 0
     if not active_cart_flow and not skipped_due_to_min_cart:

@@ -122,6 +122,17 @@ export default function AutomationAnalyticsPage({ flow, sessions = [], loading, 
   const [search, setSearch]                 = useState("");
   const [statusFilter, setStatusFilter]     = useState("ALL");
 
+  // Auto-refresh funnel and session list every 8 seconds when active
+  React.useEffect(() => {
+    if (!onRefresh) return;
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        onRefresh();
+      }
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [onRefresh]);
+
   /* Clear Queue Modal State */
   const [showClearModal, setShowClearModal] = useState(false);
   const [clearMode, setClearMode]           = useState("cancel_active"); // "cancel_active" | "delete_all"
@@ -230,6 +241,11 @@ export default function AutomationAnalyticsPage({ flow, sessions = [], loading, 
 
         {/* Action buttons */}
         <div className="flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold select-none shadow-xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Auto-Refresh Active</span>
+          </div>
+
           {onRefresh && (
             <button
               type="button"

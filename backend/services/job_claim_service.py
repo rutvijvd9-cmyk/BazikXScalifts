@@ -89,6 +89,27 @@ def claim_workflow_session(
         return False
 
 
+def release_workflow_session(db: Session, session_id: int) -> None:
+    """
+    Releases the row-level lease on a workflow session once processing completes or yields.
+    """
+    try:
+        db.execute(
+            text("""
+                UPDATE workflow_sessions
+                SET claimed_by    = NULL,
+                    claimed_until = NULL
+                WHERE id = :session_id
+            """),
+            {"session_id": session_id}
+        )
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"Failed to release workflow session {session_id}: {e}")
+
+
+
 def claim_campaign(
     db: Session,
     campaign_id: int,
