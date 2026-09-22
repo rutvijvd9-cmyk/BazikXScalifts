@@ -874,7 +874,9 @@ async def receive_inbound_whatsapp_message(
                 else:
                     raw_body = f"[{msg_type.upper()} message received]"
 
-                is_opt_out = any(keyword in raw_body.lower() for keyword in OPT_OUT_KEYWORDS)
+                # Only exact or word-bounded match for opt-out to avoid false positives
+                words_lower = [w.strip() for w in raw_body.lower().replace(",", " ").replace(".", " ").replace("!", " ").split()]
+                is_opt_out = any(keyword in words_lower or keyword == raw_body.strip().lower() for keyword in OPT_OUT_KEYWORDS)
 
                 if is_opt_out:
                     any_opt_out = True
@@ -893,13 +895,13 @@ async def receive_inbound_whatsapp_message(
                         logger.info(f"✅ [DOUBLE OPT-IN] Customer {sender_phone} confirmed consent via reply '{raw_body}'.")
                         # Advance any waiting double opt-in workflow sessions
                         waiting_sessions = db.query(models.WorkflowSession).filter(
-                            models.WorkflowSession.customer_phone == sender_phone,
-                            models.WorkflowSession.status.in_(["WAITING_DELAY", "WAITING_CONDITION", "ACTIVE"])
+                            models.WorkflowSession.status.in_(["ACTIVE", "WAITING_DELAY", "WAITING_CONDITION"])
                         ).all()
                         for ws in waiting_sessions:
-                            ws.next_evaluation_at = datetime.utcnow()
-                            if isinstance(ws.state_data, dict):
-                                ws.state_data["optin_confirmed"] = True
+                            if ws.customer_phone == sender_phone:
+                                ws.next_evaluation_at = datetime.utcnow()
+                                if isinstance(ws.state_data, dict):
+                                    ws.state_data["optin_confirmed"] = True
 
                 new_chat_msg = models.ChatMessage(
                     customer_phone=sender_phone,
@@ -912,20 +914,8 @@ async def receive_inbound_whatsapp_message(
                 )
                 db.add(new_chat_msg)
 
-                recent_outbound_logs = db.query(models.MessageLog).filter(
-                    models.MessageLog.recipient_phone == sender_phone,
-                    models.MessageLog.status.in_(["SENT", "SENT_SIMULATED", "DELIVERED"])
-                ).order_by(models.MessageLog.id.desc()).limit(3).all()
-                for out_log in recent_outbound_logs:
-                    out_log.status = "READ"
-
-                recent_outbound_chats = db.query(models.ChatMessage).filter(
-                    models.ChatMessage.customer_phone == sender_phone,
-                    models.ChatMessage.sender_type.in_(["AGENT", "SYSTEM", "BOT"]),
-                    models.ChatMessage.status.in_(["SENT", "DELIVERED"])
-                ).order_by(models.ChatMessage.id.desc()).limit(3).all()
-                for out_chat in recent_outbound_chats:
-                    out_chat.status = "READ"
+                # NOTE: Outbound message read tracking is strictly driven by Meta's official status=="READ" delivery receipts
+                # in the status handler above. Outbound messages are NOT falsely marked READ merely because an inbound message arrived.
 
                 existing_contact = db.query(models.Contact).filter(models.Contact.phone == sender_phone).first()
                 if not existing_contact:

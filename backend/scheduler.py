@@ -1287,7 +1287,28 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                 return {"status": "held_quiet_hours", "rescheduled_at": next_morning_utc.isoformat()}
 
             if sent_status in ["blocked", "failed", "error"]:
-                # Halt progression: do not advance downstream nodes on failure or permanent policy block
+                # Policy blocks (Opt-out, DND, consent revoked) should drop out permanently
+                is_permanent_policy = (
+                    sent_status == "blocked" 
+                    and any(term in block_reason.lower() for term in ["opted out", "dnd", "consent revoked", "invalid recipient phone"])
+                )
+                if not is_permanent_policy and (session.attempt_count or 0) < 3:
+                    session.attempt_count = (session.attempt_count or 0) + 1
+                    backoff_sec = 45 if session.attempt_count == 1 else 120
+                    session.next_evaluation_at = now + timedelta(seconds=backoff_sec)
+                    session.status = "WAITING_DELAY"
+                    session.history = (session.history or []) + [{
+                        "node_id": str(curr_node.get("id")),
+                        "node_type": "whatsapp_message",
+                        "label": curr_node.get("label", f"Send {template_name}"),
+                        "timestamp": now.isoformat(),
+                        "details": f"Dispatch {sent_status} (attempt {session.attempt_count}/3): {block_reason}. Retrying in {backoff_sec}s."
+                    }]
+                    db.commit()
+                    logger.warning(f"⚠️ [Workflow Engine] Session #{session.id} send failed: {block_reason}. Backoff attempt {session.attempt_count}/3 scheduled.")
+                    return {"status": "retry_scheduled", "reason": block_reason, "attempt": session.attempt_count}
+
+                # Permanent failure or exhausted retries
                 session.status = "COMPLETED_DROPOUT"
                 session.history = (session.history or []) + [{
                     "node_id": str(curr_node.get("id")),

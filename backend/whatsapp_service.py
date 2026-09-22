@@ -134,7 +134,8 @@ def get_template_spec(template_name: str, db: Optional[Session] = None) -> dict:
 
     # Fallback heuristics
     default_lang = "en_IN" if template_name in ["cart_recovery_v1", "template_1_entry", "scalifts_test__template"] else ("en_US" if template_name.startswith("appointment_") or template_name.startswith("auto_") else "en")
-    spec = {"language": default_lang, "body_param_count": 0, "source": "fallback"}
+    default_count = 4 if template_name == "appointment_reminder_2" else (0 if template_name.startswith("appointment_") else 0)
+    spec = {"language": default_lang, "body_param_count": default_count, "source": "fallback"}
     _TEMPLATE_META_SPECS[template_name] = spec
     return spec
 
