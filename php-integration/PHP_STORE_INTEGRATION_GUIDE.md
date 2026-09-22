@@ -6,9 +6,10 @@ This document is the official developer guide for connecting the **Manubhai Gath
 
 ## 📌 Executive Overview
 
-The WhatsApp CRM automatically handles two critical customer journeys via HMAC-SHA256 signed webhooks:
+The WhatsApp CRM automatically handles three critical customer journeys via HMAC-SHA256 signed webhooks:
 1. **Abandoned Cart Recovery**: Automatically schedules a personalized WhatsApp reminder with discount offers (default 30-minute delay) when customers leave items in their cart.
 2. **Order Completed / Purchase**: Immediately cancels any pending abandoned cart recovery messages so the customer is not spammed, updates customer order count, and delivers milestone VIP discounts (e.g. 5th, 10th order rewards).
+3. **Customer Registration / Profile Sync**: Quietly saves newly registered customers or profile updates into the WhatsApp CRM contact book with all their standard and custom attributes.
 
 ---
 
@@ -208,6 +209,30 @@ $result = ManubhaiWhatsAppCRM::sendOrderCompleted(
 
 ---
 
+### Hook 3: On Customer Registration / Account Created / Profile Update
+Add this in the customer registration, signup, or profile update script (e.g. `register.php`, `user_signup.php`, WooCommerce `woocommerce_created_customer` action):
+
+```php
+require_once __DIR__ . '/includes/ManubhaiWhatsAppCRM.php';
+
+// Quietly saves the customer in the WhatsApp CRM contacts book
+$result = ManubhaiWhatsAppCRM::syncCustomer(
+    $user['phone'],           // Customer phone (e.g. "9876543210")
+    $user['name'],            // Full name (e.g. "Bhavik Shah")
+    $user['email'],           // Email address
+    $user['city'],            // City (e.g. "Ahmedabad")
+    [
+        "tags"            => "Website Registered, VIP",
+        "birth_day"       => 15,
+        "birth_month"     => 8,
+        "membership_tier" => "Gold",
+        "account_id"      => (string)$user['id']
+    ]
+);
+```
+
+---
+
 ## 4. Raw HTTP API Reference
 
 If you prefer to make raw HTTP requests using Guzzle, Laravel HTTP Client, or WordPress HTTP API:
@@ -274,6 +299,50 @@ If you prefer to make raw HTTP requests using Guzzle, Laravel HTTP Client, or Wo
 
 ---
 
+### C. Customer Registration / Profile Sync Webhook
+- **Method & Path**: `POST /api/webhooks/customer-sync`
+- **Headers**:
+  ```http
+  Content-Type: application/json
+  X-Hub-Signature-256: sha256=<HMAC_SHA256_HEX_DIGEST>
+  X-Idempotency-Key: sync:<customer_phone>:<timestamp>
+  X-Request-ID: <unique_uuid_or_random_hex>
+  ```
+  *(Alternative auth: Header `X-API-Key: <CRM_WEBHOOK_SECRET>` or `Authorization: Bearer <CRM_WEBHOOK_SECRET>`)*
+- **Payload**:
+  ```json
+  {
+    "phone": "+919876543210",
+    "name": "Bhavik Shah",
+    "email": "bhavik@example.com",
+    "city": "Ahmedabad",
+    "tags": "Website Customer",
+    "birth_day": 15,
+    "birth_month": 8,
+    "membership_tier": "Gold"
+  }
+  ```
+- **Success Response (`200 OK`)**:
+  ```json
+  {
+    "status": "success",
+    "action": "created",
+    "contact": {
+      "id": 84,
+      "phone": "+919876543210",
+      "name": "Bhavik Shah",
+      "email": "bhavik@example.com",
+      "city": "Ahmedabad",
+      "tags": "Website Customer",
+      "custom_attributes": {
+        "membership_tier": "Gold"
+      }
+    }
+  }
+  ```
+
+---
+
 ## 5. Security & Verification Rules
 
 1. **HMAC Signing**: All requests must be hashed using the shared `CRM_WEBHOOK_SECRET`.
@@ -297,10 +366,14 @@ CRM_BASE_URL="https://your-crm-domain.com" CRM_WEBHOOK_SECRET="your_shared_secre
 
 **Expected output**:
 ```text
-[1/2] Testing Cart Event Webhook...
-Result: HTTP 202 - Status: received
+=== 1. Testing Cart Abandonment Webhook from PHP ===
+Array ( [http_code] => 202 ... [status] => received )
 
-[2/2] Testing Order Completed Webhook...
-Result: HTTP 200 - Status: success
-Integration tests completed successfully!
+=== 2. Testing Order Placed Webhook from PHP ===
+Array ( [http_code] => 200 ... [status] => success )
+
+=== 3. Testing Customer Registration / Profile Sync from PHP ===
+Array ( [http_code] => 200 ... [status] => success ... [action] => created )
+
+✅ PHP Client integration test finished.
 ```

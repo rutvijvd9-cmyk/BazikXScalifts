@@ -21,5 +21,20 @@ $orderResponse = ManubhaiWhatsAppCRM::sendOrderCompleted(
 );
 print_r($orderResponse);
 
+echo "\n=== 3. Testing Customer Registration / Profile Sync from PHP ===\n";
+$syncResponse = ManubhaiWhatsAppCRM::syncCustomer(
+    "9825098250",
+    "Bhavik Shah",
+    "bhavik@example.com",
+    "Ahmedabad",
+    [
+        "tags" => "Website Registered, VIP",
+        "birth_day" => 15,
+        "birth_month" => 8,
+        "membership_tier" => "Gold"
+    ]
+);
+print_r($syncResponse);
+
 echo "\n✅ PHP Client integration test finished.\n";
 ?>

@@ -76,6 +76,32 @@ class ManubhaiWhatsAppCRM {
     }
 
     /**
+     * Call this when a user creates an account, signs up, or updates their profile.
+     * Quietly adds or updates the customer in the WhatsApp CRM contacts book.
+     * 
+     * @param string      $customerPhone Customer phone number (e.g. "9876543210" or "+919876543210")
+     * @param string|null $name          Customer full name
+     * @param string|null $email         Customer email address
+     * @param string|null $city          Customer city (e.g. "Ahmedabad")
+     * @param array       $extraData     Any custom fields or attributes (e.g. ["tags" => "Web Signup", "birth_day" => 15, "birth_month" => 8])
+     * @return array Response from CRM backend
+     */
+    public static function syncCustomer($customerPhone, $name = null, $email = null, $city = null, $extraData = []) {
+        $formattedPhone = self::formatPhone($customerPhone);
+
+        $payload = array_merge([
+            "phone" => $formattedPhone,
+            "name"  => $name,
+            "email" => $email,
+            "city"  => $city,
+            "tags"  => "Website Customer"
+        ], $extraData);
+
+        $endpoint = self::crmBaseUrl() . "/api/webhooks/customer-sync";
+        return self::sendPostRequest($endpoint, $payload, "sync:" . $formattedPhone . ":" . time());
+    }
+
+    /**
      * Internal helper to send secure signed POST request with 2-second timeout
      * so it never slows down the user's browsing experience.
      */
