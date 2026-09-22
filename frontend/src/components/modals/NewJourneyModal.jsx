@@ -76,8 +76,8 @@ export default function NewJourneyModal({
                 },
                 {
                   id: "NEW_CUSTOMER_WELCOME",
-                  title: "New Customer Welcome",
-                  desc: "Engage first-time visitors or new account creations with a welcome greeting & coupon.",
+                  title: "New Customer Welcome & Double Opt-In",
+                  desc: "Send a compliant double opt-in confirmation greeting upon signup, then deliver a welcome discount once confirmed.",
                   icon: UserPlus,
                   color: "text-emerald-600 bg-emerald-50 border-emerald-200"
                 },
@@ -278,20 +278,25 @@ export default function NewJourneyModal({
 
           {/* 4. New Customer Welcome Options */}
           {newJourneyForm.trigger_type === "NEW_CUSTOMER_WELCOME" && (
-            <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-xl p-3.5 space-y-2">
-              <label className="block text-xs font-bold uppercase text-emerald-950">
-                Welcome Gift Coupon Code
-              </label>
-              <input
-                type="text"
-                value={newJourneyForm.welcome_coupon || "WELCOME10"}
-                onChange={(e) => setNewJourneyForm({ ...newJourneyForm, welcome_coupon: e.target.value.toUpperCase() })}
-                placeholder="e.g. WELCOME10"
-                className="w-full px-3.5 py-2 border border-emerald-300 rounded-lg text-xs font-mono font-bold bg-white text-gray-900 uppercase"
-              />
-              <p className="text-[11px] text-emerald-700">
-                Will be included in the automated welcome message to encourage their first order.
+            <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-xl p-3.5 space-y-3">
+              <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs">
+                <span>🛡️ Double Opt-In Flow Enabled</span>
+              </div>
+              <p className="text-[11px] text-emerald-700 leading-relaxed">
+                Step 1 sends a friendly opt-in invitation. When the customer confirms (replies &quot;YES&quot;), marketing consent is recorded in their profile and Step 2 unlocks their welcome discount gift.
               </p>
+              <div>
+                <label className="block text-xs font-bold uppercase text-emerald-950 mb-1">
+                  Welcome Gift Coupon Code
+                </label>
+                <input
+                  type="text"
+                  value={newJourneyForm.welcome_coupon || "WELCOME10"}
+                  onChange={(e) => setNewJourneyForm({ ...newJourneyForm, welcome_coupon: e.target.value.toUpperCase() })}
+                  placeholder="e.g. WELCOME10"
+                  className="w-full px-3.5 py-2 border border-emerald-300 rounded-lg text-xs font-mono font-bold bg-white text-gray-900 uppercase"
+                />
+              </div>
             </div>
           )}
 

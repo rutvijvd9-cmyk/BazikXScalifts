@@ -424,22 +424,112 @@ export default function App() {
       nodeData.description = "Starting Trigger";
     }
 
+    let initialNodes = [
+      {
+        id: "node_1",
+        type: "trigger",
+        label: `${tLabel} Trigger`,
+        position: { x: 280, y: 40 },
+        data: nodeData
+      }
+    ];
+    let initialEdges = [];
+
+    if (tType === "NEW_CUSTOMER_WELCOME") {
+      const coupon = (newJourneyForm.welcome_coupon || "WELCOME10").toUpperCase();
+      initialNodes = [
+        {
+          id: "node_1",
+          type: "trigger",
+          label: "New Customer Signup",
+          position: { x: 280, y: 40 },
+          data: {
+            ...nodeData,
+            description: "Triggers on website registration"
+          }
+        },
+        {
+          id: "node_2",
+          type: "whatsapp_message",
+          label: "Send Double Opt-In Invite",
+          position: { x: 280, y: 160 },
+          data: {
+            template_name: "welcome_greeting",
+            description: "Requests affirmative WhatsApp marketing consent"
+          }
+        },
+        {
+          id: "node_3",
+          type: "delay",
+          label: "Wait 2 Hours for Reply",
+          position: { x: 280, y: 280 },
+          data: {
+            delay_minutes: 120,
+            display_value: 2,
+            unit: "hours",
+            description: "Wait up to 2 hours for reply"
+          }
+        },
+        {
+          id: "node_4",
+          type: "condition",
+          label: "Did Customer Confirm Opt-In?",
+          position: { x: 280, y: 400 },
+          data: {
+            condition_type: "DOUBLE_OPTIN_CONFIRMED",
+            description: "Checks affirmative consent record"
+          }
+        },
+        {
+          id: "node_5",
+          type: "tag",
+          label: "Tag: Double Opt-In Confirmed",
+          position: { x: 120, y: 520 },
+          data: {
+            tag_name: "Double Opt-In Confirmed",
+            description: "Tags contact as consented"
+          }
+        },
+        {
+          id: "node_6",
+          type: "whatsapp_message",
+          label: `Send Welcome Gift (${coupon})`,
+          position: { x: 120, y: 640 },
+          data: {
+            template_name: "cart_recovery_v1",
+            coupon_code: coupon,
+            description: `Delivers ${coupon} discount code`
+          }
+        },
+        {
+          id: "node_7",
+          type: "tag",
+          label: "Tag: Pending Consent",
+          position: { x: 440, y: 520 },
+          data: {
+            tag_name: "Unconfirmed Consent",
+            description: "Tags contact without consent"
+          }
+        }
+      ];
+      initialEdges = [
+        { id: "e-1-2", source: "node_1", target: "node_2" },
+        { id: "e-2-3", source: "node_2", target: "node_3" },
+        { id: "e-3-4", source: "node_3", target: "node_4" },
+        { id: "e-4-5", source: "node_4", target: "node_5", sourceHandle: "yes" },
+        { id: "e-5-6", source: "node_5", target: "node_6" },
+        { id: "e-4-7", source: "node_4", target: "node_7", sourceHandle: "no" }
+      ];
+    }
+
     const newWf = {
       name: defaultName,
       description: `Multi-step automated flowchart journey starting with ${tLabel}`,
       trigger_type: tType,
       trigger_config: triggerConfig,
       is_active: true,
-      nodes: [
-        {
-          id: "node_1",
-          type: "trigger",
-          label: `${tLabel} Trigger`,
-          position: { x: 280, y: 40 },
-          data: nodeData
-        }
-      ],
-      edges: [],
+      nodes: initialNodes,
+      edges: initialEdges,
       stats: { entered: 0, completed: 0, goals_converted: 0, revenue_recovered: 0 }
     };
 

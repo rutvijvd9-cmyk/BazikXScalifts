@@ -37,6 +37,12 @@ OPT_OUT_KEYWORDS = {
     "रोको", "बंद करो", "मैसेज बंद करो"      # Hindi
 }
 
+OPT_IN_KEYWORDS = {
+    "yes", "start", "agree", "subscribe", "y", "haan",
+    "હા", "હું સંમત છું", "સંમત",  # Gujarati
+    "हाँ", "स्वीकार", "सहमत"      # Hindi
+}
+
 
 async def get_webhook_authenticated_user(
     request: Request,
@@ -581,6 +587,31 @@ def process_customer_sync(payload: Dict[str, Any], current_user: models.User, db
 
     logger.info(f"✅ [Customer Sync] Contact {action}: phone={clean_phone}, name={contact.name}, custom_attrs={list(custom_attrs.keys())}")
 
+    # Check for active New Customer Welcome / Double Opt-In Automation
+    if action == "created":
+        try:
+            from scheduler import start_workflow_session
+            welcome_flow = db.query(models.WorkflowFlow).filter(
+                models.WorkflowFlow.trigger_type == "NEW_CUSTOMER_WELCOME",
+                models.WorkflowFlow.is_active == True
+            ).first()
+            if welcome_flow:
+                start_workflow_session(
+                    flow_id=welcome_flow.id,
+                    customer_phone=clean_phone,
+                    state_data={
+                        "customer_name": contact.name or "Valued Customer",
+                        "email": contact.email,
+                        "city": contact.city,
+                        "tags": contact.tags,
+                        "source": "customer_sync"
+                    },
+                    db=db
+                )
+                logger.info(f"🚀 [Welcome Automation] Triggered flow #{welcome_flow.id} for new customer {clean_phone}")
+        except Exception as e:
+            logger.warning(f"Note: Could not start welcome workflow for {clean_phone}: {e}")
+
     return {
         "status": "success",
         "action": action,
@@ -819,6 +850,26 @@ async def receive_inbound_whatsapp_message(
                     any_opt_out = True
                     revoke_consent(db, sender_phone, reason="INBOUND_STOP_COMMAND")
                     logger.info(f"🛑 [AUTO-DND] Customer opted out via inbound message. Added to Opt-Out DND list and consent revoked.")
+                else:
+                    words = [w.strip() for w in raw_body.lower().replace(",", " ").replace(".", " ").replace("!", " ").split()]
+                    is_opt_in = any(keyword in words or keyword == raw_body.strip().lower() for keyword in OPT_IN_KEYWORDS)
+                    if is_opt_in:
+                        record_consent(
+                            db=db,
+                            phone=sender_phone,
+                            source="inbound_message",
+                            proof_details=f"Inbound affirmative double opt-in reply: {raw_body[:60]}"
+                        )
+                        logger.info(f"✅ [DOUBLE OPT-IN] Customer {sender_phone} confirmed consent via reply '{raw_body}'.")
+                        # Advance any waiting double opt-in workflow sessions
+                        waiting_sessions = db.query(models.WorkflowSession).filter(
+                            models.WorkflowSession.customer_phone == sender_phone,
+                            models.WorkflowSession.status.in_(["WAITING_DELAY", "WAITING_CONDITION", "ACTIVE"])
+                        ).all()
+                        for ws in waiting_sessions:
+                            ws.next_evaluation_at = datetime.utcnow()
+                            if isinstance(ws.state_data, dict):
+                                ws.state_data["optin_confirmed"] = True
 
                 new_chat_msg = models.ChatMessage(
                     customer_phone=sender_phone,

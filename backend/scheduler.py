@@ -889,6 +889,7 @@ def start_workflow_session(flow_id: int, customer_phone: str, state_data: dict, 
         trigger_data = trigger_node.get("data", {}) if isinstance(trigger_node, dict) else {}
 
         is_simulation = bool((state_data or {}).get("simulation"))
+        min_cart_val = None
 
         # ── Guardrail: Minimum Cart Value Trigger Threshold ──
         if trigger_data.get("trigger_type") == "ABANDONED_CART" or flow.trigger_type == "ABANDONED_CART":
@@ -1307,6 +1308,19 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                 cart_val = float(session.state_data.get("cart_value", 0))
                 condition_met = (cart_val >= threshold)
 
+            elif condition_type in ["DOUBLE_OPTIN_CONFIRMED", "OPTIN_CONFIRMED", "CONSENT_GRANTED"]:
+                # Check 1: Session state optin flag
+                if session.state_data.get("optin_confirmed"):
+                    condition_met = True
+                else:
+                    # Check 2: Active granted consent record in DB
+                    consent = db.query(models.ConsentRecord).filter(
+                        models.ConsentRecord.phone == session.customer_phone,
+                        models.ConsentRecord.status.in_(["ACTIVE", "GRANTED"])
+                    ).first()
+                    if consent:
+                        condition_met = True
+
             branch_handle = "yes" if condition_met else "no"
             logger.info(f"⚖️ [Workflow Engine] Condition '{condition_type}' evaluated to: {condition_met} -> Branch: {branch_handle}")
 
@@ -1317,6 +1331,8 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                     cond_label = "Was Message Read?"
                 elif condition_type == "CART_VALUE_ABOVE":
                     cond_label = f"Cart Value > ₹{node_data.get('threshold', 500)}"
+                elif condition_type in ["DOUBLE_OPTIN_CONFIRMED", "OPTIN_CONFIRMED", "CONSENT_GRANTED"]:
+                    cond_label = "Did Customer Confirm Opt-In?"
                 elif condition_type in ["ORDER_PLACED", "CART_RECOVERED"]:
                     cond_label = "Did Customer Purchase?"
                 else:

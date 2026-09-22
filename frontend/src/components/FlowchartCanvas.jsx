@@ -271,6 +271,20 @@ export default function FlowchartCanvas({
       }
     },
     {
+      id: "condition_optin",
+      type: "condition",
+      category: "condition",
+      title: "Check: Did Customer Opt-In?",
+      desc: "Checks if customer replied YES or confirmed double opt-in affirmative marketing consent.",
+      icon: CheckCircle2,
+      color: "text-emerald-600 bg-emerald-50 border-emerald-200",
+      defaultLabel: "Did Customer Confirm Opt-In?",
+      defaultData: {
+        condition_type: "DOUBLE_OPTIN_CONFIRMED",
+        description: "Checks affirmative consent record"
+      }
+    },
+    {
       id: "tag_contact",
       type: "tag",
       category: "action",
@@ -1347,6 +1361,9 @@ export default function FlowchartCanvas({
                       } else if (newType === "CART_VALUE_ABOVE") {
                         newLabel = `Cart Value > ₹${selectedNode.data?.threshold || 500}`;
                         newDesc = "Evaluates total cart value";
+                      } else if (newType === "DOUBLE_OPTIN_CONFIRMED") {
+                        newLabel = "Did Customer Confirm Opt-In?";
+                        newDesc = "Checks affirmative consent record";
                       }
 
                       setFlow((prev) => ({
@@ -1372,6 +1389,7 @@ export default function FlowchartCanvas({
                     <option value="ORDER_PLACED">Did Customer Purchase / Order?</option>
                     <option value="MESSAGE_READ">Was Message Read (Blue Ticks)?</option>
                     <option value="CART_VALUE_ABOVE">Cart Value is Greater Than ₹X</option>
+                    <option value="DOUBLE_OPTIN_CONFIRMED">Did Customer Confirm Opt-In (Consent Granted)?</option>
                   </select>
                 </div>
 
