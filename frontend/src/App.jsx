@@ -948,7 +948,9 @@ export default function App() {
       setChatConversations(convRes.data || []);
       setExternalDataSources(extRes.data || []);
       if (meRes?.data) setCurrentUserProfile(meRes.data);
-      fetchAnalytics(analyticsTimeRange, true);
+      if (!silent || activeTab === "analytics") {
+        fetchAnalytics(analyticsTimeRange, true);
+      }
     } catch (err) {
       console.error("Failed to fetch protected data:", err);
       if (err.response?.status === 401) {
