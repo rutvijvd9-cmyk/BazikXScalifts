@@ -325,3 +325,114 @@ def test_workflow_node_idempotency_and_loop_prevention(db):
         assert sess.status == "COMPLETED_DROPOUT"
         assert any("Terminated" in h.get("details", "") for h in sess.history)
 
+
+def test_message_read_condition_accuracy_and_no_false_positives(db):
+    """
+    Verifies that 'Was Message Read?' evaluates to:
+    - NO when the outbound message is SENT/DELIVERED (even if ChatMessage.is_read is True for agent CRM inbox)
+    - YES when MessageLog.status or ChatMessage.status is genuinely 'READ' from Meta webhook
+    """
+    flow = models.WorkflowFlow(
+        name="Test Read Condition Flow",
+        trigger_type="ABANDONED_CART",
+        nodes=[
+            {"id": "t1", "type": "trigger", "label": "Start"},
+            {"id": "c1", "type": "condition", "label": "Was Message Read?", "data": {"condition_type": "MESSAGE_READ"}},
+            {"id": "g_yes", "type": "goal", "label": "Read Goal"},
+            {"id": "e_no", "type": "exit", "label": "Unread Exit"}
+        ],
+        edges=[
+            {"id": "e1", "source": "t1", "target": "c1"},
+            {"id": "e2", "source": "c1", "target": "g_yes", "sourceHandle": "yes"},
+            {"id": "e3", "source": "c1", "target": "e_no", "sourceHandle": "no"}
+        ],
+        stats={}
+    )
+    db.add(flow)
+    db.commit()
+
+    phone = "+918780001820"
+    msg_id = f"wamid_test_{int(datetime.utcnow().timestamp())}"
+
+    # Scenario 1: Outbound message sent, but customer has NOT read it yet.
+    # Note: ChatMessage has is_read=True (agent inbox), but status='SENT'
+    msg_log = models.MessageLog(
+        recipient_phone=phone,
+        template_name="test_tmpl",
+        meta_message_id=msg_id,
+        status="SENT"
+    )
+    chat_entry = models.ChatMessage(
+        customer_phone=phone,
+        sender_type="AGENT",
+        message_type="template",
+        meta_message_id=msg_id,
+        status="SENT",
+        is_read=True  # Internal CRM agent view
+    )
+    db.add(msg_log)
+    db.add(chat_entry)
+    db.commit()
+
+    sess_unread = start_workflow_session(
+        flow_id=flow.id,
+        customer_phone=phone,
+        state_data={"last_meta_message_id": msg_id},
+        db=db
+    )
+    assert sess_unread is not None
+    # Must have branched to NO (Unread Exit) because status is 'SENT', NOT 'READ'
+    assert sess_unread.status == "COMPLETED_DROPOUT"
+    assert any("Took 'NO' path" in h.get("details", "") for h in sess_unread.history)
+
+    # Scenario 2: Meta webhook delivers read receipt (status becomes 'READ')
+    msg_log.status = "READ"
+    chat_entry.status = "READ"
+    db.commit()
+
+    sess_read = start_workflow_session(
+        flow_id=flow.id,
+        customer_phone=phone,
+        state_data={"last_meta_message_id": msg_id},
+        db=db
+    )
+    assert sess_read is not None
+    # Must have branched to YES (Read Goal)
+    assert sess_read.status == "COMPLETED_GOAL"
+    assert any("Took 'YES' path" in h.get("details", "") for h in sess_read.history)
+
+
+def test_send_whatsapp_template_idempotency_replay(db):
+    """
+    Verifies that calling send_whatsapp_template with an existing SENT OutboundMessage
+    replays the existing message ID without duplicating calls to Meta.
+    """
+    from whatsapp_service import send_whatsapp_template
+
+    idemp_key = f"test_idemp_{int(datetime.utcnow().timestamp())}"
+    existing_outbound = models.OutboundMessage(
+        idempotency_key=idemp_key,
+        recipient_phone_e164="+918780001820",
+        recipient_hash="dummy_hash",
+        message_kind="template",
+        purpose="utility",
+        template_name="appointment_reminder_2",
+        status="SENT",
+        policy_decision="authorized",
+        meta_message_id="wamid_existing_12345"
+    )
+    db.add(existing_outbound)
+    db.commit()
+
+    # Calling send_whatsapp_template must return existing ID without error
+    res = send_whatsapp_template(
+        recipient_phone="+918780001820",
+        template_name="appointment_reminder_2",
+        idempotency_key=idemp_key,
+        db=db
+    )
+    assert res.get("status") == "success"
+    assert res.get("message_id") == "wamid_existing_12345"
+    assert res.get("idempotent_replay") is True
+
+

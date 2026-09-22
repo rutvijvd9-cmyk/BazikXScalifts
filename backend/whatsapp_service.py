@@ -1,8 +1,10 @@
 import os
 import logging
 from datetime import datetime
+from typing import Optional
 from dotenv import load_dotenv
 import httpx
+from sqlalchemy.orm import Session
 from database import SessionLocal
 import models
 
@@ -68,7 +70,8 @@ def send_whatsapp_template(
     workflow_session_id: int = None,
     purpose: str = "utility",
     correlation_id: str = None,
-    created_by_user_id: int = None
+    created_by_user_id: int = None,
+    db: Optional[Session] = None
 ) -> dict:
     """
     Sends a WhatsApp message via Meta Cloud API or simulation mode.
@@ -77,7 +80,10 @@ def send_whatsapp_template(
     2. Central authorize_and_create_outbound gate (Opt-Out, Consent Ledger, Daily Budget, Quiet Hours)
     3. Durable OutboundMessage state updates and audit event trail
     """
-    db = SessionLocal()
+    owns_db = False
+    if db is None:
+        db = SessionLocal()
+        owns_db = True
     try:
         try:
             clean_recipient_phone = normalize_phone(recipient_phone)
@@ -120,6 +126,15 @@ def send_whatsapp_template(
             correlation_id=correlation_id,
             enforce_quiet_hours=True
         )
+
+        # Check if already dispatched under this idempotency key — return existing Meta ID without re-calling API
+        if outbound_rec and outbound_rec.status == "SENT":
+            logger.info(f"🔁 [Idempotency] Message already dispatched for key '{idempotency_key}' (Meta ID: {outbound_rec.meta_message_id}). Skipping duplicate API call.")
+            return {
+                "status": "success",
+                "message_id": outbound_rec.meta_message_id or f"dup_{int(datetime.utcnow().timestamp())}",
+                "idempotent_replay": True
+            }
 
         if not is_auth:
             logger.info(f"🚫 [Policy Blocked] Message to {mask_phone(clean_recipient_phone)} blocked: {auth_reason}")
@@ -309,7 +324,8 @@ def send_whatsapp_template(
             pass
         return {"status": "error", "message": str(e)}
     finally:
-        db.close()
+        if owns_db:
+            db.close()
 
 
 def create_meta_template(
@@ -328,14 +344,14 @@ def create_meta_template(
     token = config.WHATSAPP_API_TOKEN
 
     if not waba_id or not token:
-        logger.info(f"📱 [SIMULATION MODE] Template '{template_name}' simulated in Meta API.")
+        logger.info(f"📝 [SIMULATION] Created template '{template_name}' locally (no Meta credentials).")
         return {
             "status": "APPROVED",
-            "id": f"sim_tmpl_{int(datetime.utcnow().timestamp())}",
-            "info": "Meta credentials empty. Created locally."
+            "id": f"sim_template_{int(datetime.utcnow().timestamp())}",
+            "category": category
         }
 
-    url = f"{config.META_GRAPH_BASE_URL}/{config.META_GRAPH_VERSION}/{waba_id}/message_templates"
+    url = f"{config.META_API_BASE_URL}/{waba_id}/message_templates"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
@@ -386,12 +402,15 @@ def create_meta_template(
         return {"error": str(e), "status": "FAILED"}
 
 
-def send_whatsapp_free_text(recipient_phone: str, message_text: str, sender_user: str = "Agent") -> dict:
+def send_whatsapp_free_text(recipient_phone: str, message_text: str, sender_user: str = "Agent", db: Optional[Session] = None) -> dict:
     """
     Sends a free-form customer service text message (used within Meta's 24-hour service window).
     Falls back to simulation mode if API credentials are not set.
     """
-    db = SessionLocal()
+    owns_db = False
+    if db is None:
+        db = SessionLocal()
+        owns_db = True
     try:
         is_auth, auth_reason = authorize_outbound_message(
             db=db,
@@ -457,6 +476,5 @@ def send_whatsapp_free_text(recipient_phone: str, message_text: str, sender_user
         logger.error(f"Error in send_whatsapp_free_text: {e}")
         return {"status": "error", "message": str(e)}
     finally:
-        db.close()
-
-
+        if owns_db:
+            db.close()

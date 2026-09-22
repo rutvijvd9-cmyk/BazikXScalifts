@@ -1068,6 +1068,7 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             else:
                 # Delay period has elapsed!
                 session.status = "ACTIVE"
+                session.attempt_count = 0
                 next_node = find_next_node(nodes, edges, curr_node.get("id"))
                 if next_node:
                     session.current_node_id = str(next_node.get("id"))
@@ -1255,7 +1256,8 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                     sender_user=origin_user,
                     idempotency_key=f"wf_session_{session.id}_node_{curr_node.get('id')}",
                     workflow_session_id=session.id,
-                    purpose="utility"
+                    purpose="utility",
+                    db=db
                 )
 
             sent_msg_id = res.get("message_id") or res.get("id") or f"msg_{int(now.timestamp())}"
@@ -1300,7 +1302,7 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                 db.commit()
                 return {"status": "dropped_out", "reason": res.get("reason", sent_status)}
 
-
+            session.attempt_count = 0
             session.history = (session.history or []) + [{
                 "node_id": str(curr_node.get("id")),
                 "node_type": "whatsapp_message",
@@ -1343,16 +1345,18 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                     condition_met = True
 
             elif condition_type == "MESSAGE_READ":
-                # Check if last sent message was READ
+                # Check if last sent message was READ by customer
+                # Crucial Fix: NEVER check chat_msg.is_read! ChatMessage.is_read tracks agent CRM inbox read state
+                # and is initialized to True for outbound agent messages. Customer read is tracked via status == 'READ'.
                 last_msg_id = session.state_data.get("last_meta_message_id")
                 if last_msg_id:
                     msg = db.query(models.MessageLog).filter(models.MessageLog.meta_message_id == last_msg_id).first()
                     if msg and msg.status == "READ":
                         condition_met = True
                     chat_msg = db.query(models.ChatMessage).filter(models.ChatMessage.meta_message_id == last_msg_id).first()
-                    if chat_msg and (chat_msg.is_read or chat_msg.status == "READ"):
+                    if chat_msg and chat_msg.status == "READ":
                         condition_met = True
-                if not condition_met and session.state_data.get("message_read"):
+                if not condition_met and session.state_data.get("message_read") is True:
                     condition_met = True
 
             elif condition_type == "CART_VALUE_ABOVE":
@@ -1405,11 +1409,13 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             next_node = find_next_node(nodes, edges, curr_node.get("id"), handle=branch_handle)
             if next_node:
                 session.current_node_id = str(next_node.get("id"))
+                session.attempt_count = 0
                 db.commit()
                 # Immediately execute next branch node
                 return process_workflow_session_step(session.id, db=db, mock_send=mock_send)
             else:
                 session.status = "COMPLETED_GOAL" if condition_met else "COMPLETED_DROPOUT"
+                session.attempt_count = 0
                 db.commit()
                 return {"status": "completed", "outcome": f"branch_{branch_handle}_end"}
 
@@ -1427,62 +1433,57 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             session.history = (session.history or []) + [{
                 "node_id": str(curr_node.get("id")),
                 "node_type": "tag",
-                "label": curr_node.get("label", f"Tag '{tag_name}'"),
+                "label": curr_node.get("label", f"Tag: {tag_name}"),
                 "timestamp": now.isoformat(),
-                "details": f"Contact tagged with '{tag_name}'"
+                "details": f"Added tag '{tag_name}' to contact"
             }]
 
             next_node = find_next_node(nodes, edges, curr_node.get("id"))
             if next_node:
                 session.current_node_id = str(next_node.get("id"))
+                session.attempt_count = 0
                 db.commit()
                 return process_workflow_session_step(session.id, db=db, mock_send=mock_send)
             else:
                 session.status = "COMPLETED_GOAL"
+                session.attempt_count = 0
                 db.commit()
-                return {"status": "completed"}
+                return {"status": "completed", "outcome": "flow_finished"}
 
-        # ─── 6. EXIT / GOAL NODE ───
-        elif node_type in ["exit", "goal"]:
-            outcome = node_data.get("outcome", "GOAL_MET")
-            session.status = "COMPLETED_GOAL" if outcome == "GOAL_MET" else "COMPLETED_DROPOUT"
-
-            # Update stats
-            current_stats = dict(flow.stats or {})
-            current_stats["completed"] = current_stats.get("completed", 0) + 1
-            if outcome == "GOAL_MET":
+        # ─── 6. GOAL / EXIT NODE ───
+        elif node_type in ["goal", "exit"]:
+            is_goal = (node_type == "goal") or ("goal" in curr_node.get("label", "").lower())
+            session.status = "COMPLETED_GOAL" if is_goal else "COMPLETED_DROPOUT"
+            session.attempt_count = 0
+            session.history = (session.history or []) + [{
+                "node_id": str(curr_node.get("id")),
+                "node_type": node_type,
+                "label": curr_node.get("label", "Goal Reached" if is_goal else "Journey Exit"),
+                "timestamp": now.isoformat(),
+                "details": f"Session finished: {'Goal reached' if is_goal else 'Exited'}"
+            }]
+            # Increment goal converted stats
+            if is_goal:
+                current_stats = dict(flow.stats or {})
                 current_stats["goals_converted"] = current_stats.get("goals_converted", 0) + 1
                 cart_val = float(session.state_data.get("cart_value", 0))
                 current_stats["revenue_recovered"] = current_stats.get("revenue_recovered", 0) + cart_val
-            flow.stats = current_stats
+                flow.stats = current_stats
 
-            session.history = (session.history or []) + [{
-                "node_id": str(curr_node.get("id")),
-                "node_type": "exit",
-                "label": curr_node.get("label", "Flow Completed"),
-                "timestamp": now.isoformat(),
-                "details": f"Journey concluded with status: {session.status}"
-            }]
             db.commit()
-            logger.info(f"🏁 [Workflow Engine] Session #{session.id} concluded with outcome: {outcome}")
-            return {"status": "completed", "outcome": outcome}
+            return {"status": "completed", "outcome": "goal_reached" if is_goal else "journey_exit"}
 
         else:
-            logger.warning(f"Unknown node type '{node_type}'. Advancing.")
-            next_node = find_next_node(nodes, edges, curr_node.get("id"))
-            if next_node:
-                session.current_node_id = str(next_node.get("id"))
-                db.commit()
-                return process_workflow_session_step(session.id, db=db, mock_send=mock_send)
-            else:
-                session.status = "COMPLETED_DROPOUT"
-                db.commit()
-                return {"status": "completed"}
+            logger.warning(f"Unknown node type '{node_type}' in flow #{flow.id}")
+            session.status = "COMPLETED_DROPOUT"
+            session.attempt_count = 0
+            db.commit()
+            return {"status": "error", "reason": f"unknown_node_type_{node_type}"}
 
     except Exception as e:
         logger.error(f"Error in process_workflow_session_step: {e}")
         db.rollback()
-        # Backoff: ensure stuck session does not retry every minute in a tight loop
+        # Backoff: transient failures retry with short backoff (30s, 60s) before dropout
         try:
             err_sess = db.query(models.WorkflowSession).filter(models.WorkflowSession.id == session_id).first()
             if err_sess:
@@ -1497,7 +1498,8 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                         "details": f"Halted after 3 consecutive failures: {str(e)[:120]}"
                     }]
                 else:
-                    err_sess.next_evaluation_at = datetime.utcnow() + timedelta(minutes=15)
+                    backoff_sec = 30 if err_sess.attempt_count == 1 else 60
+                    err_sess.next_evaluation_at = datetime.utcnow() + timedelta(seconds=backoff_sec)
                 db.commit()
         except Exception as update_err:
             db.rollback()

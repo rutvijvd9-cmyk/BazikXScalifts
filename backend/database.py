@@ -25,10 +25,16 @@ if config.ENVIRONMENT == "production":
         )
 
 # Enable connection pooling and pre-ping to handle serverless/cloud DB reconnects gracefully
-engine_options = {"pool_pre_ping": True, "pool_recycle": 300}
+# Enable conservative connection pooling and pre-ping to handle cloud DB limits gracefully
+# Aiven Starter/Free PostgreSQL has a strict max_connections limit (20-25).
+# Limiting pool_size=3 with max_overflow=2 guarantees each worker process consumes at most 5 connections.
+engine_options = {"pool_pre_ping": True, "pool_recycle": 180}
 if DATABASE_URL.startswith("sqlite"):
     engine_options["connect_args"] = {"check_same_thread": False}
 elif DATABASE_URL.startswith("postgresql"):
+    engine_options["pool_size"] = int(os.getenv("DB_POOL_SIZE", "3"))
+    engine_options["max_overflow"] = int(os.getenv("DB_MAX_OVERFLOW", "2"))
+    engine_options["pool_timeout"] = int(os.getenv("DB_POOL_TIMEOUT", "15"))
     connect_args = {}
     if config.ENVIRONMENT == "production":
         sslmode = os.getenv("DB_SSLMODE", "verify-full").strip()

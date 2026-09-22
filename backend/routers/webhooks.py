@@ -782,6 +782,21 @@ async def receive_inbound_whatsapp_message(
                     if errors:
                         msg_log.error_message = str(errors)
 
+                if new_status == "READ":
+                    # WP8: Update any active/waiting workflow sessions holding this message ID to message_read=True
+                    try:
+                        waiting_ws = db.query(models.WorkflowSession).filter(
+                            models.WorkflowSession.status.in_(["ACTIVE", "WAITING_DELAY", "WAITING_CONDITION"])
+                        ).all()
+                        for ws in waiting_ws:
+                            if isinstance(ws.state_data, dict) and ws.state_data.get("last_meta_message_id") == wamid:
+                                new_st = dict(ws.state_data)
+                                new_st["message_read"] = True
+                                ws.state_data = new_st
+                                ws.next_evaluation_at = datetime.utcnow()
+                    except Exception as ws_wake_err:
+                        logger.warning(f"Could not update workflow session read state: {ws_wake_err}")
+
                 try:
                     db.commit()
                     processed_statuses_count += 1
