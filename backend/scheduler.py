@@ -1051,12 +1051,19 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
         # ─── 2. DELAY NODE ───
         elif node_type == "delay":
             delay_minutes = int(node_data.get("delay_minutes", 30))
-            if session.status != "WAITING_DELAY":
+            # Check if this specific delay node has already been entered and recorded in history
+            curr_node_id_str = str(curr_node.get("id"))
+            already_delayed = any(
+                str(h.get("node_id")) == curr_node_id_str and h.get("node_type") == "delay"
+                for h in (session.history or [])
+            )
+
+            if not already_delayed:
                 # Enter delay wait
                 session.status = "WAITING_DELAY"
                 session.next_evaluation_at = now + timedelta(minutes=delay_minutes)
                 session.history = (session.history or []) + [{
-                    "node_id": str(curr_node.get("id")),
+                    "node_id": curr_node_id_str,
                     "node_type": "delay",
                     "label": curr_node.get("label", f"Wait {delay_minutes}m"),
                     "timestamp": now.isoformat(),
@@ -1066,6 +1073,13 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                 logger.info(f"⏳ [Workflow Engine] Session #{session.id} queued for {delay_minutes}m delay.")
                 return {"status": "delay_scheduled", "delay_minutes": delay_minutes}
             else:
+                # Delay was already queued. Check if the delay time has actually arrived.
+                if session.next_evaluation_at and now < session.next_evaluation_at:
+                    logger.info(f"⏳ [Workflow Engine] Session #{session.id} delay still pending until {session.next_evaluation_at}.")
+                    session.status = "WAITING_DELAY"
+                    db.commit()
+                    return {"status": "delay_pending", "delay_minutes": delay_minutes, "next_eval": session.next_evaluation_at.isoformat()}
+
                 # Delay period has elapsed!
                 session.status = "ACTIVE"
                 session.attempt_count = 0
