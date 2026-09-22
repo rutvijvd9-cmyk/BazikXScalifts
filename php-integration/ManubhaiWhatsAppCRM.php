@@ -11,18 +11,33 @@
 
 class ManubhaiWhatsAppCRM {
 
+    public static $baseUrl = null;
+    public static $secret = null;
+
+    /**
+     * Optional manual initialization if not using getenv() or define().
+     * Example: ManubhaiWhatsAppCRM::init('YOUR_WEBHOOK_SECRET');
+     */
+    public static function init($secret, $baseUrl = 'https://manubhaigathiya-whatsapp.onrender.com') {
+        self::$secret = $secret;
+        self::$baseUrl = rtrim($baseUrl, '/');
+    }
+
     private static function crmBaseUrl() {
-        $value = getenv('CRM_BASE_URL');
-        if (!$value) {
-            throw new RuntimeException('CRM_BASE_URL must be configured in the PHP environment.');
+        if (!empty(self::$baseUrl)) {
+            return self::$baseUrl;
         }
-        return rtrim($value, '/');
+        $value = getenv('CRM_BASE_URL') ?: (isset($_ENV['CRM_BASE_URL']) ? $_ENV['CRM_BASE_URL'] : (defined('CRM_BASE_URL') ? constant('CRM_BASE_URL') : null));
+        return rtrim($value ?: 'https://manubhaigathiya-whatsapp.onrender.com', '/');
     }
 
     private static function webhookSecret() {
-        $value = getenv('CRM_WEBHOOK_SECRET');
+        if (!empty(self::$secret)) {
+            return self::$secret;
+        }
+        $value = getenv('CRM_WEBHOOK_SECRET') ?: (isset($_ENV['CRM_WEBHOOK_SECRET']) ? $_ENV['CRM_WEBHOOK_SECRET'] : (defined('CRM_WEBHOOK_SECRET') ? constant('CRM_WEBHOOK_SECRET') : null));
         if (!$value) {
-            throw new RuntimeException('CRM_WEBHOOK_SECRET must be configured in the PHP environment.');
+            throw new RuntimeException('CRM_WEBHOOK_SECRET must be configured via ManubhaiWhatsAppCRM::init(), getenv(), or defined constant.');
         }
         return $value;
     }
