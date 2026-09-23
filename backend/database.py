@@ -29,13 +29,17 @@ if config.ENVIRONMENT == "production":
 # Aiven Starter/Free PostgreSQL has a strict max_connections limit (20-25).
 # Limiting pool_size=7 with max_overflow=3 guarantees each worker process consumes at most 10 connections,
 # safely below Aiven's ceiling while providing abundant concurrency for parallel requests and workflow sweeps.
+#
+# pool_timeout=5 (down from 30): When pool is exhausted, fail fast in 5s instead of blocking 30s.
+# This prevents cascading timeouts — a blocked request frees its slot quickly so the scheduler
+# and incoming webhooks can acquire a connection on the next retry instead of waiting 30 full seconds.
 engine_options = {"pool_pre_ping": True, "pool_recycle": 180}
 if DATABASE_URL.startswith("sqlite"):
     engine_options["connect_args"] = {"check_same_thread": False}
 elif DATABASE_URL.startswith("postgresql"):
     engine_options["pool_size"] = int(os.getenv("DB_POOL_SIZE", "7"))
     engine_options["max_overflow"] = int(os.getenv("DB_MAX_OVERFLOW", "3"))
-    engine_options["pool_timeout"] = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+    engine_options["pool_timeout"] = int(os.getenv("DB_POOL_TIMEOUT", "5"))
     connect_args = {}
     if config.ENVIRONMENT == "production":
         sslmode = os.getenv("DB_SSLMODE", "verify-full").strip()

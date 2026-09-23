@@ -922,49 +922,54 @@ export default function App() {
   };
 
   // Fetch all data
-  // ⚡ POOL-SAFE: Split 14 concurrent requests into 2 sequential batches of 7.
-  // This guarantees we never exceed DB pool_size=7 at once, preventing
-  // "QueuePool limit of size 7 overflow 3 reached" errors that blank out the UI.
+  // ⚡ POOL-SAFE: 14 requests split into 3 sequential batches of max 5.
+  // pool_size=7, so running 5 at once leaves 2 connections free for the
+  // scheduler (runs every 60s) and incoming Meta webhooks — preventing
+  // "QueuePool limit of size 7 overflow 3 reached" errors that blank the UI.
   const fetchData = async (silent = false) => {
     if (!token) return;
     if (!silent) setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
 
-      // ── Batch 1: Critical UI data (contacts, journeys, templates, campaigns) ──
-      const [contRes, wfRes, tmplRes, campRes, rulesRes, setRes, meRes] = await Promise.all([
+      // ── Batch 1: Critical UI data — renders journeys, templates, contacts ──
+      const [contRes, wfRes, tmplRes, campRes, rulesRes] = await Promise.all([
         axios.get("/api/contacts", { headers }).catch((e) => { if (e.response?.status === 401) throw e; return { data: null }; }),
         axios.get("/api/workflows", { headers }).catch(() => ({ data: null })),
         axios.get("/api/templates", { headers }).catch(() => ({ data: null })),
         axios.get("/api/campaigns", { headers }).catch(() => ({ data: null })),
         axios.get("/api/automation-rules", { headers }).catch(() => ({ data: null })),
-        axios.get("/api/settings", { headers }).catch(() => ({ data: null })),
-        axios.get("/api/auth/me", { headers }).catch(() => ({ data: null })),
       ]);
       if (contRes.data !== null) setContacts(contRes.data);
       if (wfRes.data !== null) setWorkflowFlows(wfRes.data);
       if (tmplRes.data !== null) setTemplates(tmplRes.data);
       if (campRes.data !== null) setCampaigns(campRes.data);
       if (rulesRes.data !== null) setAutomationRules(rulesRes.data);
-      if (setRes.data !== null) setSystemSettings(setRes.data);
-      if (meRes?.data) setCurrentUserProfile(meRes.data);
 
-      // ── Batch 2: Secondary data (logs, chat, opt-outs, discounts, etc.) ──
-      const [cartRes, logsRes, optRes, usersRes, discRes, convRes, extRes] = await Promise.all([
+      // ── Batch 2: App config and chat ──
+      const [setRes, meRes, convRes, cartRes, logsRes] = await Promise.all([
+        axios.get("/api/settings", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/auth/me", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/chat/conversations", { headers }).catch(() => ({ data: null })),
         axios.get("/api/cart-events", { headers }).catch(() => ({ data: null })),
         axios.get("/api/message-logs", { headers }).catch(() => ({ data: null })),
+      ]);
+      if (setRes.data !== null) setSystemSettings(setRes.data);
+      if (meRes?.data) setCurrentUserProfile(meRes.data);
+      if (convRes.data !== null) setChatConversations(convRes.data);
+      if (cartRes.data !== null) setCartEvents(cartRes.data);
+      if (logsRes.data !== null) setMessageLogs(logsRes.data);
+
+      // ── Batch 3: Secondary / reference data ──
+      const [optRes, usersRes, discRes, extRes] = await Promise.all([
         axios.get("/api/opt-outs", { headers }).catch(() => ({ data: null })),
         axios.get("/api/users", { headers }).catch(() => ({ data: null })),
         axios.get("/api/discount-codes", { headers }).catch(() => ({ data: null })),
-        axios.get("/api/chat/conversations", { headers }).catch(() => ({ data: null })),
         axios.get("/api/external-data-sources", { headers }).catch(() => ({ data: null })),
       ]);
-      if (cartRes.data !== null) setCartEvents(cartRes.data);
-      if (logsRes.data !== null) setMessageLogs(logsRes.data);
       if (optRes.data !== null) setOptOuts(optRes.data);
       if (usersRes.data !== null) setSystemUsers(usersRes.data);
       if (discRes.data !== null) setDiscountCodes(discRes.data);
-      if (convRes.data !== null) setChatConversations(convRes.data);
       if (extRes.data !== null) setExternalDataSources(extRes.data);
 
       if (!silent || activeTab === "analytics") {
