@@ -234,6 +234,17 @@ async def receive_cart_webhook(
     db.commit()
     db.refresh(cart_record)
 
+    try:
+        from services.policy_service import record_consent
+        record_consent(
+            db=db,
+            phone=payload.customer_phone,
+            source="store_checkout",
+            proof_details=f"Cart event token {payload.cart_token} from store checkout"
+        )
+    except Exception as consent_err:
+        logger.warning(f"Could not record consent for cart event {payload.customer_phone}: {consent_err}")
+
     active_cart_flow = db.query(models.WorkflowFlow).filter(
         models.WorkflowFlow.trigger_type == "ABANDONED_CART",
         models.WorkflowFlow.is_active == True
@@ -381,6 +392,17 @@ async def receive_order_completed_webhook(
     else:
         contact.total_orders = (contact.total_orders or 0) + 1
         contact.last_order_date = datetime.utcnow()
+
+    try:
+        from services.policy_service import record_consent
+        record_consent(
+            db=db,
+            phone=clean_phone,
+            source="store_checkout",
+            proof_details=f"Order completed for cart_token {cart_token}"
+        )
+    except Exception as consent_err:
+        logger.warning(f"Could not record consent on order completion for {clean_phone}: {consent_err}")
 
     # 2. Check Order Milestone (e.g. 5th, 10th order VIP reward)
     milestone_triggered = None
@@ -590,6 +612,17 @@ def process_customer_sync(payload: Dict[str, Any], current_user: models.User, db
 
         db.commit()
         db.refresh(contact)
+
+        try:
+            from services.policy_service import record_consent
+            record_consent(
+                db=db,
+                phone=clean_phone,
+                source="customer_sync",
+                proof_details=f"Synced via store webhook by {getattr(current_user, 'username', 'system')}"
+            )
+        except Exception as consent_err:
+            logger.warning(f"Could not record consent for synced customer {clean_phone}: {consent_err}")
     except HTTPException:
         raise
     except Exception as e:
@@ -793,7 +826,11 @@ async def receive_inbound_whatsapp_message(
                                 new_st = dict(ws.state_data)
                                 new_st["message_read"] = True
                                 ws.state_data = new_st
-                                ws.next_evaluation_at = datetime.utcnow()
+                                # CRUCIAL: Do NOT overwrite next_evaluation_at if session is in WAITING_DELAY!
+                                # A delay node (e.g. Wait 5 mins) must finish its full scheduled duration.
+                                # Only advance immediately if session is specifically waiting on a condition.
+                                if ws.status == "WAITING_CONDITION":
+                                    ws.next_evaluation_at = datetime.utcnow()
                     except Exception as ws_wake_err:
                         logger.warning(f"Could not update workflow session read state: {ws_wake_err}")
 
@@ -914,8 +951,38 @@ async def receive_inbound_whatsapp_message(
                 )
                 db.add(new_chat_msg)
 
-                # NOTE: Outbound message read tracking is strictly driven by Meta's official status=="READ" delivery receipts
-                # in the status handler above. Outbound messages are NOT falsely marked READ merely because an inbound message arrived.
+                # Reply-based read tracking: When a customer sends an inbound message/reply,
+                # it proves affirmative customer engagement and that previous messages in the thread were read,
+                # which is especially vital for contacts who have WhatsApp read receipts (blue ticks) disabled.
+                try:
+                    active_ws_list = db.query(models.WorkflowSession).filter(
+                        models.WorkflowSession.customer_phone == sender_phone,
+                        models.WorkflowSession.status.in_(["ACTIVE", "WAITING_DELAY", "WAITING_CONDITION"])
+                    ).all()
+                    for ws in active_ws_list:
+                        if isinstance(ws.state_data, dict):
+                            new_st = dict(ws.state_data)
+                            new_st["message_read"] = True
+                            ws.state_data = new_st
+                            if ws.status == "WAITING_CONDITION":
+                                ws.next_evaluation_at = datetime.utcnow()
+
+                    recent_outbound_log = db.query(models.MessageLog).filter(
+                        models.MessageLog.recipient_phone == sender_phone,
+                        models.MessageLog.status.in_(["SENT", "SENT_SIMULATED", "DELIVERED"])
+                    ).order_by(models.MessageLog.id.desc()).first()
+                    if recent_outbound_log:
+                        recent_outbound_log.status = "READ"
+
+                    recent_outbound_chat = db.query(models.ChatMessage).filter(
+                        models.ChatMessage.customer_phone == sender_phone,
+                        models.ChatMessage.sender_type != "CUSTOMER",
+                        models.ChatMessage.status.in_(["SENT", "SENT_SIMULATED", "DELIVERED"])
+                    ).order_by(models.ChatMessage.id.desc()).first()
+                    if recent_outbound_chat:
+                        recent_outbound_chat.status = "READ"
+                except Exception as read_track_err:
+                    logger.warning(f"Could not update session read state on reply: {read_track_err}")
 
                 existing_contact = db.query(models.Contact).filter(models.Contact.phone == sender_phone).first()
                 if not existing_contact:

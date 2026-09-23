@@ -249,3 +249,112 @@ def test_meta_batch_processing_multiple_entries_and_changes(client, db):
     assert chat2 is not None
     assert chat2.text == "Second entry customer enquiry"
     assert chat2.customer_phone == "+919876543214"
+
+
+def test_read_receipt_preserves_waiting_delay_timer(client, db):
+    from datetime import datetime, timedelta
+    phone = "+919876543299"
+    test_wamid = "wamid.TEST_DELAY_PRESERVE"
+    future_time = datetime.utcnow() + timedelta(minutes=5)
+
+    sess = models.WorkflowSession(
+        flow_id=1,
+        customer_phone=phone,
+        status="WAITING_DELAY",
+        current_node_id="delay_node_1",
+        next_evaluation_at=future_time,
+        state_data={"last_meta_message_id": test_wamid, "message_read": False}
+    )
+    db.add(sess)
+    db.commit()
+    db.refresh(sess)
+
+    # Post Meta status READ webhook
+    read_payload = {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "statuses": [
+                                {
+                                    "id": test_wamid,
+                                    "status": "read",
+                                    "recipient_id": "919876543299",
+                                    "timestamp": str(int(datetime.utcnow().timestamp()))
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    res = post_meta_webhook(client, read_payload)
+    assert res.status_code == status.HTTP_200_OK
+
+    db.refresh(sess)
+    # 1. message_read is updated to True
+    assert sess.state_data.get("message_read") is True
+    # 2. WAITING_DELAY timer was preserved and NOT truncated to utcnow()
+    assert sess.status == "WAITING_DELAY"
+    assert sess.next_evaluation_at > datetime.utcnow() + timedelta(minutes=4)
+
+
+def test_inbound_customer_reply_marks_message_read(client, db):
+    from datetime import datetime, timedelta
+    phone = "+919876543288"
+    outbound_wamid = f"wamid.OUTBOUND_{int(datetime.utcnow().timestamp())}"
+
+    # Setup outbound message log
+    msg_log = models.MessageLog(
+        recipient_phone=phone,
+        template_name="cart_alert",
+        status="DELIVERED",
+        meta_message_id=outbound_wamid,
+        created_at=datetime.utcnow()
+    )
+    db.add(msg_log)
+
+    sess = models.WorkflowSession(
+        flow_id=1,
+        customer_phone=phone,
+        status="WAITING_DELAY",
+        current_node_id="delay_node_1",
+        next_evaluation_at=datetime.utcnow() + timedelta(minutes=5),
+        state_data={"last_meta_message_id": outbound_wamid, "message_read": False}
+    )
+    db.add(sess)
+    db.commit()
+
+    # Customer replies via WhatsApp
+    inbound_wamid = f"wamid.INBOUND_{int(datetime.utcnow().timestamp())}"
+    reply_payload = {
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "messages": [
+                                {
+                                    "id": inbound_wamid,
+                                    "from": "919876543288",
+                                    "type": "text",
+                                    "text": {"body": "I want to buy this, what is the price?"}
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    res = post_meta_webhook(client, reply_payload)
+    assert res.status_code == status.HTTP_200_OK
+
+    db.refresh(sess)
+    db.refresh(msg_log)
+    # Outbound message log marked as READ on customer reply
+    assert msg_log.status == "READ"
+    # Session state updated to message_read = True
+    assert sess.state_data.get("message_read") is True

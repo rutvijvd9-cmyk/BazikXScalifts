@@ -881,8 +881,17 @@ export default function App() {
       setToken("");
       setUsername("");
     };
+    const handleTokenUpdated = (e) => {
+      if (e?.detail?.token) {
+        setToken(e.detail.token);
+      }
+    };
     window.addEventListener("auth:unauthorized", handleUnauthorized);
-    return () => window.removeEventListener("auth:unauthorized", handleUnauthorized);
+    window.addEventListener("auth:token-updated", handleTokenUpdated);
+    return () => {
+      window.removeEventListener("auth:unauthorized", handleUnauthorized);
+      window.removeEventListener("auth:token-updated", handleTokenUpdated);
+    };
   }, []);
 
   const handleRegister = async (e) => {

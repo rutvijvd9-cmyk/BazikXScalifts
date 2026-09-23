@@ -452,8 +452,8 @@ def execute_campaign_broadcast(campaign_id: int, recipient_phones: list = None):
             if matches:
                 placeholder_count = max([int(m) for m in matches])
 
-        # 🚀 BATCH PACING: 15 messages per batch with 1-second pause to prevent rate-limit (80 RPS ceiling)
-        BATCH_SIZE = 15
+        # 🚀 BATCH PACING: 7 messages per batch with 1-second pause to match DB pool size (7) and prevent rate-limit
+        BATCH_SIZE = 7
         total_phones = len(phones)
         logger.info(f"⚡ [Campaign {campaign_id}] Processing {total_phones} recipients in batches of {BATCH_SIZE} (1s pacing)")
 
@@ -700,112 +700,127 @@ def run_rule_execution(rule_id: int, force_approved: bool = False) -> dict:
         user_mappings = rule.variable_mappings if isinstance(rule.variable_mappings, dict) else {}
 
         # If <= 100 OR already approved by admin with 2FA
-        for phone, contact_obj in eligible_phones.items():
-            cust_name = contact_obj.name if contact_obj and contact_obj.name else "Valued Customer"
-            cust_phone = contact_obj.phone if contact_obj and contact_obj.phone else phone
-            cust_city = contact_obj.city if contact_obj and contact_obj.city else "Ahmedabad"
-            cust_orders = str(contact_obj.total_orders) if contact_obj and contact_obj.total_orders is not None else "1"
-            cust_last_order = contact_obj.last_order_date.strftime("%d %b %Y") if contact_obj and contact_obj.last_order_date else "Recently"
+        # Process in FIFO batches of 7 (matching DB_POOL_SIZE = 7)
+        eligible_items = list(eligible_phones.items())
+        RULE_BATCH_SIZE = 7
 
-            # Construct ordered parameters for Meta
-            param_dict = {}
-            for idx in placeholder_indices:
-                idx_str = str(idx)
-                mapping_def = user_mappings.get(idx_str, {})
-                m_type = mapping_def.get("type") if isinstance(mapping_def, dict) else None
-                m_val = mapping_def.get("value") if isinstance(mapping_def, dict) else None
+        for chunk_idx in range(0, len(eligible_items), RULE_BATCH_SIZE):
+            chunk = eligible_items[chunk_idx:chunk_idx + RULE_BATCH_SIZE]
+            for phone, contact_obj in chunk:
+                cust_name = contact_obj.name if contact_obj and contact_obj.name else "Valued Customer"
+                cust_phone = contact_obj.phone if contact_obj and contact_obj.phone else phone
+                cust_city = contact_obj.city if contact_obj and contact_obj.city else "Ahmedabad"
+                cust_orders = str(contact_obj.total_orders) if contact_obj and contact_obj.total_orders is not None else "1"
+                cust_last_order = contact_obj.last_order_date.strftime("%d %b %Y") if contact_obj and contact_obj.last_order_date else "Recently"
 
-                if m_type == "contact_field":
-                    if m_val == "name":
-                        val_str = cust_name
-                    elif m_val == "phone":
-                        val_str = cust_phone
-                    elif m_val == "city":
-                        val_str = cust_city
-                    elif m_val == "total_orders":
-                        val_str = cust_orders
-                    elif m_val == "last_order_date":
-                        val_str = cust_last_order
-                    else:
-                        val_str = cust_name
-                elif m_type == "cart_event":
-                    # Look up latest cart event for this phone if available
-                    recent_cart = db.query(models.CartEvent).filter(
-                        models.CartEvent.customer_phone == phone
-                    ).order_by(models.CartEvent.id.desc()).first()
-                    if m_val == "cart_value":
-                        val_str = str(int(recent_cart.cart_value)) if recent_cart and recent_cart.cart_value == int(recent_cart.cart_value) else (f"{recent_cart.cart_value:.2f}" if recent_cart else "450")
-                    else:
-                        val_str = ", ".join([it.get("item", "Namkeen") for it in recent_cart.items]) if recent_cart and recent_cart.items else "Special Vanela Gathiya & Bhavnagari Gathiya"
-                elif m_type == "event_field":
-                    recent_cart = db.query(models.CartEvent).filter(
-                        models.CartEvent.customer_phone == phone
-                    ).order_by(models.CartEvent.id.desc()).first()
-                    extra = recent_cart.extra_data if recent_cart and isinstance(recent_cart.extra_data, dict) else {}
-                    if m_val == "firstname" or m_val == "first_name":
-                        val_str = extra.get("first_name") or extra.get("firstname") or cust_name
-                    elif m_val == "products" or m_val == "products_summary" or m_val == "items":
-                        val_str = extra.get("products_summary") or extra.get("products") or ", ".join([it.get("item", "Namkeen") for it in recent_cart.items]) if recent_cart and recent_cart.items else "Special Vanela Gathiya & Bhavnagari Gathiya"
-                    elif m_val == "amount" or m_val == "cart_value":
-                        val_str = str(extra.get("amount")) if extra.get("amount") else (f"₹{int(recent_cart.cart_value)}" if recent_cart else "₹450")
-                    elif m_val == "delivery_address" or m_val == "address":
-                        val_str = extra.get("delivery_address") or extra.get("address") or cust_city
-                    else:
-                        val_str = str(extra.get(m_val, ""))
-                elif m_type == "external_api":
-                    src_id = mapping_def.get("source_id")
-                    val_str = fetch_external_api_value(field_key=m_val, phone=phone, source_id=src_id, db=db)
-                elif m_type == "coupon":
-                    # Look up attached coupon details from DB
-                    coupon_rec = db.query(models.DiscountCode).filter(
-                        models.DiscountCode.code == rule.coupon_code
-                    ).first() if rule.coupon_code else None
+                # Construct ordered parameters for Meta
+                param_dict = {}
+                for idx in placeholder_indices:
+                    idx_str = str(idx)
+                    mapping_def = user_mappings.get(idx_str, {})
+                    m_type = mapping_def.get("type") if isinstance(mapping_def, dict) else None
+                    m_val = mapping_def.get("value") if isinstance(mapping_def, dict) else None
 
-                    if m_val == "discount_value":
-                        if coupon_rec:
-                            val_str = f"{int(coupon_rec.discount_value)}%" if coupon_rec.discount_type == "PERCENT" else f"₹{int(coupon_rec.discount_value)}"
+                    if m_type == "contact_field":
+                        if m_val == "name":
+                            val_str = cust_name
+                        elif m_val == "phone":
+                            val_str = cust_phone
+                        elif m_val == "city":
+                            val_str = cust_city
+                        elif m_val == "total_orders":
+                            val_str = cust_orders
+                        elif m_val == "last_order_date":
+                            val_str = cust_last_order
                         else:
-                            val_str = f"{config.DEFAULT_DISCOUNT_PERCENT}%"
-                    elif m_val == "expires_at":
-                        if coupon_rec and coupon_rec.expires_at:
-                            val_str = coupon_rec.expires_at.strftime("%d/%m/%Y")
-                        elif rule.expires_at:
-                            val_str = rule.expires_at.strftime("%d/%m/%Y")
+                            val_str = cust_name
+                    elif m_type == "cart_event":
+                        # Look up latest cart event for this phone if available
+                        recent_cart = db.query(models.CartEvent).filter(
+                            models.CartEvent.customer_phone == phone
+                        ).order_by(models.CartEvent.id.desc()).first()
+                        if m_val == "cart_value":
+                            val_str = str(int(recent_cart.cart_value)) if recent_cart and recent_cart.cart_value == int(recent_cart.cart_value) else (f"{recent_cart.cart_value:.2f}" if recent_cart else "450")
                         else:
-                            val_str = (datetime.utcnow() + timedelta(days=config.DEFAULT_EXPIRY_DAYS)).strftime("%d/%m/%Y")
+                            val_str = ", ".join([it.get("item", "Namkeen") for it in recent_cart.items]) if recent_cart and recent_cart.items else "Special Vanela Gathiya & Bhavnagari Gathiya"
+                    elif m_type == "event_field":
+                        recent_cart = db.query(models.CartEvent).filter(
+                            models.CartEvent.customer_phone == phone
+                        ).order_by(models.CartEvent.id.desc()).first()
+                        extra = recent_cart.extra_data if recent_cart and isinstance(recent_cart.extra_data, dict) else {}
+                        if m_val == "firstname" or m_val == "first_name":
+                            val_str = extra.get("first_name") or extra.get("firstname") or cust_name
+                        elif m_val == "products" or m_val == "products_summary" or m_val == "items":
+                            val_str = extra.get("products_summary") or extra.get("products") or ", ".join([it.get("item", "Namkeen") for it in recent_cart.items]) if recent_cart and recent_cart.items else "Special Vanela Gathiya & Bhavnagari Gathiya"
+                        elif m_val == "amount" or m_val == "cart_value":
+                            val_str = str(extra.get("amount")) if extra.get("amount") else (f"₹{int(recent_cart.cart_value)}" if recent_cart else "₹450")
+                        elif m_val == "delivery_address" or m_val == "address":
+                            val_str = extra.get("delivery_address") or extra.get("address") or cust_city
+                        else:
+                            val_str = str(extra.get(m_val, ""))
+                    elif m_type == "external_api":
+                        src_id = mapping_def.get("source_id")
+                        val_str = fetch_external_api_value(field_key=m_val, phone=phone, source_id=src_id, db=db)
+                    elif m_type == "coupon":
+                        # Look up attached coupon details from DB
+                        coupon_rec = db.query(models.DiscountCode).filter(
+                            models.DiscountCode.code == rule.coupon_code
+                        ).first() if rule.coupon_code else None
+
+                        if m_val == "discount_value":
+                            if coupon_rec:
+                                val_str = f"{int(coupon_rec.discount_value)}%" if coupon_rec.discount_type == "PERCENT" else f"₹{int(coupon_rec.discount_value)}"
+                            else:
+                                val_str = f"{config.DEFAULT_DISCOUNT_PERCENT}%"
+                        elif m_val == "expires_at":
+                            if coupon_rec and coupon_rec.expires_at:
+                                val_str = coupon_rec.expires_at.strftime("%d/%m/%Y")
+                            elif rule.expires_at:
+                                val_str = rule.expires_at.strftime("%d/%m/%Y")
+                            else:
+                                val_str = (datetime.utcnow() + timedelta(days=config.DEFAULT_EXPIRY_DAYS)).strftime("%d/%m/%Y")
+                        else:
+                            val_str = rule.coupon_code or config.DEFAULT_COUPON_CODE
+                    elif m_type == "static":
+                        val_str = str(m_val).strip() if m_val else "-"
                     else:
-                        val_str = rule.coupon_code or config.DEFAULT_COUPON_CODE
-                elif m_type == "static":
-                    val_str = str(m_val).strip() if m_val else "-"
+                        # Default intelligent fallback if no explicit user mapping
+                        if idx == 1:
+                            val_str = cust_name
+                        elif idx == 2:
+                            val_str = rule.coupon_code or config.DEFAULT_COUPON_CODE
+                        elif idx == 3:
+                            val_str = f"{config.DEFAULT_DISCOUNT_PERCENT}% OFF"
+                        elif idx == 4:
+                            val_str = "Limited Time"
+                        else:
+                            val_str = config.BRAND_NAME
+
+                    param_dict[f"param_{idx}"] = val_str
+
+                res = send_whatsapp_template(
+                    recipient_phone=phone,
+                    template_name=rule.template_name,
+                    language=target_lang,
+                    parameters=param_dict,
+                    coupon_code=rule.coupon_code or config.DEFAULT_COUPON_CODE,
+                    sender_user=f"Rule: {rule.rule_name}",
+                    idempotency_key=f"rule_{rule.id}_{phone}_{datetime.utcnow().strftime('%Y%m%d')}",
+                    purpose="utility"
+                )
+                if res.get("status") in ["success", "success_simulated"]:
+                    sent_count += 1
                 else:
-                    # Default intelligent fallback if no explicit user mapping
-                    if idx == 1:
-                        val_str = cust_name
-                    elif idx == 2:
-                        val_str = rule.coupon_code or config.DEFAULT_COUPON_CODE
-                    elif idx == 3:
-                        val_str = f"{config.DEFAULT_DISCOUNT_PERCENT}% OFF"
-                    elif idx == 4:
-                        val_str = "Limited Time"
-                    else:
-                        val_str = config.BRAND_NAME
+                    logger.warning(f"⚠️ [Rule Engine] Dispatch to {mask_phone(phone)} returned: {res}")
 
-                param_dict[f"param_{idx}"] = val_str
+            # Commit after each batch of 7 to release locks and flush logs
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
 
-            res = send_whatsapp_template(
-                recipient_phone=phone,
-                template_name=rule.template_name,
-                language=target_lang,
-                parameters=param_dict,
-                coupon_code=rule.coupon_code or config.DEFAULT_COUPON_CODE,
-                sender_user=f"Rule: {rule.rule_name}",
-                idempotency_key=f"rule_{rule.id}_{phone}_{datetime.utcnow().strftime('%Y%m%d')}",
-                purpose="utility"
-            )
-            if res.get("status") in ["success", "success_simulated"]:
-                sent_count += 1
-            else:
-                logger.warning(f"⚠️ [Rule Engine] Dispatch to {mask_phone(phone)} returned: {res}")
+            if chunk_idx + RULE_BATCH_SIZE < len(eligible_items):
+                time.sleep(0.3)
 
         rule.total_triggered += sent_count
         rule.approval_status = "IDLE"
@@ -1400,6 +1415,15 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                 # Check 1: Session state optin flag
                 if session.state_data.get("optin_confirmed"):
                     condition_met = True
+                elif condition_type == "DOUBLE_OPTIN_CONFIRMED":
+                    # Double opt-in requires explicit affirmative confirmation (inbound reply, not just store sync)
+                    consent = db.query(models.ConsentRecord).filter(
+                        models.ConsentRecord.phone == session.customer_phone,
+                        models.ConsentRecord.status.in_(["ACTIVE", "GRANTED"]),
+                        models.ConsentRecord.source.notin_(["customer_sync", "store_checkout", "store_sync_backfill"])
+                    ).first()
+                    if consent:
+                        condition_met = True
                 else:
                     # Check 2: Active granted consent record in DB
                     consent = db.query(models.ConsentRecord).filter(
@@ -1548,32 +1572,72 @@ def process_all_active_workflow_sessions():
     whose next_evaluation_at has arrived.
     Uses per-session row-level leases (WP8) to prevent duplicate evaluation
     across multiple workers.
+    Processes in strict FIFO batches of 7 (matching DB_POOL_SIZE = 7) to guarantee
+    connection pool availability and prevent exhaustion.
     """
-    db = SessionLocal()
+    WORKFLOW_BATCH_SIZE = 7
+
+    # Resilient connection acquisition with retry
+    db = None
+    for attempt in range(3):
+        try:
+            db = SessionLocal()
+            db.execute(text("SELECT 1"))
+            break
+        except Exception as conn_err:
+            if db:
+                db.close()
+                db = None
+            if attempt == 2:
+                logger.error(f"[Workflow Engine] Could not acquire DB connection: {conn_err}")
+                return
+            time.sleep(0.25 * (attempt + 1))
+
     try:
         now = datetime.utcnow()
-        due_sessions = db.query(models.WorkflowSession).filter(
-            models.WorkflowSession.status.in_(["ACTIVE", "WAITING_DELAY", "WAITING_CONDITION"]),
-            models.WorkflowSession.next_evaluation_at <= now
-        ).all()
+        # Fetch due session IDs in strict FIFO order (earliest evaluation first)
+        due_session_ids = [
+            row[0] for row in db.query(models.WorkflowSession.id).filter(
+                models.WorkflowSession.status.in_(["ACTIVE", "WAITING_DELAY", "WAITING_CONDITION"]),
+                models.WorkflowSession.next_evaluation_at <= now
+            ).order_by(
+                models.WorkflowSession.next_evaluation_at.asc(),
+                models.WorkflowSession.id.asc()
+            ).limit(70).all()
+        ]
 
-        if due_sessions:
-            logger.info(f"⏰ [Workflow Engine] Processing {len(due_sessions)} due workflow session(s)...")
+        if due_session_ids:
+            total_due = len(due_session_ids)
+            logger.info(f"⏰ [Workflow Engine] Processing {total_due} due session(s) in FIFO batches of {WORKFLOW_BATCH_SIZE}...")
             worker_id = f"sweeper_{uuid_module.uuid4().hex[:8]}"
-            for sess in due_sessions:
-                # WP8: Acquire a distributed row-level lease before evaluating each session
-                claimed = claim_workflow_session(db, sess.id, worker_id=worker_id, lease_seconds=120)
-                if not claimed:
-                    logger.debug(f"[Workflow Engine] Session #{sess.id} already claimed by another worker — skipping.")
-                    continue
+
+            for i in range(0, total_due, WORKFLOW_BATCH_SIZE):
+                batch_ids = due_session_ids[i:i + WORKFLOW_BATCH_SIZE]
+                for session_id in batch_ids:
+                    # WP8: Acquire a distributed row-level lease before evaluating each session
+                    claimed = claim_workflow_session(db, session_id, worker_id=worker_id, lease_seconds=120)
+                    if not claimed:
+                        logger.debug(f"[Workflow Engine] Session #{session_id} already claimed by another worker — skipping.")
+                        continue
+                    try:
+                        process_workflow_session_step(session_id, db=db)
+                    except Exception as sess_err:
+                        logger.error(f"[Workflow Engine] Error processing session #{session_id}: {sess_err}")
+                    finally:
+                        release_workflow_session(db, session_id)
+
+                # Commit after each batch of 7 to release locks and flush logs
                 try:
-                    process_workflow_session_step(sess.id, db=db)
-                except Exception as sess_err:
-                    logger.error(f"[Workflow Engine] Error processing session #{sess.id}: {sess_err}")
-                finally:
-                    release_workflow_session(db, sess.id)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+
+                # Brief yield between batches to keep DB pool free for incoming API and webhook requests
+                if i + WORKFLOW_BATCH_SIZE < total_due:
+                    time.sleep(0.2)
     except Exception as e:
         logger.error(f"Error in process_all_active_workflow_sessions: {e}")
     finally:
-        db.close()
+        if db:
+            db.close()
 

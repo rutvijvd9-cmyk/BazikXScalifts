@@ -71,6 +71,7 @@ def record_consent(
         .first()
     )
     if active_record:
+        active_record.source = source or active_record.source
         active_record.proof_details = proof_details or active_record.proof_details
         active_record.consent_timestamp = datetime.utcnow()
         db.flush()
