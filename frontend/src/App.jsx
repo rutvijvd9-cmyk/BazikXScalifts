@@ -928,34 +928,34 @@ export default function App() {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const [campRes, contRes, cartRes, logsRes, optRes, tmplRes, rulesRes, setRes, usersRes, discRes, meRes, convRes, wfRes, extRes] = await Promise.all([
-        axios.get("/api/campaigns", { headers }).catch(() => ({ data: [] })),
-        axios.get("/api/contacts", { headers }).catch((e) => { if (e.response?.status === 401) throw e; return { data: [] }; }),
-        axios.get("/api/cart-events", { headers }).catch(() => ({ data: [] })),
-        axios.get("/api/message-logs", { headers }).catch(() => ({ data: [] })),
-        axios.get("/api/opt-outs", { headers }).catch(() => ({ data: [] })),
-        axios.get("/api/templates", { headers }).catch(() => ({ data: [] })),
-        axios.get("/api/automation-rules", { headers }).catch(() => ({ data: [] })),
-        axios.get("/api/settings", { headers }).catch(() => ({ data: {} })),
-        axios.get("/api/users", { headers }).catch(() => ({ data: [] })),
-        axios.get("/api/discount-codes", { headers }).catch(() => ({ data: [] })),
+        axios.get("/api/campaigns", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/contacts", { headers }).catch((e) => { if (e.response?.status === 401) throw e; return { data: null }; }),
+        axios.get("/api/cart-events", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/message-logs", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/opt-outs", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/templates", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/automation-rules", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/settings", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/users", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/discount-codes", { headers }).catch(() => ({ data: null })),
         axios.get("/api/auth/me", { headers }).catch(() => ({ data: null })),
-        axios.get("/api/chat/conversations", { headers }).catch(() => ({ data: [] })),
-        axios.get("/api/workflows", { headers }).catch(() => ({ data: [] })),
-        axios.get("/api/external-data-sources", { headers }).catch(() => ({ data: [] }))
+        axios.get("/api/chat/conversations", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/workflows", { headers }).catch(() => ({ data: null })),
+        axios.get("/api/external-data-sources", { headers }).catch(() => ({ data: null }))
       ]);
-      setCampaigns(campRes.data || []);
-      setContacts(contRes.data || []);
-      setCartEvents(cartRes.data || []);
-      setMessageLogs(logsRes.data || []);
-      setOptOuts(optRes.data || []);
-      setTemplates(tmplRes.data || []);
-      setAutomationRules(rulesRes.data || []);
-      setWorkflowFlows(wfRes.data || []);
-      setSystemSettings(setRes.data || {});
-      setSystemUsers(usersRes.data || []);
-      setDiscountCodes(discRes.data || []);
-      setChatConversations(convRes.data || []);
-      setExternalDataSources(extRes.data || []);
+      if (campRes.data !== null) setCampaigns(campRes.data);
+      if (contRes.data !== null) setContacts(contRes.data);
+      if (cartRes.data !== null) setCartEvents(cartRes.data);
+      if (logsRes.data !== null) setMessageLogs(logsRes.data);
+      if (optRes.data !== null) setOptOuts(optRes.data);
+      if (tmplRes.data !== null) setTemplates(tmplRes.data);
+      if (rulesRes.data !== null) setAutomationRules(rulesRes.data);
+      if (wfRes.data !== null) setWorkflowFlows(wfRes.data);
+      if (setRes.data !== null) setSystemSettings(setRes.data);
+      if (usersRes.data !== null) setSystemUsers(usersRes.data);
+      if (discRes.data !== null) setDiscountCodes(discRes.data);
+      if (convRes.data !== null) setChatConversations(convRes.data);
+      if (extRes.data !== null) setExternalDataSources(extRes.data);
       if (meRes?.data) setCurrentUserProfile(meRes.data);
       if (!silent || activeTab === "analytics") {
         fetchAnalytics(analyticsTimeRange, true);

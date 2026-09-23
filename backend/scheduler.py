@@ -8,7 +8,6 @@ import uuid as uuid_module
 from datetime import datetime, timedelta
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -27,7 +26,6 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("scheduler")
 scheduler = BackgroundScheduler(
-    jobstores={"default": SQLAlchemyJobStore(url=DATABASE_URL)},
     timezone=ZoneInfo(config.TIMEZONE)
 )
 
