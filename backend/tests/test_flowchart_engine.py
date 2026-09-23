@@ -436,3 +436,91 @@ def test_send_whatsapp_template_idempotency_replay(db):
     assert res.get("idempotent_replay") is True
 
 
+def test_consecutive_messages_reset_read_status(db):
+    """
+    Verifies that when a second message is sent in a workflow,
+    message_read is reset to False so that subsequent 'Was Message Read?' conditions
+    evaluate to NO if the customer has not read the second message.
+    """
+    flow = models.WorkflowFlow(
+        name="Test Multi Message Read Flow",
+        trigger_type="ABANDONED_CART",
+        nodes=[
+            {"id": "t1", "type": "trigger", "label": "Start"},
+            {"id": "m1", "type": "whatsapp_message", "label": "Msg 1", "data": {"template_name": "tmpl_1"}},
+            {"id": "d1", "type": "delay", "label": "Wait 1m", "data": {"delay_minutes": 1}},
+            {"id": "c1", "type": "condition", "label": "Read 1?", "data": {"condition_type": "MESSAGE_READ"}},
+            {"id": "m2", "type": "whatsapp_message", "label": "Msg 2", "data": {"template_name": "tmpl_2"}},
+            {"id": "d2", "type": "delay", "label": "Wait 1m", "data": {"delay_minutes": 1}},
+            {"id": "c2", "type": "condition", "label": "Read 2?", "data": {"condition_type": "MESSAGE_READ"}},
+            {"id": "g_yes", "type": "goal", "label": "Success"},
+            {"id": "e_no", "type": "exit", "label": "Exit"}
+        ],
+        edges=[
+            {"id": "e1", "source": "t1", "target": "m1"},
+            {"id": "e2", "source": "m1", "target": "d1"},
+            {"id": "e3", "source": "d1", "target": "c1"},
+            {"id": "e4", "source": "c1", "target": "m2", "sourceHandle": "yes"},
+            {"id": "e5", "source": "c1", "target": "e_no", "sourceHandle": "no"},
+            {"id": "e6", "source": "m2", "target": "d2"},
+            {"id": "e7", "source": "d2", "target": "c2"},
+            {"id": "e8", "source": "c2", "target": "g_yes", "sourceHandle": "yes"},
+            {"id": "e9", "source": "c2", "target": "e_no", "sourceHandle": "no"}
+        ],
+        stats={}
+    )
+    db.add(flow)
+    db.commit()
+
+    phone = "+919876543210"
+    sess = start_workflow_session(flow_id=flow.id, customer_phone=phone, state_data={"simulation": True}, db=db)
+    # Session started, sent m1, and paused in delay d1
+    assert sess.status == "WAITING_DELAY"
+    assert sess.current_node_id == "d1"
+    assert sess.state_data.get("message_read") is False
+    m1_wamid = sess.state_data.get("last_meta_message_id")
+
+    # Customer reads m1
+    msg1 = models.MessageLog(
+        recipient_phone=phone,
+        meta_message_id=m1_wamid,
+        status="READ",
+        template_name="tmpl_1"
+    )
+    db.add(msg1)
+    st = dict(sess.state_data)
+    st["message_read"] = True
+    sess.state_data = st
+    db.commit()
+
+    # Fast forward delay d1
+    sess.next_evaluation_at = datetime.utcnow() - timedelta(seconds=1)
+    db.commit()
+
+    # Step: delay d1 expires -> evaluates c1 (Read 1? -> YES) -> dispatches m2 -> pauses in delay d2
+    process_workflow_session_step(sess.id, db=db, mock_send=True)
+    db.refresh(sess)
+
+    assert sess.status == "WAITING_DELAY"
+    assert sess.current_node_id == "d2"
+    # Crucial assertion: message_read MUST be reset to False for m2!
+    assert sess.state_data.get("message_read") is False
+    m2_wamid = sess.state_data.get("last_meta_message_id")
+    assert m2_wamid != m1_wamid
+
+    # Fast forward delay d2 without customer reading m2
+    sess.next_evaluation_at = datetime.utcnow() - timedelta(seconds=1)
+    db.commit()
+
+    # Step: delay d2 expires -> evaluates c2 (Read 2?) -> customer has NOT read m2, must take NO path!
+    process_workflow_session_step(sess.id, db=db, mock_send=True)
+    db.refresh(sess)
+
+    # Must take NO path and exit cleanly
+    assert sess.status == "COMPLETED_DROPOUT"
+    c2_hist = [h for h in sess.history if h.get("node_id") == "c2"]
+    assert len(c2_hist) == 1
+    assert "Took 'NO' path" in c2_hist[0].get("details", "")
+
+
+

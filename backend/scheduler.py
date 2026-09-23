@@ -1268,7 +1268,7 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                 }
 
             if mock_send:
-                res = {"status": "success_simulated", "message_id": f"sim_{int(now.timestamp())}"}
+                res = {"status": "success_simulated", "message_id": f"sim_{int(now.timestamp())}_{uuid_module.uuid4().hex[:6]}"}
             else:
                 flow_title = flow.name if flow and flow.name else "Workflow"
                 origin_user = (session.state_data or {}).get("sender_user") or f"Journey: {flow_title}"
@@ -1291,6 +1291,7 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
             new_state["last_sent_template"] = template_name
             new_state["last_whatsapp_sent_at"] = now.isoformat()
             new_state["last_activity_at"] = now.isoformat()
+            new_state["message_read"] = False  # Reset read status for the newly sent message
             session.state_data = new_state
             session.updated_at = now
 
@@ -1404,6 +1405,11 @@ def process_workflow_session_step(session_id: int, db=None, mock_send: bool = Fa
                         condition_met = True
                 if not condition_met and session.state_data.get("message_read") is True:
                     condition_met = True
+                # Clean up one-off read flag in session state so it cannot leak to subsequent messages
+                if session.state_data and "message_read" in session.state_data:
+                    new_st = dict(session.state_data)
+                    new_st["message_read"] = False
+                    session.state_data = new_st
 
             elif condition_type == "CART_VALUE_ABOVE":
                 threshold = float(node_data.get("threshold", 500))
