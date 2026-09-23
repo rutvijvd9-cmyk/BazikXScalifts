@@ -12,6 +12,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy import text
 from database import DATABASE_URL, SessionLocal
 import models
 from whatsapp_service import send_whatsapp_template
