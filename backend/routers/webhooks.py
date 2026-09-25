@@ -58,6 +58,24 @@ async def get_webhook_authenticated_user(
     if sig_clean.startswith("sha256="):
         sig_clean = sig_clean[7:].strip()
 
+    # 1. Allow Bearer JWT Token from logged-in user account (Username & Password login)
+    auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+        # Direct webhook secret bearer support
+        if config.WEBHOOK_SECRET and hmac.compare_digest(token, config.WEBHOOK_SECRET):
+            svc = db.query(models.User).filter(models.User.username == config.ECOM_SERVICE_USERNAME).first()
+            return svc or models.User(username=config.ECOM_SERVICE_USERNAME, is_active=True)
+        try:
+            jwt_data = auth.decode_access_token(token)
+            if jwt_data and "sub" in jwt_data:
+                user = db.query(models.User).filter(models.User.username == jwt_data["sub"]).first()
+                if user and user.is_active:
+                    return user
+        except Exception:
+            pass
+
+    # 2. Otherwise require HMAC-SHA256 signature
     def _record_failure():
         try:
             failed_event = models.WebhookEvent(
@@ -79,12 +97,12 @@ async def get_webhook_authenticated_user(
             logger.warning(f"Note: Webhook audit record could not be persisted: {e}")
 
     if not sig_clean or not config.WEBHOOK_SECRET:
-        logger.warning("🚨 [Webhook Security] Store webhook rejected: missing HMAC signature or WEBHOOK_SECRET.")
+        logger.warning("🚨 [Webhook Security] Store webhook rejected: missing Bearer JWT token or valid HMAC signature.")
         _record_failure()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing HMAC signature",
-            headers={"WWW-Authenticate": "HMAC-SHA256"}
+            detail="Invalid or missing authentication. Provide 'Authorization: Bearer <access_token>' or 'X-Hub-Signature-256' HMAC signature.",
+            headers={"WWW-Authenticate": "Bearer, HMAC-SHA256"}
         )
 
     raw_body = await request.body()

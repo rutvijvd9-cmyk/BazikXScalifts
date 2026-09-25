@@ -51,6 +51,16 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
+def decode_access_token(token: str) -> Optional[dict]:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") == "access":
+            return payload
+    except Exception:
+        pass
+    return None
+
+
 def create_refresh_token_for_user(
     db: Session,
     user: models.User,
