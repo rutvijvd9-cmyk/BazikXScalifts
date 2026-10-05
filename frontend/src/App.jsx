@@ -1709,12 +1709,12 @@ export default function App() {
           {/* Brand Header */}
           <div className={`p-4 flex items-center ${sidebarCollapsed ? "justify-center" : "gap-3"} border-b border-gray-800`}>
             <div className="w-10 h-10 rounded-lg bg-[#F5A623] flex items-center justify-center font-bold text-black text-xl shadow-md flex-shrink-0">
-              MG
+              S
             </div>
             {!sidebarCollapsed && (
               <div className="overflow-hidden whitespace-nowrap">
-                <h1 className="font-bold text-white text-base leading-tight">Manubhai</h1>
-                <span className="text-xs text-[#F5A623] font-medium tracking-wide">Gathiyawala/Scalifts</span>
+                <h1 className="font-bold text-white text-base leading-tight">Scalifts</h1>
+                <span className="text-xs text-[#F5A623] font-medium tracking-wide">WhatsApp CRM</span>
               </div>
             )}
           </div>

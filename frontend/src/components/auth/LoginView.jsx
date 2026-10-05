@@ -43,10 +43,10 @@ export default function LoginView({
       <div className="w-full max-w-md bg-white rounded-2xl p-8 shadow-2xl border border-gray-800">
         <div className="flex flex-col items-center mb-6">
           <div className="w-14 h-14 rounded-2xl bg-[#F5A623] flex items-center justify-center font-black text-black text-2xl shadow-lg mb-3">
-            MG
+            S
           </div>
           <h2 className="text-2xl font-black text-gray-900">WhatsApp CRM</h2>
-          <p className="text-xs text-gray-500 mt-0.5">Manubhai Gathiyawala • Portal Access</p>
+          <p className="text-xs text-gray-500 mt-0.5">Scalifts • Portal Access</p>
           <button
             type="button"
             onClick={() => {
