@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Search,
   ChevronLeft,
@@ -13,7 +13,8 @@ import {
   CheckCheck,
   Send,
   Volume2,
-  VolumeX
+  VolumeX,
+  ArrowDown
 } from "lucide-react";
 import { formatToISTTime } from "../utils/dateUtils";
 
@@ -40,16 +41,52 @@ export default function LiveChatPage({
   handleSendChatMessage
 }) {
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const isNearBottomRef = useRef(true);
+  const prevPhoneRef = useRef(selectedChatPhone);
+  const prevMessagesLengthRef = useRef(chatMessages.length);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
 
   const scrollToBottom = (behavior = "auto") => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior, block: "end" });
     }
+    isNearBottomRef.current = true;
+    setShowScrollBottomBtn(false);
+  };
+
+  const handleScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    // Distance from bottom in pixels
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Consider within 80px as "at bottom"
+    const isBottom = distanceFromBottom <= 80;
+    isNearBottomRef.current = isBottom;
+    setShowScrollBottomBtn(!isBottom && el.scrollHeight > el.clientHeight);
   };
 
   useEffect(() => {
-    // Scroll instantly to bottom when chat opens or messages change
-    scrollToBottom("auto");
+    const isNewChat = prevPhoneRef.current !== selectedChatPhone;
+    prevPhoneRef.current = selectedChatPhone;
+
+    if (isNewChat) {
+      // 1. Switched / opened conversation -> Always scroll to bottom immediately
+      isNearBottomRef.current = true;
+      setShowScrollBottomBtn(false);
+      prevMessagesLengthRef.current = chatMessages.length;
+      scrollToBottom("auto");
+      return;
+    }
+
+    // 2. Same chat, background polling or new messages arrived
+    const hasNewMessage = chatMessages.length > prevMessagesLengthRef.current;
+    prevMessagesLengthRef.current = chatMessages.length;
+
+    // Only auto-scroll down if user was already at the bottom
+    if (isNearBottomRef.current) {
+      scrollToBottom(hasNewMessage ? "smooth" : "auto");
+    }
   }, [selectedChatPhone, chatMessages]);
 
   return (
@@ -339,74 +376,93 @@ export default function LiveChatPage({
             })()}
 
             {/* Messages Scroll Area */}
-            <div className="flex-1 p-6 overflow-y-auto space-y-3 bg-[#E5DDD5]/20 min-w-0">
-              {chatLoading && chatMessages.length === 0 ? (
-                <div className="flex items-center justify-center h-full text-xs text-gray-400 gap-2">
-                  <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
-                  Loading chat history...
-                </div>
-              ) : chatMessages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
-                  <MessageSquare className="w-10 h-10 text-gray-300 mb-2" />
-                  <p className="text-xs font-semibold text-gray-600">No messages in this chat yet</p>
-                  <p className="text-[11px] text-gray-400 max-w-xs mt-1">
-                    Type a friendly reply below to start conversing with this customer on WhatsApp.
-                  </p>
-                </div>
-              ) : (
-                chatMessages.map((msg, index) => {
-                  const isAgent = msg.sender_type === "AGENT";
-                  return (
-                    <div
-                      key={msg.id || index}
-                      className={`flex ${isAgent ? "justify-end" : "justify-start"}`}
-                    >
+            <div className="flex-1 relative min-h-0 flex flex-col">
+              <div
+                ref={messagesContainerRef}
+                onScroll={handleScroll}
+                className="flex-1 p-6 overflow-y-auto space-y-3 bg-[#E5DDD5]/20 min-w-0"
+              >
+                {chatLoading && chatMessages.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-xs text-gray-400 gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
+                    Loading chat history...
+                  </div>
+                ) : chatMessages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center text-gray-400">
+                    <MessageSquare className="w-10 h-10 text-gray-300 mb-2" />
+                    <p className="text-xs font-semibold text-gray-600">No messages in this chat yet</p>
+                    <p className="text-[11px] text-gray-400 max-w-xs mt-1">
+                      Type a friendly reply below to start conversing with this customer on WhatsApp.
+                    </p>
+                  </div>
+                ) : (
+                  chatMessages.map((msg, index) => {
+                    const isAgent = msg.sender_type === "AGENT";
+                    return (
                       <div
-                        className={`max-w-[85%] md:max-w-lg break-words rounded-2xl px-4 py-2.5 shadow-xs text-sm relative ${
-                          isAgent
-                            ? "bg-[#D9FDD3] text-gray-900 rounded-tr-xs border border-emerald-200/60"
-                            : "bg-white text-gray-900 rounded-tl-xs border border-gray-200/80"
-                        }`}
+                        key={msg.id || index}
+                        className={`flex ${isAgent ? "justify-end" : "justify-start"}`}
                       >
-                        {isAgent && msg.message_type === "template" && (
-                          <div className="text-[10px] font-bold text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded inline-block mb-1">
-                            📢 WhatsApp Template Broadcast
-                          </div>
-                        )}
-                        {!isAgent && (
-                          <div className="text-[10px] font-bold text-emerald-700 mb-0.5">
-                            Customer
-                          </div>
-                        )}
-                        <p className="whitespace-pre-wrap leading-relaxed text-xs md:text-sm">
-                          {msg.text}
-                        </p>
                         <div
-                          className={`flex items-center gap-1.5 justify-end mt-1 text-[10px] ${
-                            isAgent ? "text-emerald-800/70" : "text-gray-400"
+                          className={`max-w-[85%] md:max-w-lg break-words rounded-2xl px-4 py-2.5 shadow-xs text-sm relative ${
+                            isAgent
+                              ? "bg-[#D9FDD3] text-gray-900 rounded-tr-xs border border-emerald-200/60"
+                              : "bg-white text-gray-900 rounded-tl-xs border border-gray-200/80"
                           }`}
                         >
-                          <span>
-                            {formatToISTTime(msg.created_at)}
-                          </span>
-                          {isAgent && (
-                            <span>
-                              {msg.status === "SENDING" ? (
-                                <Clock className="w-3 h-3 text-gray-400 animate-spin" />
-                              ) : msg.status === "DELIVERED" || msg.status === "READ" ? (
-                                <CheckCheck className="w-3.5 h-3.5 text-blue-500" />
-                              ) : (
-                                <Check className="w-3.5 h-3.5 text-emerald-700" />
-                              )}
-                            </span>
+                          {isAgent && msg.message_type === "template" && (
+                            <div className="text-[10px] font-bold text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded inline-block mb-1">
+                              📢 WhatsApp Template Broadcast
+                            </div>
                           )}
+                          {!isAgent && (
+                            <div className="text-[10px] font-bold text-emerald-700 mb-0.5">
+                              Customer
+                            </div>
+                          )}
+                          <p className="whitespace-pre-wrap leading-relaxed text-xs md:text-sm">
+                            {msg.text}
+                          </p>
+                          <div
+                            className={`flex items-center gap-1.5 justify-end mt-1 text-[10px] ${
+                              isAgent ? "text-emerald-800/70" : "text-gray-400"
+                            }`}
+                          >
+                            <span>
+                              {formatToISTTime(msg.created_at)}
+                            </span>
+                            {isAgent && (
+                              <span>
+                                {msg.status === "SENDING" ? (
+                                  <Clock className="w-3 h-3 text-gray-400 animate-spin" />
+                                ) : msg.status === "DELIVERED" || msg.status === "READ" ? (
+                                  <CheckCheck className="w-3.5 h-3.5 text-blue-500" />
+                                ) : (
+                                  <Check className="w-3.5 h-3.5 text-emerald-700" />
+                                )}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  })
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Floating "Jump to Latest" Button when scrolled up */}
+              {showScrollBottomBtn && (
+                <button
+                  type="button"
+                  onClick={() => scrollToBottom("smooth")}
+                  className="absolute bottom-3 right-5 z-10 px-3 py-1.5 bg-white/95 hover:bg-white text-emerald-800 text-xs font-semibold rounded-full shadow-md border border-emerald-200 hover:border-emerald-300 flex items-center gap-1.5 transition-all cursor-pointer backdrop-blur-xs hover:scale-105"
+                  title="Scroll to latest message"
+                >
+                  <ArrowDown className="w-3.5 h-3.5 text-[#25D366]" />
+                  <span>Jump to latest</span>
+                </button>
               )}
-              <div ref={messagesEndRef} />
             </div>
 
             {/* Quick Reply Suggestions */}
@@ -434,7 +490,11 @@ export default function LiveChatPage({
 
             {/* Chat Input Bar */}
             <form
-              onSubmit={handleSendChatMessage}
+              onSubmit={(e) => {
+                isNearBottomRef.current = true;
+                handleSendChatMessage(e);
+                setTimeout(() => scrollToBottom("smooth"), 50);
+              }}
               className="p-3 bg-white border-t border-gray-200 flex items-center gap-2.5 flex-shrink-0 min-w-0 w-full"
             >
               <input
